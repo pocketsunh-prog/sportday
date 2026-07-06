@@ -1,0 +1,21 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: sportday-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root123
+      MYSQL_DATABASE: sportday
+      MYSQL_USER: sportday
+      MYSQL_PASSWORD: sportday123
+    ports:
+      - "3307:3306"
+    volumes:
+      - sportday-mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  sportday-mysql-data:
