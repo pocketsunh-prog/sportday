@@ -1,6 +1,6 @@
 # SportDay - Sports Event Management System
 
-A full-stack sports event management application built with Spring Boot 4 (Java 21) and Next.js 15.
+A full-stack sports event management application built with Spring Boot 4 (Java 21), Next.js, and a native Android mobile app.
 
 ## Features
 
@@ -34,6 +34,7 @@ A full-stack sports event management application built with Spring Boot 4 (Java 
 | ORM | Spring Data JPA (Hibernate) |
 | Security | Spring Security + JWT |
 | Frontend | Next.js 15, React 19, TypeScript |
+| Mobile | Kotlin, Jetpack Compose, Material 3 |
 | Styling | Custom CSS |
 
 ## Project Structure
@@ -55,6 +56,12 @@ sportday/
 │   ├── app/               # App router pages
 │   ├── components/        # React components
 │   └── lib/               # API client & auth context
+├── mobile/                # Android (Kotlin + Jetpack Compose)
+│   ├── app/src/main/java/com/sportday/mobile/
+│   │   ├── data/          # API client, models, repositories
+│   │   ├── ui/            # Compose screens & navigation
+│   │   └── MainActivity.kt
+│   └── app/build.gradle.kts
 └── docker-compose.yml     # MySQL Docker setup
 ```
 
@@ -64,6 +71,7 @@ sportday/
 - Maven 3.8+
 - Node.js 20+
 - Docker & Docker Compose
+- Android Studio (for mobile app)
 
 ## Quick Start
 
@@ -95,6 +103,10 @@ npm run dev
 ```
 
 Frontend runs at `http://localhost:3000`
+
+### 4. Start Mobile App
+
+Open the `mobile/` folder in Android Studio, start an emulator, and run the app. The app connects to the backend at `http://10.0.2.2:8080/`.
 
 ## API Endpoints
 
