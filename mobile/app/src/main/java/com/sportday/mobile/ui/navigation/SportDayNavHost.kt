@@ -19,6 +19,7 @@ sealed class Screen(val route: String) {
     object MyEnrollments : Screen("my_enrollments")
     object Results : Screen("results")
     object Profile : Screen("profile")
+    object ServerConfig : Screen("server_config")
 }
 
 @Composable
@@ -40,6 +41,17 @@ fun SportDayNavHost() {
                 },
                 onNavigateToRegister = {
                     navController.navigate(Screen.Register.route)
+                },
+                onNavigateToServerConfig = {
+                    navController.navigate(Screen.ServerConfig.route)
+                }
+            )
+        }
+
+        composable(Screen.ServerConfig.route) {
+            ServerConfigScreen(
+                onNavigateBack = {
+                    navController.popBackStack()
                 }
             )
         }

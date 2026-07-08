@@ -11,11 +11,17 @@ import androidx.compose.ui.Modifier
 import com.sportday.mobile.data.api.ApiClient
 import com.sportday.mobile.ui.navigation.SportDayNavHost
 import com.sportday.mobile.ui.theme.SportDayTheme
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ApiClient.initialize(applicationContext)
+        CoroutineScope(Dispatchers.IO).launch {
+            ApiClient.loadBaseUrl()
+        }
         enableEdgeToEdge()
         setContent {
             SportDayTheme {

@@ -12,14 +12,31 @@ import kotlinx.coroutines.runBlocking
 
 object ApiClient {
 
-    private const val BASE_URL = "http://10.0.2.2:8080/"
-
     private lateinit var tokenManager: TokenManager
     private var retrofit: Retrofit? = null
     private var api: SportDayApi? = null
+    private var currentBaseUrl: String = TokenManager.DEFAULT_BASE_URL
 
     fun initialize(context: Context) {
         tokenManager = TokenManager(context)
+    }
+
+    fun getBaseUrl(): String = currentBaseUrl
+
+    fun resetRetrofit() {
+        retrofit = null
+        api = null
+    }
+
+    suspend fun setBaseUrl(url: String) {
+        currentBaseUrl = url
+        tokenManager.saveBaseUrl(url)
+        resetRetrofit()
+    }
+
+    suspend fun loadBaseUrl() {
+        currentBaseUrl = tokenManager.getBaseUrl()
+        resetRetrofit()
     }
 
     fun getApi(): SportDayApi {
@@ -53,7 +70,7 @@ object ApiClient {
                 .build()
 
             retrofit = Retrofit.Builder()
-                .baseUrl(BASE_URL)
+                .baseUrl(currentBaseUrl)
                 .client(client)
                 .addConverterFactory(GsonConverterFactory.create())
                 .build()

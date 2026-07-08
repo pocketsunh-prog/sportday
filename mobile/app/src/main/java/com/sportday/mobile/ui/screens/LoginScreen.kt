@@ -3,6 +3,8 @@
 package com.sportday.mobile.ui.screens
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -16,7 +18,8 @@ import kotlinx.coroutines.launch
 @Composable
 fun LoginScreen(
     onLoginSuccess: () -> Unit,
-    onNavigateToRegister: () -> Unit
+    onNavigateToRegister: () -> Unit,
+    onNavigateToServerConfig: () -> Unit = {}
 ) {
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -28,7 +31,17 @@ fun LoginScreen(
 
     Scaffold(
         topBar = {
-            CenterAlignedTopAppBar(title = { Text("SportDay Login") })
+            CenterAlignedTopAppBar(
+                title = { Text("SportDay Login") },
+                actions = {
+                    IconButton(onClick = onNavigateToServerConfig) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "Server Configuration"
+                        )
+                    }
+                }
+            )
         }
     ) { padding ->
         Column(

@@ -19,6 +19,8 @@ class TokenManager(private val context: Context) {
         private val ROLE_KEY = stringPreferencesKey("role")
         private val USER_ID_KEY = stringPreferencesKey("user_id")
         private val FULL_NAME_KEY = stringPreferencesKey("full_name")
+        val BASE_URL_KEY = stringPreferencesKey("base_url")
+        const val DEFAULT_BASE_URL = "http://10.0.2.2:8080/"
     }
 
     suspend fun saveAuth(response: com.sportday.mobile.data.model.AuthResponse) {
@@ -58,6 +60,18 @@ class TokenManager(private val context: Context) {
     suspend fun getFullName(): String? {
         return context.dataStore.data.map { prefs ->
             prefs[FULL_NAME_KEY]
+        }.first()
+    }
+
+    suspend fun saveBaseUrl(url: String) {
+        context.dataStore.edit { prefs ->
+            prefs[BASE_URL_KEY] = url
+        }
+    }
+
+    suspend fun getBaseUrl(): String {
+        return context.dataStore.data.map { prefs ->
+            prefs[BASE_URL_KEY] ?: DEFAULT_BASE_URL
         }.first()
     }
 
