@@ -8,6 +8,7 @@ import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.runBlocking
 
 object ApiClient {
 
@@ -32,7 +33,7 @@ object ApiClient {
         if (retrofit == null) {
             val authInterceptor = Interceptor { chain ->
                 val request = chain.request().newBuilder()
-                val token = tokenManager.getToken()
+                val token = runBlocking { tokenManager.getToken() }
                 if (token != null) {
                     request.addHeader("Authorization", "Bearer $token")
                 }

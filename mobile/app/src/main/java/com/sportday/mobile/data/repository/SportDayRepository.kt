@@ -1,6 +1,7 @@
 package com.sportday.mobile.data.repository
 
 import com.sportday.mobile.data.api.ApiClient
+import com.sportday.mobile.data.api.SportDayApi
 import com.sportday.mobile.data.model.*
 
 class SportDayRepository {
