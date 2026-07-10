@@ -1,6 +1,6 @@
 # SportDay - Sports Event Management System
 
-A full-stack sports event management application built with Spring Boot 4 (Java 21), Next.js, and a native Android mobile app.
+A full-stack sports event management application built with Spring Boot 4.1 (Java 25), Next.js 16, and Android (Kotlin 2.2).
 
 ## Features
 
@@ -29,19 +29,19 @@ A full-stack sports event management application built with Spring Boot 4 (Java 
 
 | Layer | Technology |
 |-------|-----------|
-| Backend | Spring Boot 4.0, Java 21 |
+| Backend | Spring Boot 4.1, Java 25 |
+| Mobile | Android (Kotlin 2.2, Jetpack Compose, AGP 9.2) |
 | Database | MySQL 8.0 (Docker) |
-| ORM | Spring Data JPA (Hibernate) |
+| ORM | Spring Data JPA (Hibernate 7.4) |
 | Security | Spring Security + JWT |
-| Frontend | Next.js 15, React 19, TypeScript |
-| Mobile | Kotlin, Jetpack Compose, Material 3 |
+| Frontend | Next.js 16, React 19, TypeScript |
 | Styling | Custom CSS |
 
 ## Project Structure
 
 ```
 sportday/
-├── backend/               # Spring Boot 4 backend
+├── backend/               # Spring Boot 4.1 backend (Java 25)
 │   ├── src/main/java/com/sportday/
 │   │   ├── controller/    # REST API controllers
 │   │   ├── service/       # Business logic services
@@ -52,26 +52,25 @@ sportday/
 │   │   ├── config/        # Configuration classes
 │   │   └── exception/     # Exception handling
 │   └── pom.xml
-├── frontend/              # Next.js 15 frontend
+├── frontend/              # Next.js 16 frontend
 │   ├── app/               # App router pages
 │   ├── components/        # React components
 │   └── lib/               # API client & auth context
 ├── mobile/                # Android (Kotlin + Jetpack Compose)
-│   ├── app/src/main/java/com/sportday/mobile/
-│   │   ├── data/          # API client, models, repositories
-│   │   ├── ui/            # Compose screens & navigation
-│   │   └── MainActivity.kt
-│   └── app/build.gradle.kts
+│   ├── app/src/main/      # Main Android source
+│   │   ├── java/com/sportday/mobile/  # Kotlin source files
+│   │   └── res/           # Android resources
+│   └── build.gradle.kts   # Build configuration
 └── docker-compose.yml     # MySQL Docker setup
 ```
 
 ## Prerequisites
 
-- Java 21+
+- Java 25+
 - Maven 3.8+
 - Node.js 20+
 - Docker & Docker Compose
-- Android Studio (for mobile app)
+- Android SDK 35+, Kotlin 2.2+
 
 ## Quick Start
 
@@ -103,10 +102,6 @@ npm run dev
 ```
 
 Frontend runs at `http://localhost:3000`
-
-### 4. Start Mobile App
-
-Open the `mobile/` folder in Android Studio, start an emulator, and run the app. The app connects to the backend at `http://10.0.2.2:8080/`.
 
 ## API Endpoints
 
