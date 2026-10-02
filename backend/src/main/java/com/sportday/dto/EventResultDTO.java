@@ -20,9 +20,17 @@ public class EventResultDTO {
     private String fullName;
     private Long eventId;
     private String eventName;
+
+    /** {@code HEAT} or {@code FINAL}. */
+    private String stage;
+
     private BigDecimal mark;
     private String unit;
     private String notes;
+
+    /** True when this performance is the current school record for its event. */
+    private Boolean newRecord;
+
     private LocalDateTime recordedAt;
 
     public static EventResultDTO from(EventResult result) {
@@ -33,6 +41,7 @@ public class EventResultDTO {
                 .fullName(result.getUser().getFullName())
                 .eventId(result.getEvent().getId())
                 .eventName(result.getEvent().getName())
+                .stage(result.getStageOrDefault().name())
                 .mark(result.getMark())
                 .unit(result.getUnit())
                 .notes(result.getNotes())

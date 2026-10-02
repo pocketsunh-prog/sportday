@@ -1,0 +1,78 @@
+package com.sportday.dto;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Everything the mark-entry grid needs for one event: the athletes entered, the
+ * heat each was drawn into, the marks recorded so far, and the filter options.
+ */
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class MarkSheetDTO {
+
+    private Long eventId;
+    private String eventName;
+    private String eventType;
+    private String eventTypeLabel;
+    private String category;
+    private String categoryLabel;
+    private String sex;
+    private String sexLabel;
+    private LocalDate eventDate;
+    private String location;
+    private Integer groupSize;
+    private String sheetSize;
+
+    /** {@code HEAT} or {@code FINAL} — which stage this grid is for. */
+    private String stage;
+
+    /** Localised stage label, e.g. {@code Heat 初賽}. */
+    private String stageLabel;
+
+    /** True when the event has a final drawn, so the UI can offer the final grid. */
+    private boolean finalDrawn;
+
+    /** How many athletes the final takes (the event's group size). */
+    private Integer finalSize;
+
+    /** Pre-fill for the unit column: {@code seconds} for track, {@code metres} for field. */
+    private String defaultUnit;
+
+    /** Every heat of the event, so the grid can be filtered by group. */
+    @Builder.Default
+    private List<GroupOption> groups = new ArrayList<>();
+
+    /** Grade bands actually present among the entries, e.g. {@code [A, B, C]}. */
+    @Builder.Default
+    private List<String> grades = new ArrayList<>();
+
+    /** Entries matching the current filter. */
+    private int totalAthletes;
+
+    /** How many of those already have a mark. */
+    private int markedCount;
+
+    @Builder.Default
+    private List<MarkRowDTO> rows = new ArrayList<>();
+
+    /** A heat, as an option in the grid's group filter. */
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    public static class GroupOption {
+        private Long id;
+        private Integer groupNumber;
+        private String label;
+        private Integer athleteCount;
+    }
+}

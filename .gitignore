@@ -1,1 +1,18 @@
 /mobile/gradle
+
+# Build output
+/backend/target/
+/frontend/.next/
+/frontend/out/
+
+# Local run artefacts
+/artifacts/
+/backend/app-run.log
+
+# Local database dump taken before the revamp migration.
+# Contains a copy of real register data, so it is deliberately not committed.
+/db-backup/
+
+# Editor / OS noise
+.DS_Store
+Thumbs.db

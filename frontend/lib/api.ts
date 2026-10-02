@@ -1,9 +1,87 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api';
 
+/* ------------------------------------------------------------------ *
+ * Shared literals
+ * ------------------------------------------------------------------ */
+
+export type Role = 'ADMIN' | 'MANAGER' | 'USER' | 'STUDENT';
+export type EventCategory = 'TRACK' | 'FIELD';
+export type EventSex = 'MALE' | 'FEMALE';
+export type SheetSize = 'A5' | 'A4';
+/** Short division code used by the query strings (`?sex=M`) and by `UserDTO.gender`. */
+export type SexCode = 'M' | 'F';
+export type Grade = 'A' | 'B' | 'C';
+/**
+ * Which part of a short sprint a marking sheet belongs to. Heats are 1..N;
+ * the final is a single extra group drawn from the top finishers, with its own
+ * marks and its own sheet.
+ */
+export type MarkStage = 'HEAT' | 'FINAL';
+
+export const CATEGORY_LABELS: Record<EventCategory, string> = {
+  TRACK: '徑項 Track',
+  FIELD: '田項 Field',
+};
+
+/**
+ * The event types the standard catalogue covers. `groupSize` / `sheetSize`
+ * follow the backend rule: lane-based short sprints run 8 per heat on A5
+ * sheets, everything else runs 24 per heat on A4 sheets.
+ */
+export const EVENT_TYPE_OPTIONS: Array<{
+  value: string;
+  label: string;
+  category: EventCategory;
+}> = [
+  { value: 'RUN_60M', label: '60M', category: 'TRACK' },
+  { value: 'RUN_100M', label: '100M', category: 'TRACK' },
+  { value: 'RUN_200M', label: '200M', category: 'TRACK' },
+  { value: 'RUN_400M', label: '400M', category: 'TRACK' },
+  { value: 'RUN_800M', label: '800M', category: 'TRACK' },
+  { value: 'RUN_1500M', label: '1500M', category: 'TRACK' },
+  { value: 'RUN_5000M', label: '5000M', category: 'TRACK' },
+  { value: 'HURDLES_110M', label: '110M Hurdles', category: 'TRACK' },
+  { value: 'HURDLES_400M', label: '400M Hurdles', category: 'TRACK' },
+  { value: 'RELAY_4X100M', label: '4x100M Relay', category: 'TRACK' },
+  { value: 'RELAY_4X400M', label: '4x400M Relay', category: 'TRACK' },
+  { value: 'SHOT_PUT', label: 'Shot Put', category: 'FIELD' },
+  { value: 'DISCUSSION_THROW', label: 'Discus', category: 'FIELD' },
+  { value: 'JAVELIN_THROW', label: 'Javelin', category: 'FIELD' },
+  { value: 'HAMMER_THROW', label: 'Hammer', category: 'FIELD' },
+  { value: 'LONG_JUMP', label: 'Long Jump', category: 'FIELD' },
+  { value: 'HIGH_JUMP', label: 'High Jump', category: 'FIELD' },
+  { value: 'TRIPLE_JUMP', label: 'Triple Jump', category: 'FIELD' },
+  { value: 'POLE_VAULT', label: 'Pole Vault', category: 'FIELD' },
+];
+
+export function eventTypeLabel(type: string): string {
+  return EVENT_TYPE_OPTIONS.find(option => option.value === type)?.label || type.replace(/_/g, ' ');
+}
+
+export function eventTypeCategory(type: string): EventCategory {
+  return EVENT_TYPE_OPTIONS.find(option => option.value === type)?.category || 'TRACK';
+}
+
+/** Suggested group size / sheet size / sprint flag for a given event type. */
+export function sheetDefaultsForType(type: string): {
+  groupSize: number;
+  sheetSize: SheetSize;
+  shortSprint: boolean;
+} {
+  const isShortSprint = ['RUN_60M', 'RUN_100M', 'RUN_200M', 'RUN_400M'].includes(type);
+  return isShortSprint
+    ? { groupSize: 8, sheetSize: 'A5', shortSprint: true }
+    : { groupSize: 24, sheetSize: 'A4', shortSprint: false };
+}
+
+/* ------------------------------------------------------------------ *
+ * Auth / users
+ * ------------------------------------------------------------------ */
+
 export interface AuthResponse {
   token: string;
   username: string;
-  role: string;
+  role: Role;
   fullName: string;
   userId: number;
 }
@@ -14,24 +92,233 @@ export interface UserDTO {
   email: string;
   fullName: string;
   age?: number;
+  /** Sex code: `M` or `F` for students. */
   gender?: string;
-  role: string;
+  role: Role;
   enabled: boolean;
   createdAt: string;
 }
+
+/* ------------------------------------------------------------------ *
+ * Events
+ * ------------------------------------------------------------------ */
 
 export interface EventDTO {
   id: number;
   name: string;
   description: string;
+  /**
+   * The school year (`SeasonDTO.id`) this event belongs to, with its year and
+   * name spelled out so a past year is unmistakable in a list.
+   */
+  seasonId?: number;
+  seasonYear?: number;
+  seasonName?: string;
+  /** Enum name, e.g. `RUN_100M`. */
   type: string;
+  /** Human label, e.g. `100M`. */
+  typeLabel: string;
+  category: EventCategory;
+  /** e.g. `徑項 Track`. */
+  categoryLabel: string;
+  sex: EventSex;
+  /** e.g. `男 Boys`. */
+  sexLabel: string;
   eventDate: string;
   location: string;
   maxParticipants: number;
+  groupSize: number;
+  shortSprint: boolean;
+  sheetSize: SheetSize;
   enabled: boolean;
   createdAt: string;
-  enrolledCount?: number;
+  enrolledCount: number;
+  groupCount: number;
+  ungroupedCount: number;
+  maxEntriesPerStudent: number;
 }
+
+export interface EventQuery {
+  onlyEnabled?: boolean;
+  /** Short division code, `M` or `F`. */
+  sex?: SexCode | '';
+  category?: EventCategory | '';
+  /** One day of a multi-day meeting, `yyyy-MM-dd`. */
+  date?: string;
+  /**
+   * A school year (`SeasonDTO.id`), narrowing the programme to that one sport
+   * day. Composes with the other filters rather than replacing them.
+   */
+  seasonId?: number | null;
+}
+
+/** One day of the programme, as offered by the date picker. */
+export interface EventDateDTO {
+  /** `yyyy-MM-dd`. */
+  date: string;
+  eventCount: number;
+  isToday: boolean;
+  isPast: boolean;
+}
+
+export interface EventDefaultsResultDTO {
+  created: number;
+  eventDate: string;
+  includeField: boolean;
+  totalEvents: number;
+}
+
+/* ------------------------------------------------------------------ *
+ * Enrollments
+ * ------------------------------------------------------------------ */
+
+export interface EnrollmentDTO {
+  id: number;
+  eventId: number;
+  eventName: string;
+  eventType: string;
+  eventTypeLabel: string;
+  category: EventCategory;
+  categoryLabel: string;
+  sex: EventSex;
+  sexLabel: string;
+  eventDate: string;
+  location: string;
+  /** Present only once heats have been allocated. */
+  groupId?: number | null;
+  groupNumber?: number | null;
+  /** e.g. `Heat 1`. */
+  groupLabel?: string | null;
+  lane?: number | null;
+  sheetSize: SheetSize;
+  /** Numeric student primary key. */
+  studentId: number;
+  userId?: number;
+  /** The student id string, e.g. `S0003`. */
+  studentRef: string;
+  name: string;
+  grade: string;
+  className: string;
+  classNumber: number;
+  house: string;
+  status: string;
+  enrolledAt: string;
+}
+
+export interface QuotaDTO {
+  trackUsed: number;
+  trackMax: number;
+  trackRemaining: number;
+  fieldUsed: number;
+  fieldMax: number;
+  fieldRemaining: number;
+  /** Omitted on the endpoints that do not spell the limits out again. */
+  rules?: Record<string, number>;
+}
+
+/**
+ * `GET /admin/students/{studentId}/enrollments` — the entries an administrator
+ * manages on a student's behalf, plus the quota the student is measured against.
+ *
+ * `enrollments` carries the student's whole entry history, so withdrawn entries
+ * (`status: 'CANCELLED'`) appear alongside the confirmed ones.
+ */
+export interface StudentEnrollmentsDTO {
+  /** The student id string, e.g. `S0001`. */
+  studentId: string;
+  /** The login account the entries belong to. */
+  userId: number;
+  quota: QuotaDTO;
+  enrollments: EnrollmentDTO[];
+}
+
+/* ------------------------------------------------------------------ *
+ * Groups / heats
+ * ------------------------------------------------------------------ */
+
+export interface EventGroupDTO {
+  id: number;
+  eventId: number;
+  eventName: string;
+  eventTypeLabel: string;
+  category: EventCategory;
+  categoryLabel: string;
+  sex: EventSex;
+  sexLabel: string;
+  groupNumber: number;
+  /** e.g. `Heat 1`. The final is group number 0 with the label `Final`. */
+  label: string;
+  /** `HEAT` for the numbered heats, `FINAL` for the drawn final. */
+  stage: MarkStage;
+  /** e.g. `Final 決賽`. */
+  stageLabel: string;
+  capacity: number;
+  athleteCount: number;
+  sheetSize: SheetSize;
+  /** Always `[]` on list responses; populated by `GET /groups/{id}`. */
+  athletes: EnrollmentDTO[];
+}
+
+export interface AllocateGroupsResultDTO {
+  eventId: number;
+  groupCount: number;
+  shuffle: boolean;
+  groups: EventGroupDTO[];
+}
+
+/** One athlete in line for the final, ranked by their heat mark. */
+export interface FinalQualifierDTO {
+  rank: number;
+  userId: number;
+  /** The student id string, e.g. `S0056`. */
+  studentRef: string;
+  name: string;
+  grade: string;
+  className: string;
+  classNumber: number;
+  house: string;
+  /** The mark that won them the place, and its unit. */
+  heatMark: number;
+  unit: string;
+}
+
+/**
+ * The outcome of previewing or drawing the final. `qualifiers` lists the top
+ * `finalSize` athletes on both calls, so the preview and the draw render the
+ * same table.
+ */
+export interface FinalSummaryDTO {
+  eventId: number;
+  eventName: string;
+  /** e.g. `60M`. */
+  eventTypeLabel: string;
+  category: EventCategory;
+  sheetSize: SheetSize;
+  shortSprint: boolean;
+  finalSize: number;
+  /** Athletes with a heat mark to rank. */
+  rankedAthletes: number;
+  qualified: number;
+  drawn: boolean;
+  /** Present once the final exists. */
+  groupId?: number;
+  /** e.g. `Final`. */
+  groupLabel: string;
+  /** Marks wiped by a re-draw. */
+  clearedFinalMarks: number;
+  qualifiers: FinalQualifierDTO[];
+  note?: string | null;
+}
+
+/** `DELETE /events/{id}/final` answers with this complement of the summary. */
+export interface FinalRemovalDTO {
+  eventId: number;
+  finalMarksCleared: number;
+}
+
+/* ------------------------------------------------------------------ *
+ * Results (still used by the results screens)
+ * ------------------------------------------------------------------ */
 
 export interface EventResultDTO {
   id: number;
@@ -43,16 +330,521 @@ export interface EventResultDTO {
   mark: number;
   unit?: string;
   notes?: string;
+  /** Which sheet the mark was recorded on. */
+  stage?: MarkStage;
+  /** True when this mark set a new school record for its division + grade. */
+  newRecord?: boolean;
   recordedAt: string;
 }
 
-export interface Enrollment {
-  id: number;
-  user: UserDTO;
-  event: EventDTO;
-  status: string;
-  enrolledAt: string;
+/* ------------------------------------------------------------------ *
+ * Mark-entry grid
+ * ------------------------------------------------------------------ */
+
+/** One athlete's line in the grid. */
+export interface MarkRowDTO {
+  userId: number;
+  studentRef: string;
+  name?: string;
+  grade?: string;
+  className?: string;
+  classNumber?: number;
+  house?: string;
+  groupId?: number;
+  groupNumber?: number;
+  groupLabel?: string;
+  lane?: number;
+  resultId?: number;
+  mark?: number;
+  unit?: string;
+  notes?: string;
 }
+
+export interface MarkGroupOption {
+  id: number;
+  groupNumber: number;
+  label: string;
+  athleteCount: number;
+}
+
+export interface MarkSheetDTO {
+  eventId: number;
+  eventName: string;
+  eventType?: string;
+  eventTypeLabel?: string;
+  category?: string;
+  categoryLabel?: string;
+  sex?: string;
+  sexLabel?: string;
+  eventDate?: string;
+  location?: string;
+  groupSize?: number;
+  sheetSize?: string;
+  /** Which sheet this is: `HEAT` (default) or `FINAL`. */
+  stage: MarkStage;
+  /** e.g. `Final 決賽`. */
+  stageLabel: string;
+  /** Whether a final has been drawn for this event. */
+  finalDrawn: boolean;
+  /** How many athletes go through, e.g. 8. */
+  finalSize: number;
+  defaultUnit?: string;
+  groups: MarkGroupOption[];
+  grades: string[];
+  totalAthletes: number;
+  markedCount: number;
+  rows: MarkRowDTO[];
+}
+
+/** One row sent back to the server when the grid is saved. */
+export interface MarkEntryInput {
+  userId: number;
+  mark?: number | null;
+  unit?: string | null;
+  notes?: string | null;
+  clear?: boolean;
+}
+
+export interface BulkMarkResultDTO {
+  eventId: number;
+  eventName: string;
+  /** The sheet the rows were written to. */
+  stage?: MarkStage;
+  saved: number;
+  cleared: number;
+  skipped: number;
+  failed: number;
+  results: EventResultDTO[];
+  errors: { userId?: number; message: string }[];
+}
+
+/* ------------------------------------------------------------------ *
+ * Seasons — one sport day per school year
+ * ------------------------------------------------------------------ */
+
+/**
+ * One school year, and the sport day that belongs to it.
+ *
+ * `current` marks the year students may enter; `activateSeason` moves it and
+ * closes every other year. `notes` is optional and, like every nullable field
+ * on this API, is omitted from the JSON altogether when it has no value.
+ */
+export interface SeasonDTO {
+  id: number;
+  year: number;
+  name: string;
+  /** What the year is called on screen, e.g. `2026 Sports Day`. */
+  displayName: string;
+  /** `yyyy-MM-dd`. */
+  sportDayDate: string;
+  /** Whether students may enter events for this year. */
+  enrollmentOpen: boolean;
+  notes?: string | null;
+  eventCount: number;
+  /** The year students may enter. Exactly one year is current. */
+  current: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** The body of `POST /admin/seasons`. */
+export interface SeasonInput {
+  year: number;
+  name: string;
+  /** `yyyy-MM-dd`. */
+  sportDayDate: string;
+  enrollmentOpen?: boolean;
+  notes?: string | null;
+  /**
+   * Copies that year's whole event catalogue into the new one. Omit it to start
+   * with an empty programme.
+   */
+  copyEventsFromSeasonId?: number | null;
+}
+
+/** The body of `PUT /admin/seasons/{id}` — omitted fields keep their value. */
+export type SeasonUpdate = Partial<{
+  year: number;
+  name: string;
+  sportDayDate: string;
+  enrollmentOpen: boolean;
+  notes: string | null;
+}>;
+
+/* ------------------------------------------------------------------ *
+ * Admin: students
+ * ------------------------------------------------------------------ */
+
+export interface StudentDTO {
+  id: number;
+  userId: number;
+  /** The student id string, e.g. `S0003`. */
+  studentId: string;
+  name: string;
+  dob: string;
+  age: number;
+  sex: EventSex;
+  sexLabel: string;
+  className: string;
+  classNumber: number;
+  classLabel: string;
+  house: string;
+  grade: string;
+  gradeLabel: string;
+  gradeAgeRange: string;
+  enabled: boolean;
+  importBatch: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StudentFilters {
+  className?: string;
+  sex?: SexCode | '';
+  grade?: Grade | '';
+  house?: string;
+  /**
+   * `true` for the active register, `false` for the locked students, or `''`
+   * (the default) for both.
+   */
+  enabled?: boolean | '';
+}
+
+export interface StudentUploadErrorDTO {
+  rowNumber: number;
+  studentId: string;
+  message: string;
+}
+
+/**
+ * One student named in the lock preview of a roster upload: a sample of up to
+ * 100 of the students the upload would lock (or has just locked).
+ */
+export interface LockedStudentDTO {
+  /** The student id string, e.g. `S0219`. */
+  studentId: string;
+  name: string;
+  className: string;
+  classNumber: number;
+}
+
+export interface StudentUploadResultDTO {
+  batch: string;
+  fileName: string;
+  totalRows: number;
+  created: number;
+  updated: number;
+  failed: number;
+  gradeReferenceDate: string;
+  /** Counts keyed by grade, e.g. `{ A: 12, B: 30, C: 58 }`. */
+  gradeCounts: Record<string, number>;
+  errors: StudentUploadErrorDTO[];
+  /**
+   * True when the upload only reported what it would do and changed nothing.
+   * The roster endpoint defaults to this, so the lock preview is always safe.
+   */
+  dryRun?: boolean;
+  /** True when the file declared itself the complete list for the year. */
+  lockAbsent?: boolean;
+  /** Students this upload locked. Stays 0 on a dry run. */
+  locked?: number;
+  /** Students this upload restored to active — a returning student. */
+  unlocked?: number;
+  /**
+   * Everyone left out of the file, i.e. everyone to be locked. This is the
+   * headline count of the preview: it is populated even on a dry run.
+   */
+  lockedTotal?: number;
+  /** A sample of up to 100 of the students named above. */
+  lockedStudents?: LockedStudentDTO[];
+}
+
+/** The reply of `POST /admin/students/lock-missing`. */
+export interface LockMissingResultDTO {
+  /** The import batch the locks were worked out from. */
+  latestBatch?: string | null;
+  /** How many students the most recent upload left out. */
+  locked: number;
+  /** How many of them were still active and so were locked by this call. */
+  lockedNow: number;
+}
+
+export interface StudentSummaryDTO {
+  total: number;
+  byGrade: Record<string, number>;
+  bySex: Record<string, number>;
+  sexCodes: Record<string, string>;
+}
+
+export interface GradeRuleDTO {
+  A: string;
+  B: string;
+  C: string;
+  note: string;
+  passwordRule: string;
+}
+
+export interface RecomputeGradesResultDTO {
+  changed: number;
+  referenceDate: string;
+  byGrade: Record<string, number>;
+}
+
+/* ------------------------------------------------------------------ *
+ * Scoring settings
+ * ------------------------------------------------------------------ */
+
+/**
+ * The tunable rules behind entries and championship points. `pointsTopPlace`
+ * is the lowest place that still scores, and `pointsTop` is what every place
+ * from 4th down to it is worth. Relays score on their own, larger scale.
+ */
+export interface SettingsDTO {
+  /** The school's name. Heads every printed marking sheet. */
+  schoolName: string;
+  /** The school's name in Chinese. Heads every printed marking sheet. */
+  schoolNameZh: string;
+  address: string;
+  principal: string;
+  /** The heading printed across the top of every marking sheet. */
+  sportDayTitle: string;
+  trackMaxEntries: number;
+  fieldMaxEntries: number;
+  pointsFirst: number;
+  pointsSecond: number;
+  pointsThird: number;
+  /** Lowest place that still scores, e.g. 8. */
+  pointsTopPlace: number;
+  /** Points for places 4..`pointsTopPlace`. */
+  pointsTop: number;
+  relayPointsFirst: number;
+  relayPointsSecond: number;
+  relayPointsThird: number;
+  /** Points for relay places 4..`pointsTopPlace`. */
+  relayPointsTop: number;
+  updatedAt?: string;
+}
+
+/** Every field is optional: omitted fields keep their stored value. */
+export type SettingsUpdate = Partial<Omit<SettingsDTO, 'updatedAt'>>;
+
+export interface SettingsResetResultDTO extends SettingsDTO {
+  message?: string;
+}
+
+/* ------------------------------------------------------------------ *
+ * School records
+ * ------------------------------------------------------------------ */
+
+/**
+ * Where the mark that stands came from: a mark an administrator typed in
+ * (`BASELINE`), the best recorded result (`RESULT`), or nothing yet (`NONE`).
+ */
+export type RecordSource = 'BASELINE' | 'RESULT' | 'NONE';
+
+/**
+ * One school record, per event type + division + grade.
+ *
+ * A row exists for every combination as soon as the event does, so an event
+ * nobody has competed in still appears with `source: 'NONE'` — and on those rows
+ * the server omits `mark`, `unit`, `holderUserId`, `holderStudentRef`,
+ * `holderName`, `eventId`, `eventName` and `achievedOn` altogether rather than
+ * sending them as null.
+ */
+export interface RecordDTO {
+  id: number;
+  /** Enum name, e.g. `RUN_60M`. */
+  eventType: string;
+  /** e.g. `60M`. */
+  eventTypeLabel: string;
+  category: EventCategory;
+  /** e.g. `徑項 Track`. */
+  categoryLabel: string;
+  sex: EventSex;
+  /** e.g. `男 Boys`. */
+  sexLabel: string;
+  grade: string;
+  /** e.g. `C組`. */
+  gradeLabel: string;
+  /** The mark that stands. Absent while `source` is `NONE`. */
+  mark?: number;
+  unit?: string;
+  source: RecordSource;
+  /** Present only when a recorded result holds the record. */
+  holderUserId?: number;
+  /** The student id string, e.g. `S0056`. */
+  holderStudentRef?: string;
+  holderName?: string;
+  /** The event the record was set in, which may have been deleted. */
+  eventId?: number | null;
+  eventName?: string | null;
+  achievedOn?: string;
+  /** The mark an administrator typed in by hand, which survives a rebuild. */
+  manualMark?: number;
+  manualUnit?: string;
+  manualHolderName?: string;
+  manualAchievedOn?: string;
+  /** The mark this record beat. Only meaningful when `hasPrevious`. */
+  previousMark?: number | null;
+  previousHolderName?: string | null;
+  previousAchievedOn?: string | null;
+  hasPrevious: boolean;
+  updatedAt: string;
+}
+
+/** The body of `PUT /admin/records/{recordId}` — an administrator's typed-in mark. */
+export interface RecordBaselineInput {
+  mark: number;
+  /** Defaults to seconds on the track and metres in the field. */
+  unit?: string | null;
+  /** Free text: a record may be held by a student who has left. */
+  holderName?: string | null;
+  /** `yyyy-MM-dd`. */
+  achievedOn?: string | null;
+}
+
+export interface RecomputeRecordsResultDTO {
+  recordsRebuilt: number;
+  records: number;
+}
+
+/** The reply of `POST /admin/records/seed`. */
+export interface SeedRecordsResultDTO {
+  recordsCreated: number;
+  records: number;
+}
+
+/* ------------------------------------------------------------------ *
+ * Championships / standings
+ * ------------------------------------------------------------------ */
+
+/** One scoring athlete in a championship table. */
+export interface ChampionshipPersonRowDTO {
+  rank: number;
+  userId: number;
+  /** The student id string, e.g. `S0056`. */
+  studentRef: string;
+  name: string;
+  grade: string;
+  className: string;
+  house: string;
+  points: number;
+  golds: number;
+  silvers: number;
+  bronzes: number;
+  eventsScored: number;
+}
+
+/** One house in the house championship. */
+export interface ChampionshipHouseRowDTO {
+  rank: number;
+  house: string;
+  points: number;
+  golds: number;
+  silvers: number;
+  bronzes: number;
+  athletes: number;
+}
+
+/** One athlete's placing in an event, with the points it scored. */
+export interface ChampionshipPlacingDTO {
+  place: number;
+  userId: number;
+  /** The student id string, e.g. `S0056`. */
+  studentRef: string;
+  name: string;
+  grade: string;
+  className: string;
+  house: string;
+  mark: number;
+  unit: string;
+  points: number;
+  /** True when the mark set a school record. */
+  schoolRecord?: boolean;
+}
+
+/**
+ * The placings of one event, which is also what
+ * `GET /events/{id}/standings` answers with (a single entry of the same shape
+ * as `ChampionshipsDTO.events[]`).
+ */
+export interface EventStandingsDTO {
+  eventId: number;
+  eventName: string;
+  /** e.g. `60M`. */
+  eventTypeLabel: string;
+  category: EventCategory;
+  categoryLabel: string;
+  sex: EventSex;
+  sexLabel: string;
+  eventDate: string;
+  /** `FINAL` where a final was run, otherwise `HEAT`. */
+  scoringStage: MarkStage;
+  /** True when the placings count for the house only. */
+  relay: boolean;
+  hasFinal: boolean;
+  sheetSize: SheetSize;
+  placings: ChampionshipPlacingDTO[];
+}
+
+export interface ChampionshipsDTO {
+  /** The date the grade / age divisions were fixed on. */
+  referenceDate: string;
+  eventsScored: number;
+  /** e.g. `FINAL where a final was run, otherwise HEAT`. */
+  scoringStageNote: string;
+  settings: SettingsDTO;
+  personal: ChampionshipPersonRowDTO[];
+  houses: ChampionshipHouseRowDTO[];
+  events: EventStandingsDTO[];
+}
+
+/* ------------------------------------------------------------------ *
+ * Query / download helpers
+ * ------------------------------------------------------------------ */
+
+type QueryValue = string | number | boolean | undefined | null;
+
+export function buildQuery(params: Record<string, QueryValue>): string {
+  const search = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '') return;
+    search.set(key, String(value));
+  });
+  const qs = search.toString();
+  return qs ? `?${qs}` : '';
+}
+
+/** Reads the filename the server suggested via `Content-Disposition`. */
+export function filenameFromDisposition(header: string | null): string | null {
+  if (!header) return null;
+  const extended = /filename\*=\s*(?:UTF-8'')?([^;]+)/i.exec(header);
+  if (extended) {
+    const raw = extended[1].trim().replace(/^"|"$/g, '');
+    try {
+      return decodeURIComponent(raw);
+    } catch {
+      return raw;
+    }
+  }
+  const plain = /filename=\s*"?([^";]+)"?/i.exec(header);
+  return plain ? plain[1].trim() : null;
+}
+
+function saveBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/* ------------------------------------------------------------------ *
+ * Client
+ * ------------------------------------------------------------------ */
 
 class ApiClient {
   private getToken(): string | null {
@@ -62,8 +854,9 @@ class ApiClient {
     return null;
   }
 
-  private getHeaders(): HeadersInit {
-    const headers: HeadersInit = { 'Content-Type': 'application/json' };
+  private getHeaders(json = true): HeadersInit {
+    const headers: Record<string, string> = {};
+    if (json) headers['Content-Type'] = 'application/json';
     const token = this.getToken();
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
@@ -72,9 +865,16 @@ class ApiClient {
   }
 
   private async request<T>(url: string, options: RequestInit = {}): Promise<T> {
+    // Let the browser set the multipart boundary for FormData uploads.
+    const isFormData =
+      typeof FormData !== 'undefined' && options.body instanceof FormData;
+
     const response = await fetch(`${API_BASE}${url}`, {
       ...options,
-      headers: { ...this.getHeaders(), ...options.headers },
+      headers: {
+        ...this.getHeaders(!isFormData),
+        ...(options.headers as Record<string, string> | undefined),
+      },
     });
 
     if (!response.ok) {
@@ -90,7 +890,32 @@ class ApiClient {
     return response.json();
   }
 
-  // Auth
+  /**
+   * Fetch a binary response (PDF / CSV) with the bearer token attached and save
+   * it to disk. A plain `<a href>` cannot be used because these endpoints are
+   * authenticated and would return 403.
+   */
+  async downloadFile(url: string, fallbackFilename: string): Promise<string> {
+    const response = await fetch(`${API_BASE}${url}`, {
+      headers: this.getHeaders(false),
+    });
+
+    if (!response.ok) {
+      const error = await response
+        .json()
+        .catch(() => ({ message: `Download failed (HTTP ${response.status})` }));
+      throw new Error(error.message || `Download failed (HTTP ${response.status})`);
+    }
+
+    const blob = await response.blob();
+    const filename =
+      filenameFromDisposition(response.headers.get('Content-Disposition')) || fallbackFilename;
+    saveBlob(blob, filename);
+    return filename;
+  }
+
+  /* ---------------- Auth ---------------- */
+
   async login(username: string, password: string): Promise<AuthResponse> {
     return this.request('/auth/login', {
       method: 'POST',
@@ -98,27 +923,26 @@ class ApiClient {
     });
   }
 
-  async register(data: {
-    username: string;
-    password: string;
-    email: string;
-    fullName?: string;
-    age?: number;
-    gender?: string;
-  }): Promise<AuthResponse> {
-    return this.request('/auth/register', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  }
+  // There is deliberately no register() here. Public self-registration was
+  // removed, and POST /auth/register now returns 404 — accounts are created by an
+  // administrator through createUser() below, and students arrive by register
+  // import.
 
-  // Events
-  async getEvents(onlyEnabled = false): Promise<EventDTO[]> {
-    return this.request(`/events?onlyEnabled=${onlyEnabled}`);
+  /* ---------------- Events ---------------- */
+
+  async getEvents(query: EventQuery | boolean = {}): Promise<EventDTO[]> {
+    // Backwards compatible with the old `getEvents(onlyEnabled)` signature.
+    const normalised: EventQuery = typeof query === 'boolean' ? { onlyEnabled: query } : query;
+    return this.request(`/events${buildQuery({ ...normalised })}`);
   }
 
   async getEvent(id: number): Promise<EventDTO> {
     return this.request(`/events/${id}`);
+  }
+
+  /** The dates the programme runs on, newest first, each with its event count. */
+  async getEventDates(): Promise<EventDateDTO[]> {
+    return this.request('/events/dates');
   }
 
   async createEvent(event: Partial<EventDTO>): Promise<EventDTO> {
@@ -145,24 +969,314 @@ class ApiClient {
     return this.request(`/events/${id}`, { method: 'DELETE' });
   }
 
-  // Enrollments
-  async enroll(eventId: number): Promise<Enrollment> {
+  /** Admin: create the standard event catalogue for a sport day. */
+  async createDefaultEvents(
+    eventDate: string,
+    includeField = true
+  ): Promise<EventDefaultsResultDTO> {
+    return this.request(
+      `/events/defaults${buildQuery({ eventDate, includeField })}`,
+      { method: 'POST' }
+    );
+  }
+
+  /** Events dated today or earlier, most recent first. */
+  async getPastEvents(): Promise<EventDTO[]> {
+    return this.request('/events/past');
+  }
+
+  /** The scored placings of one event. Used by the past-event results view. */
+  async getEventStandings(eventId: number): Promise<EventStandingsDTO> {
+    return this.request(`/events/${eventId}/standings`);
+  }
+
+  /* ---------------- Enrollments ---------------- */
+
+  async enroll(eventId: number): Promise<EnrollmentDTO> {
     return this.request(`/enrollments/${eventId}`, { method: 'POST' });
+  }
+
+  async reEnroll(eventId: number): Promise<EnrollmentDTO> {
+    return this.request(`/enrollments/${eventId}/re-enroll`, { method: 'POST' });
   }
 
   async cancelEnrollment(eventId: number): Promise<void> {
     return this.request(`/enrollments/${eventId}`, { method: 'DELETE' });
   }
 
-  async getMyEnrollments(): Promise<Enrollment[]> {
+  /** Confirmed entries for the signed-in user. */
+  async getMyEnrollments(): Promise<EnrollmentDTO[]> {
     return this.request('/enrollments/my');
+  }
+
+  /** Every entry for the signed-in user, including withdrawn ones. */
+  async getMyEnrollmentsAll(): Promise<EnrollmentDTO[]> {
+    return this.request('/enrollments/my/all');
   }
 
   async checkEnrollment(eventId: number): Promise<boolean> {
     return this.request(`/enrollments/check/${eventId}`);
   }
 
-  // Results
+  async getMyQuota(): Promise<QuotaDTO> {
+    return this.request('/enrollments/my/quota');
+  }
+
+  /**
+   * Roster of an event. The dedicated endpoint is staff-only and may come back
+   * empty, so fall back to rebuilding the roster from the allocated heats.
+   */
+  async getEventEnrollments(eventId: number): Promise<EnrollmentDTO[]> {
+    const direct = await this.request<EnrollmentDTO[]>(`/enrollments/event/${eventId}`).catch(
+      () => []
+    );
+    if (direct.length > 0) return direct;
+
+    try {
+      const groups = await this.getEventGroups(eventId);
+      const rosters = await Promise.all(groups.map(group => this.getGroup(group.id)));
+      return rosters.flatMap(group => group.athletes || []);
+    } catch {
+      return direct;
+    }
+  }
+
+  /* ---------------- Groups / heats ---------------- */
+
+  /** Heat summaries for an event. The response carries no athlete rosters. */
+  async getEventGroups(eventId: number): Promise<EventGroupDTO[]> {
+    return this.request(`/events/${eventId}/groups`);
+  }
+
+  /** A single heat, including its `athletes` roster. */
+  async getGroup(groupId: number): Promise<EventGroupDTO> {
+    return this.request(`/groups/${groupId}`);
+  }
+
+  async allocateGroups(eventId: number, shuffle = true): Promise<AllocateGroupsResultDTO> {
+    return this.request(
+      `/events/${eventId}/groups/allocate?shuffle=${shuffle}`,
+      { method: 'POST' }
+    );
+  }
+
+  async clearEventGroups(eventId: number): Promise<void> {
+    return this.request(`/events/${eventId}/groups`, { method: 'DELETE' });
+  }
+
+  // Authenticated binary downloads.
+
+  async downloadGroupSheet(groupId: number, fallbackFilename: string): Promise<string> {
+    return this.downloadFile(`/groups/${groupId}/sheet.pdf`, fallbackFilename);
+  }
+
+  async downloadEventSheets(eventId: number, fallbackFilename: string): Promise<string> {
+    return this.downloadFile(`/events/${eventId}/sheets.pdf`, fallbackFilename);
+  }
+
+  /* ---------------- Seasons: one sport day per school year ---------------- */
+
+  /**
+   * Every school year, newest first, each with its date, event count and whether
+   * entries are open. Readable by any signed-in user.
+   */
+  async getSeasons(): Promise<SeasonDTO[]> {
+    return this.request('/seasons');
+  }
+
+  /**
+   * The year students may enter, or `null` when no year has been made current.
+   * Answers with an empty body as well as with `null`, so callers should treat
+   * both the same way.
+   */
+  async getCurrentSeason(): Promise<SeasonDTO | null> {
+    return (await this.request<SeasonDTO | null>('/seasons/current')) ?? null;
+  }
+
+  /**
+   * Creates a school year. `copyEventsFromSeasonId` duplicates that year's whole
+   * event catalogue into the new one. A year that already exists is refused with
+   * a 400 worth showing as it stands.
+   */
+  async createSeason(season: SeasonInput): Promise<SeasonDTO> {
+    return this.request('/admin/seasons', {
+      method: 'POST',
+      body: JSON.stringify(season),
+    });
+  }
+
+  /** Admin: writes any subset; omitted fields keep their stored value. */
+  async updateSeason(id: number, patch: SeasonUpdate): Promise<SeasonDTO> {
+    return this.request(`/admin/seasons/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(patch),
+    });
+  }
+
+  /**
+   * Makes this the year students may enter, and closes the others. This is the
+   * switch that decides whether a student can enter anything at all.
+   */
+  async activateSeason(id: number): Promise<SeasonDTO> {
+    return this.request(`/admin/seasons/${id}/activate`, { method: 'POST' });
+  }
+
+  /**
+   * Removes a school year. Refused with a 409 whose message names the count
+   * while the year still has events, so show the server's own wording.
+   */
+  async deleteSeason(id: number): Promise<void> {
+    return this.request(`/admin/seasons/${id}`, { method: 'DELETE' });
+  }
+
+  /* ---------------- Admin: students ---------------- */
+
+  async getStudents(filters: StudentFilters = {}): Promise<StudentDTO[]> {
+    return this.request(`/admin/students${buildQuery({ ...filters })}`);
+  }
+
+  async getStudentSummary(): Promise<StudentSummaryDTO> {
+    return this.request('/admin/students/summary');
+  }
+
+  /** One student of the register, by their student id string. */
+  async getStudent(studentId: string): Promise<StudentDTO> {
+    return this.request(`/admin/students/${encodeURIComponent(studentId)}`);
+  }
+
+  /* ------------- Admin: a student's entries, made on their behalf ------------- */
+
+  /**
+   * The entries an administrator manages for a student, with the track / field
+   * quota that still applies to them. The list is the student's whole history,
+   * so withdrawn entries come back with `status: 'CANCELLED'`.
+   */
+  async getStudentEnrollments(studentId: string): Promise<StudentEnrollmentsDTO> {
+    return this.request(`/admin/students/${encodeURIComponent(studentId)}/enrollments`);
+  }
+
+  /**
+   * Enters the student in an event on their behalf. The quota is enforced
+   * against the student, so a full category is refused with a 409 whose message
+   * names the category and the maximum.
+   */
+  async enrollStudent(studentId: string, eventId: number): Promise<EnrollmentDTO> {
+    return this.request(
+      `/admin/students/${encodeURIComponent(studentId)}/enrollments/${eventId}`,
+      { method: 'POST' }
+    );
+  }
+
+  /** Cancels a student's entry, freeing the place in their quota. */
+  async cancelStudentEnrollment(studentId: string, eventId: number): Promise<void> {
+    return this.request(
+      `/admin/students/${encodeURIComponent(studentId)}/enrollments/${eventId}`,
+      { method: 'DELETE' }
+    );
+  }
+
+  async getGradeRule(): Promise<GradeRuleDTO> {
+    return this.request('/admin/students/grade-rule');
+  }
+
+  /**
+   * Upload a `.csv` / `.xlsx` student register.
+   *
+   * `lockAbsent` declares the file the complete student list for the year: on a
+   * real run everyone left out of it is locked. It defaults to false, which is
+   * the plain upload the register has always done.
+   */
+  async uploadStudents(
+    file: File,
+    referenceDate?: string,
+    lockAbsent = false
+  ): Promise<StudentUploadResultDTO> {
+    const form = new FormData();
+    form.append('file', file);
+    return this.request(
+      `/admin/students/upload${buildQuery({ referenceDate, lockAbsent })}`,
+      { method: 'POST', body: form }
+    );
+  }
+
+  /**
+   * Upload the same file declared to be the complete student list for the year.
+   *
+   * On this endpoint `lockAbsent` defaults to true and `dryRun` defaults to true,
+   * so the first call only reports who *would* be locked — `lockedTotal` and the
+   * `lockedStudents` sample — and changes nothing. Call it again with
+   * `dryRun: false`, on an explicit confirm, to lock them for real.
+   */
+  async uploadStudentsRoster(
+    file: File,
+    dryRun = true
+  ): Promise<StudentUploadResultDTO> {
+    const form = new FormData();
+    form.append('file', file);
+    return this.request(`/admin/students/upload/roster${buildQuery({ dryRun })}`, {
+      method: 'POST',
+      body: form,
+    });
+  }
+
+  /**
+   * Locks a student, or restores them.
+   *
+   * A locked student keeps their entries, results and records — they are hidden,
+   * not deleted — but cannot sign in (their login answers 403) and cannot be
+   * entered in an event.
+   */
+  async setStudentLock(studentId: string, locked: boolean): Promise<StudentDTO> {
+    return this.request(
+      `/admin/students/${encodeURIComponent(studentId)}/lock?locked=${locked}`,
+      { method: 'PATCH' }
+    );
+  }
+
+  /**
+   * Locks everyone the most recent register upload left out, for an admin who
+   * did not declare that upload the complete list.
+   */
+  async lockMissingStudents(): Promise<LockMissingResultDTO> {
+    return this.request('/admin/students/lock-missing', { method: 'POST' });
+  }
+
+  /** Seed sample students and return the same result shape as an upload. */
+  async generateSampleStudents(count = 600): Promise<StudentUploadResultDTO> {
+    return this.request(`/admin/students/sample?count=${count}`, { method: 'POST' });
+  }
+
+  async recomputeGrades(referenceDate?: string): Promise<RecomputeGradesResultDTO> {
+    return this.request(`/admin/students/recompute-grades${buildQuery({ referenceDate })}`, {
+      method: 'POST',
+    });
+  }
+
+  async downloadCredentialsCsv(className?: string): Promise<string> {
+    return this.downloadFile(
+      `/admin/students/credentials.csv${buildQuery({ className })}`,
+      'student-credentials.csv'
+    );
+  }
+
+  async downloadStudentTemplate(): Promise<string> {
+    return this.downloadFile('/admin/students/template.csv', 'student-upload-template.csv');
+  }
+
+  async downloadStudentSample(count = 600): Promise<string> {
+    return this.downloadFile(
+      `/admin/students/sample.csv?count=${count}`,
+      'student-sample.csv'
+    );
+  }
+
+  /** Clears entries, heats and results only — leaves events and students alone. */
+  async resetSeason(): Promise<void> {
+    return this.request('/admin/season/reset', { method: 'POST' });
+  }
+
+  /* ---------------- Results ---------------- */
+
   async getEventResults(eventId: number): Promise<EventResultDTO[]> {
     return this.request(`/results/event/${eventId}`);
   }
@@ -192,7 +1306,67 @@ class ApiClient {
     return this.request(`/results/${id}`, { method: 'DELETE' });
   }
 
-  // Users
+  /* ---------------- Mark entry grid ---------------- */
+
+  /**
+   * The athletes entered in an event, with their heat and any mark recorded.
+   * `stage` picks the heats or the drawn final, `groupId` and `grade` narrow
+   * the rows; the filter options in the response always describe the sheet.
+   */
+  async getMarkSheet(
+    eventId: number,
+    filters: { stage?: MarkStage; groupId?: number | null; grade?: string | null } = {}
+  ): Promise<MarkSheetDTO> {
+    return this.request(
+      `/events/${eventId}/marks${buildQuery({
+        stage: filters.stage ?? 'HEAT',
+        groupId: filters.groupId || null,
+        grade: filters.grade,
+      })}`
+    );
+  }
+
+  /**
+   * Saves the whole grid at once. Rows carrying a mark are stored, rows flagged
+   * `clear` have the mark removed, and rows with no mark are left untouched.
+   * `stage` decides whether the rows land on the heats or on the final.
+   */
+  async saveMarks(
+    eventId: number,
+    rows: MarkEntryInput[],
+    stage: MarkStage = 'HEAT'
+  ): Promise<BulkMarkResultDTO> {
+    return this.request(`/events/${eventId}/marks`, {
+      method: 'POST',
+      body: JSON.stringify({ stage, rows }),
+    });
+  }
+
+  /* ---------------- Final (short sprints) ---------------- */
+
+  /**
+   * Who would qualify for the final, ranked by heat mark. Changes nothing, so
+   * it is safe to call on every page load — and its `drawn` flag says whether
+   * a final already exists.
+   */
+  async previewFinal(eventId: number, limit = 8): Promise<FinalSummaryDTO> {
+    return this.request(`/events/${eventId}/final${buildQuery({ limit })}`);
+  }
+
+  /** Draws — or with a confirm, re-draws — the final. Re-drawing clears its marks. */
+  async drawFinal(eventId: number, limit = 8): Promise<FinalSummaryDTO> {
+    return this.request(`/events/${eventId}/final${buildQuery({ limit })}`, {
+      method: 'POST',
+    });
+  }
+
+  /** Removes the final. Marks recorded in the final are discarded. */
+  async removeFinal(eventId: number): Promise<FinalRemovalDTO> {
+    return this.request(`/events/${eventId}/final`, { method: 'DELETE' });
+  }
+
+  /* ---------------- Users ---------------- */
+
   async getCurrentUser(): Promise<UserDTO> {
     return this.request('/users/me');
   }
@@ -214,6 +1388,88 @@ class ApiClient {
 
   async deleteUser(id: number): Promise<void> {
     return this.request(`/users/${id}`, { method: 'DELETE' });
+  }
+
+  /**
+   * Creates a staff account. `role` is restricted to the assignable roles
+   * (`ADMIN`, `MANAGER`, `USER`) and defaults to `MANAGER`; anything else is
+   * refused by the server with a 400 and a message worth showing. Student
+   * accounts come from the register import, never from here.
+   */
+  async createUser(
+    data: { username: string; password: string; email: string; fullName?: string },
+    role?: string
+  ): Promise<UserDTO> {
+    return this.request(`/admin/users${buildQuery({ role })}`, {
+      method: 'POST',
+      body: JSON.stringify({ fullName: '', ...data }),
+    });
+  }
+
+  /** The roles an admin may hand out on this build. */
+  async getAssignableRoles(): Promise<string[]> {
+    return this.request('/admin/users/roles');
+  }
+
+  /* ---------------- Settings ---------------- */
+
+  /** Scoring and entry-limit settings. Readable by any signed-in user. */
+  async getSettings(): Promise<SettingsDTO> {
+    return this.request('/settings');
+  }
+
+  /** Admin: writes any subset; omitted fields keep their stored value. */
+  async updateSettings(patch: SettingsUpdate): Promise<SettingsDTO> {
+    return this.request('/admin/settings', {
+      method: 'PUT',
+      body: JSON.stringify(patch),
+    });
+  }
+
+  /** Admin: restores the documented defaults. */
+  async resetSettings(): Promise<SettingsResetResultDTO> {
+    return this.request('/admin/settings/reset', { method: 'POST' });
+  }
+
+  /* ---------------- School records ---------------- */
+
+  /** One school record per event type + division + grade. */
+  async getRecords(): Promise<RecordDTO[]> {
+    return this.request('/records');
+  }
+
+  /**
+   * Admin: sets the mark an administrator typed in for a record. It stays until
+   * a recorded result beats it, and survives every rebuild. `mark` is required;
+   * `holderName` is free text because the holder may have left the school.
+   */
+  async setRecordBaseline(recordId: number, payload: RecordBaselineInput): Promise<RecordDTO> {
+    return this.request(`/admin/records/${recordId}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  /** Admin: drops the typed-in mark, leaving the record to the results. */
+  async clearRecordBaseline(recordId: number): Promise<RecordDTO> {
+    return this.request(`/admin/records/${recordId}/baseline`, { method: 'DELETE' });
+  }
+
+  /** Admin: creates any missing record rows, leaving the existing ones alone. */
+  async seedRecords(): Promise<SeedRecordsResultDTO> {
+    return this.request('/admin/records/seed', { method: 'POST' });
+  }
+
+  /** Admin: rebuilds every record from the recorded marks, keeping the baselines. */
+  async recomputeRecords(): Promise<RecomputeRecordsResultDTO> {
+    return this.request('/admin/records/recompute', { method: 'POST' });
+  }
+
+  /* ---------------- Championships ---------------- */
+
+  /** Personal, house and per-event championship standings. */
+  async getChampionships(): Promise<ChampionshipsDTO> {
+    return this.request('/championships');
   }
 }
 

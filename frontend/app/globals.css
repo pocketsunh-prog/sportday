@@ -241,3 +241,444 @@ table tr:hover {
 .gap-2 { gap: 0.5rem; }
 .justify-between { justify-content: space-between; }
 .items-center { align-items: center; }
+
+/* ------------------------------------------------------------------ *
+ * SportDay revamp additions
+ * ------------------------------------------------------------------ */
+
+.btn:disabled,
+.btn[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.muted {
+  color: #888;
+  font-size: 0.85rem;
+}
+
+code {
+  background: #f1f3f5;
+  border-radius: 4px;
+  padding: 0.1rem 0.35rem;
+  font-size: 0.9em;
+  color: #1a1a2e;
+}
+
+.hint {
+  background: #f8f9fa;
+  border-left: 4px solid #e94560;
+  border-radius: 6px;
+  padding: 0.85rem 1rem;
+  font-size: 0.9rem;
+  color: #444;
+  margin-bottom: 1rem;
+}
+
+/* Section headings for 徑項 / 田項 */
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 1.35rem;
+  color: #1a1a2e;
+  padding-left: 0.75rem;
+  margin-bottom: 0.25rem;
+}
+
+.section-track { border-left: 5px solid #e94560; }
+.section-field { border-left: 5px solid #0f3460; }
+
+/* Quota banner */
+.quota-card {
+  border-top: 4px solid #e94560;
+}
+
+.quota-line {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: #1a1a2e;
+  flex-wrap: wrap;
+}
+
+.quota-sep {
+  color: #ccc;
+  font-weight: 400;
+}
+
+.quota-pill.is-full {
+  color: #d63031;
+}
+
+.quota-division {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #1a1a2e;
+  margin-top: 0.35rem;
+}
+
+/* Event / entry cards */
+.event-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.event-card h3 {
+  font-size: 1.05rem;
+}
+
+.card-disabled {
+  opacity: 0.7;
+  border-left: 4px solid #d63031;
+}
+
+.event-meta {
+  font-size: 0.85rem;
+  color: #666;
+  line-height: 1.7;
+}
+
+.event-meta strong {
+  color: #555;
+}
+
+.blocked-note {
+  margin-top: 0.6rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #b71c1c;
+  background: #f8d7da;
+  border-radius: 4px;
+  padding: 0.35rem 0.6rem;
+}
+
+.pill-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* Toolbars and forms */
+.toolbar {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.toolbar .form-group {
+  margin-bottom: 0;
+  min-width: 150px;
+}
+
+.checkbox-line {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #444;
+  margin-top: 0.5rem;
+}
+
+.checkbox-line input[type='checkbox'] {
+  width: auto;
+  margin: 0;
+}
+
+/* Stat tiles */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.stat {
+  background: white;
+  border-radius: 10px;
+  padding: 1rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  text-align: center;
+}
+
+.stat-value {
+  font-size: 1.7rem;
+  font-weight: 700;
+  color: #1a1a2e;
+  line-height: 1.2;
+}
+
+.stat-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #888;
+  font-weight: 600;
+  margin-top: 0.25rem;
+}
+
+/* Wide tables */
+.table-wrap {
+  overflow-x: auto;
+}
+
+.table-wrap table {
+  min-width: 720px;
+}
+
+.row-disabled {
+  background: #fff5f5;
+}
+
+.row-disabled:hover {
+  background: #ffecec;
+}
+
+/* ------------------------------------------------------------------ *
+ * Language switch (EN / CH)
+ * ------------------------------------------------------------------ */
+
+.lang-switch {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 999px;
+  overflow: hidden;
+  vertical-align: middle;
+}
+
+.lang-option {
+  background: transparent;
+  border: 0;
+  color: #cfd3e0;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  padding: 0.25rem 0.6rem;
+  cursor: pointer;
+  line-height: 1.4;
+}
+
+.lang-option:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.lang-option-active,
+.lang-option-active:hover {
+  background: #e94560;
+  color: #fff;
+}
+
+.lang-switch-on-light {
+  border-color: #c9ccd6;
+}
+
+.lang-switch-on-light .lang-option {
+  color: #555;
+}
+
+.lang-switch-on-light .lang-option:hover {
+  color: #1a1a2e;
+  background: #eef0f5;
+}
+
+/* Amber badge, used to draw attention to unsaved edits. */
+.badge-warn {
+  background: #fff4e5;
+  color: #8a5300;
+  border: 1px solid #ffd8a8;
+}
+
+/* Placeholder panel for "nothing here yet". */
+.empty {
+  text-align: center;
+  padding: 2.5rem 1rem;
+  color: #667;
+  border: 1px dashed #d8dce6;
+  border-radius: 10px;
+  background: #fbfcfe;
+}
+
+.empty p {
+  margin: 0.25rem 0;
+}
+
+/* ------------------------------------------------------------------ *
+ * Mark-entry grid
+ * ------------------------------------------------------------------ */
+
+.grid-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-end;
+  margin-bottom: 1rem;
+}
+
+.grid-toolbar .field {
+  margin-bottom: 0;
+  min-width: 11rem;
+}
+
+/* `.field` sits next to `.form-group` in the toolbars but carries no styling of
+ * its own, so the label/control stack is defined here. */
+.grid-toolbar .field label {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-weight: 600;
+  color: #555;
+  font-size: 0.9rem;
+}
+
+.grid-toolbar .field select,
+.grid-toolbar .field input {
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  background: #fff;
+}
+
+.grid-toolbar .field select:focus,
+.grid-toolbar .field input:focus {
+  outline: none;
+  border-color: #e94560;
+  box-shadow: 0 0 0 3px rgba(233, 69, 96, 0.1);
+}
+
+.grid-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+  align-items: center;
+  font-size: 0.9rem;
+  color: #555;
+  margin-bottom: 0.75rem;
+}
+
+.marks-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+.marks-table th,
+.marks-table td {
+  border: 1px solid #dfe2ea;
+  padding: 0.35rem 0.5rem;
+  text-align: left;
+}
+
+.marks-table thead th {
+  background: #f2f4f8;
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.marks-table tbody tr:nth-child(even) {
+  background: #fafbfd;
+}
+
+.marks-table input[type='text'],
+.marks-table input[type='number'] {
+  width: 100%;
+  border: 1px solid #cfd4de;
+  border-radius: 4px;
+  padding: 0.3rem 0.4rem;
+  font: inherit;
+  margin: 0;
+}
+
+.marks-table input:focus {
+  outline: 2px solid #e94560;
+  outline-offset: -1px;
+  border-color: #e94560;
+}
+
+.marks-table .col-narrow {
+  width: 4.5rem;
+}
+
+.marks-table .col-mark {
+  width: 8rem;
+}
+
+.marks-table .col-remark {
+  width: 14rem;
+}
+
+.cell-cleared {
+  opacity: 0.45;
+  text-decoration: line-through;
+}
+
+.save-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: center;
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  background: #f8f9fa;
+  border-radius: 8px;
+  position: sticky;
+  bottom: 0;
+}
+
+.leaderboard {
+  margin-top: 2rem;
+}
+
+/* ------------------------------------------------------------------ *
+ * Print view
+ * ------------------------------------------------------------------ */
+
+.print-panel {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.print-card {
+  border: 1px solid #e2e5ee;
+  border-radius: 10px;
+  padding: 0.9rem 1rem;
+  background: #fff;
+}
+
+.print-card h3 {
+  margin: 0 0 0.35rem;
+  font-size: 1.05rem;
+}
+
+.print-card .print-meta {
+  font-size: 0.85rem;
+  color: #667;
+  margin-bottom: 0.6rem;
+}
+
+@media print {
+  .navbar,
+  .no-print,
+  .save-bar {
+    display: none !important;
+  }
+
+  main.container {
+    padding: 0 !important;
+  }
+}
+
+

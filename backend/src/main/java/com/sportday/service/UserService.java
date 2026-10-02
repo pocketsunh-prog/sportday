@@ -67,25 +67,48 @@ public class UserService {
 
     @Transactional
     public UserDTO createManager(RegisterRequest request) {
+        return createUser(request, User.Role.MANAGER);
+    }
+
+    /**
+     * Creates a staff account. This is the only way an account is created now that
+     * public self-registration has been removed — students arrive through the
+     * register import instead.
+     */
+    @Transactional
+    public UserDTO createUser(RegisterRequest request, User.Role role) {
+        if (request.getUsername() == null || request.getUsername().isBlank()) {
+            throw new IllegalArgumentException("A username is required.");
+        }
+        if (request.getPassword() == null || request.getPassword().isBlank()) {
+            throw new IllegalArgumentException("A password is required.");
+        }
         if (userRepository.existsByUsername(request.getUsername())) {
             throw new IllegalArgumentException("Username already exists");
         }
-        if (userRepository.existsByEmail(request.getEmail())) {
+        String email = request.getEmail() == null || request.getEmail().isBlank()
+                ? null : request.getEmail().trim();
+        if (email != null && userRepository.existsByEmail(email)) {
             throw new IllegalArgumentException("Email already exists");
         }
 
         User user = User.builder()
-                .username(request.getUsername())
+                .username(request.getUsername().trim())
                 .password(passwordEncoder.encode(request.getPassword()))
-                .email(request.getEmail())
+                .email(email)
                 .fullName(request.getFullName())
                 .age(request.getAge())
                 .gender(request.getGender())
-                .role(User.Role.MANAGER)
+                .role(role == null ? User.Role.MANAGER : role)
                 .enabled(true)
                 .build();
 
         return UserDTO.from(userRepository.save(user));
+    }
+
+    /** The roles an administrator is allowed to hand out. */
+    public List<String> assignableRoles() {
+        return List.of(User.Role.ADMIN.name(), User.Role.MANAGER.name(), User.Role.USER.name());
     }
 
     public UserDTO getCurrentUserProfile(String username) {

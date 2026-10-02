@@ -2,139 +2,277 @@
 
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { api, EventDTO } from '@/lib/api';
+import {
+  api,
+  EventCategory,
+  EventDTO,
+  EventSex,
+  EVENT_TYPE_OPTIONS,
+  eventTypeCategory,
+  SheetSize,
+  sheetDefaultsForType,
+} from '@/lib/api';
+import { useI18n } from '@/lib/i18n';
 import Link from 'next/link';
-
-const EVENT_TYPES = [
-  'RUN_100M', 'RUN_200M', 'RUN_400M', 'RUN_800M', 'RUN_1500M', 'RUN_5000M',
-  'SHOT_PUT', 'DISCUSSION_THROW', 'JAVELIN_THROW', 'HAMMER_THROW',
-  'LONG_JUMP', 'HIGH_JUMP', 'TRIPLE_JUMP', 'POLE_VAULT',
-  'RELAY_4X100M', 'RELAY_4X400M', 'HURDLES_110M', 'HURDLES_400M', 'OTHER'
-];
 
 export default function EditEventPage() {
   const params = useParams();
+  const { t, label } = useI18n();
   const router = useRouter();
   const [form, setForm] = useState({
     name: '',
     description: '',
     type: '',
+    category: 'TRACK' as EventCategory,
+    sex: 'MALE' as EventSex,
     eventDate: '',
     location: '',
     maxParticipants: 50,
+    groupSize: 24,
+    shortSprint: false,
+    sheetSize: 'A4' as SheetSize,
+    maxEntriesPerStudent: 1,
+    enabled: true,
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
 
   const eventId = Number(params.id);
 
   useEffect(() => {
-    api.getEvent(eventId)
+    api
+      .getEvent(eventId)
       .then((event: EventDTO) => {
         setForm({
           name: event.name,
           description: event.description || '',
           type: event.type,
-          eventDate: event.eventDate,
+          category: event.category,
+          sex: event.sex,
+          eventDate: event.eventDate ? event.eventDate.slice(0, 10) : '',
           location: event.location || '',
           maxParticipants: event.maxParticipants,
+          groupSize: event.groupSize,
+          shortSprint: event.shortSprint,
+          sheetSize: event.sheetSize,
+          maxEntriesPerStudent: event.maxEntriesPerStudent,
+          enabled: event.enabled,
         });
       })
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
   }, [eventId]);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-    const value = e.target.type === 'number' ? parseInt(e.target.value) : e.target.value;
-    setForm({ ...form, [e.target.name]: value });
+  const handleChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
+  ) => {
+    const { name, value, type } = e.target;
+    const checked = (e.target as HTMLInputElement).checked;
+    setForm(prev => {
+      const next = {
+        ...prev,
+        [name]: type === 'number' ? parseInt(value, 10) : type === 'checkbox' ? checked : value,
+      };
+      if (name === 'type') {
+        next.category = eventTypeCategory(value);
+        Object.assign(next, sheetDefaultsForType(value));
+      }
+      return next;
+    });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setNotice('');
     setSaving(true);
     try {
       await api.updateEvent(eventId, form);
-      router.push(`/events/${eventId}`);
+      router.push('/admin/events');
     } catch (err: any) {
-      setError(err.message || 'Failed to update event');
+      setError(err.message || t('adminEvents.updateFailed'));
     } finally {
       setSaving(false);
     }
   };
 
   const handleToggleEnable = async () => {
+    setError('');
+    setNotice('');
     try {
       const current = await api.getEvent(eventId);
-      await api.setEventEnabled(eventId, !current.enabled);
-      router.refresh();
+      const updated = await api.setEventEnabled(eventId, !current.enabled);
+      setForm(prev => ({ ...prev, enabled: updated.enabled }));
+      setNotice(
+        t(updated.enabled ? 'adminEvents.enabledNotice' : 'adminEvents.disabledNotice', {
+          name: form.name,
+        })
+      );
     } catch (err: any) {
-      alert(err.message);
+      setError(err?.message || t('adminEvents.statusFailed'));
     }
   };
 
   const handleDelete = async () => {
-    if (!confirm('Are you sure you want to delete this event? This cannot be undone.')) return;
+    if (!confirm(t('adminEvents.deleteConfirm'))) return;
+    setError('');
     try {
       await api.deleteEvent(eventId);
-      router.push('/events');
+      router.push('/admin/events');
     } catch (err: any) {
-      alert(err.message);
+      setError(err?.message || t('adminEvents.deleteFailed'));
     }
   };
 
-  if (loading) return <div>Loading...</div>;
+  if (loading) return <div>{t('common.loading')}</div>;
 
   return (
     <div>
-      <h1 className="page-title">Edit Event</h1>
-      <div className="card" style={{ maxWidth: '600px' }}>
+      <div className="flex justify-between items-center">
+        <h1 className="page-title">{t('adminEvents.editTitle')}</h1>
+        <Link href={`/admin/events/${eventId}/groups`} className="btn btn-secondary">
+          {t('groups.title')}
+        </Link>
+      </div>
+      <div className="card" style={{ maxWidth: '700px' }}>
         {error && <div className="alert alert-error">{error}</div>}
+        {notice && <div className="alert alert-success">{notice}</div>}
         <form onSubmit={handleSubmit}>
           <div className="form-group">
-            <label>Event Name *</label>
+            <label>{t('events.name')} *</label>
             <input name="name" value={form.name} onChange={handleChange} required />
           </div>
           <div className="form-group">
-            <label>Description</label>
+            <label>{t('events.description')}</label>
             <textarea name="description" value={form.description} onChange={handleChange} rows={3} />
           </div>
-          <div className="form-group">
-            <label>Event Type *</label>
-            <select name="type" value={form.type} onChange={handleChange}>
-              {EVENT_TYPES.map(t => (
-                <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>
-              ))}
-            </select>
-          </div>
-          <div className="form-group">
-            <label>Event Date *</label>
-            <input name="eventDate" type="date" value={form.eventDate} onChange={handleChange} required />
-          </div>
-          <div className="form-group">
-            <label>Location</label>
-            <input name="location" value={form.location} onChange={handleChange} />
-          </div>
-          <div className="form-group">
-            <label>Max Participants *</label>
-            <input name="maxParticipants" type="number" min="1" value={form.maxParticipants} onChange={handleChange} required />
+          <div className="flex gap-2">
+            <div className="form-group" style={{ flex: 2 }}>
+              <label>{t('events.type')} *</label>
+              <select name="type" value={form.type} onChange={handleChange}>
+                {EVENT_TYPE_OPTIONS.map(option => (
+                  <option key={option.value} value={option.value}>
+                    {option.label} ({label('category', option.category)})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group" style={{ flex: 1 }}>
+              <label>{t('print.category')} *</label>
+              <select name="category" value={form.category} onChange={handleChange}>
+                <option value="TRACK">{label('category', 'TRACK')}</option>
+                <option value="FIELD">{label('category', 'FIELD')}</option>
+              </select>
+            </div>
+            <div className="form-group" style={{ flex: 1 }}>
+              <label>{t('print.division')} *</label>
+              <select name="sex" value={form.sex} onChange={handleChange}>
+                <option value="MALE">{label('sex', 'MALE')}</option>
+                <option value="FEMALE">{label('sex', 'FEMALE')}</option>
+              </select>
+            </div>
           </div>
           <div className="flex gap-2">
+            <div className="form-group" style={{ flex: 1 }}>
+              <label>{t('events.date')} *</label>
+              <input
+                name="eventDate"
+                type="date"
+                value={form.eventDate}
+                onChange={handleChange}
+                required
+              />
+            </div>
+            <div className="form-group" style={{ flex: 1 }}>
+              <label>{t('events.place')}</label>
+              <input name="location" value={form.location} onChange={handleChange} />
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <div className="form-group" style={{ flex: 1 }}>
+              <label>{t('events.maxParticipants')} *</label>
+              <input
+                name="maxParticipants"
+                type="number"
+                min="1"
+                value={form.maxParticipants}
+                onChange={handleChange}
+                required
+              />
+            </div>
+            <div className="form-group" style={{ flex: 1 }}>
+              <label>{t('events.groupSize')}</label>
+              <input
+                name="groupSize"
+                type="number"
+                min="1"
+                value={form.groupSize}
+                onChange={handleChange}
+              />
+            </div>
+            <div className="form-group" style={{ flex: 1 }}>
+              <label>{t('events.sheetSize')}</label>
+              <select name="sheetSize" value={form.sheetSize} onChange={handleChange}>
+                <option value="A5">{label('sheet', 'A5')}</option>
+                <option value="A4">{label('sheet', 'A4')}</option>
+              </select>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <div className="form-group" style={{ flex: 1 }}>
+              <label>{t('events.maxEntries')}</label>
+              <input
+                name="maxEntriesPerStudent"
+                type="number"
+                min="1"
+                value={form.maxEntriesPerStudent}
+                onChange={handleChange}
+              />
+            </div>
+            <div className="form-group" style={{ flex: 1 }}>
+              <label>{t('events.shortSprint')}</label>
+              <label className="checkbox-line">
+                <input
+                  name="shortSprint"
+                  type="checkbox"
+                  checked={form.shortSprint}
+                  onChange={handleChange}
+                />
+                {t('events.lanesPhotoFinish')}
+              </label>
+            </div>
+            <div className="form-group" style={{ flex: 1 }}>
+              <label>{t('adminEvents.enabled')}</label>
+              <label className="checkbox-line">
+                <input
+                  name="enabled"
+                  type="checkbox"
+                  checked={form.enabled}
+                  onChange={handleChange}
+                />
+                {t('events.visibleToStudents')}
+              </label>
+            </div>
+          </div>
+          <div className="flex gap-2 mt-2">
             <button type="submit" className="btn btn-primary" disabled={saving}>
-              {saving ? 'Saving...' : 'Save Changes'}
+              {saving ? t('common.saving') : t('common.saveChanges')}
             </button>
             <button type="button" onClick={handleToggleEnable} className="btn btn-secondary">
-              Toggle Enable
+              {t('adminEvents.toggleEnable')}
             </button>
             <button type="button" onClick={handleDelete} className="btn btn-danger">
-              Delete
+              {t('adminEvents.delete')}
             </button>
           </div>
         </form>
       </div>
       <div className="mt-2">
-        <Link href={`/events/${eventId}`} className="btn btn-secondary">Back to Event</Link>
+        <Link href={`/events/${eventId}`} className="btn btn-secondary">
+          {t('events.backToEvent')}
+        </Link>
       </div>
     </div>
   );

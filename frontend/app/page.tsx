@@ -5,9 +5,11 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { api, EventDTO } from '@/lib/api';
+import { useI18n } from '@/lib/i18n';
 
 export default function HomePage() {
   const { user, isLoading } = useAuth();
+  const { t } = useI18n();
   const router = useRouter();
   const [events, setEvents] = useState<EventDTO[]>([]);
   const [loading, setLoading] = useState(true);
@@ -30,27 +32,29 @@ export default function HomePage() {
   if (isLoading || !user) {
     return (
       <div className="text-center" style={{ padding: '4rem 0' }}>
-        <p>Loading...</p>
+        <p>{t('common.loading')}</p>
       </div>
     );
   }
 
   const menuItems = [
-    { href: '/events', title: 'Events', desc: 'Browse and enroll in sporting events', color: '#e94560' },
-    { href: '/results', title: 'Results', desc: 'View leaderboards and event results', color: '#16213e' },
-    { href: '/my-enrollments', title: 'My Enrollments', desc: 'Manage your event registrations', color: '#00b894' },
+    { href: '/events', title: t('nav.events'), desc: t('home.eventsDesc'), color: '#e94560' },
+    { href: '/results', title: t('nav.results'), desc: t('home.resultsDesc'), color: '#16213e' },
+    { href: '/my-enrollments', title: t('nav.myEntries'), desc: t('home.myEntriesDesc'), color: '#00b894' },
   ];
 
   if (user.role === 'ADMIN' || user.role === 'MANAGER') {
-    menuItems.push({ href: '/admin', title: 'Admin Panel', desc: 'Manage events, users, and results', color: '#6c5ce7' });
+    menuItems.push({ href: '/admin', title: t('home.adminTitle'), desc: t('home.adminDesc'), color: '#6c5ce7' });
   }
 
   return (
     <div>
       <div className="text-center" style={{ padding: '2rem 0' }}>
-        <h1 className="page-title">Welcome, {user.fullName || user.username}!</h1>
+        <h1 className="page-title">
+          {t('home.welcome', { name: user.fullName || user.username })}
+        </h1>
         <p style={{ fontSize: '1.1rem', color: '#666' }}>
-          What would you like to do today?
+          {t('home.subtitle')}
         </p>
       </div>
 
@@ -65,26 +69,26 @@ export default function HomePage() {
 
       {!loading && events.length > 0 && (
         <div className="mt-3">
-          <h2 className="page-title">Upcoming Events</h2>
+          <h2 className="page-title">{t('home.upcoming')}</h2>
           <div className="card-grid">
             {events.slice(0, 6).map(event => (
               <div key={event.id} className="card">
                 <div className="flex justify-between items-center mb-2">
                   <h3>{event.name}</h3>
-                  <span className="badge badge-info">{event.type.replace(/_/g, ' ')}</span>
+                  <span className="badge badge-info">{event.typeLabel}</span>
                 </div>
                 <p style={{ color: '#666', fontSize: '0.9rem' }}>
                   {event.description?.substring(0, 100)}
                 </p>
                 <div className="mt-2" style={{ fontSize: '0.85rem', color: '#888' }}>
-                  <div>Date: {new Date(event.eventDate).toLocaleDateString()}</div>
-                  {event.location && <div>Location: {event.location}</div>}
+                  <div>{t('events.date')}: {new Date(event.eventDate).toLocaleDateString()}</div>
+                  {event.location && <div>{t('events.place')}: {event.location}</div>}
                   <div>
-                    Participants: {event.enrolledCount || 0} / {event.maxParticipants}
+                    {t('events.participants')}: {event.enrolledCount || 0} / {event.maxParticipants}
                   </div>
                 </div>
                 <Link href={`/events/${event.id}`} className="btn btn-sm btn-primary mt-2">
-                  View Details
+                  {t('common.details')}
                 </Link>
               </div>
             ))}

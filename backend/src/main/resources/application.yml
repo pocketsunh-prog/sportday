@@ -9,13 +9,22 @@ spring:
   jpa:
     hibernate:
       ddl-auto: update
-    show-sql: true
+    show-sql: false
     properties:
       hibernate:
         dialect: org.hibernate.dialect.MySQLDialect
         format_sql: true
+        jdbc:
+          batch_size: 50
+        order_inserts: true
+        order_updates: true
   jackson:
     default-property-inclusion: non_null
+  servlet:
+    multipart:
+      # A whole-school register (thousands of rows) still fits comfortably.
+      max-file-size: 20MB
+      max-request-size: 25MB
 
 server:
   port: 8080
@@ -24,6 +33,21 @@ app:
   jwt:
     secret: sportdaySecretKeyForJwtTokenGenerationMustBeAtLeast256BitsLong1234567890
     expiration: 86400000
+  grade:
+    # Age is measured on this date. Leave blank to use today, set it to the
+    # sport day (e.g. 2026-11-06) so grades are frozen for the whole season.
+    reference-date: ""
+  pdf:
+    # Optional explicit path to a Unicode .ttf used on the marking sheets.
+    # When blank the system searches the usual Windows/Linux/macOS font folders.
+    font-path: ""
+  students:
+    # Seeded on first start when there are no events yet.
+    seed-sample-count: 0
+  events:
+    # Creates the standard sport-day event catalogue on first start.
+    seed-defaults: true
+    seed-event-date: ""
 
 springdoc:
   api-docs:
@@ -34,4 +58,5 @@ springdoc:
 
 logging:
   level:
-    com.sportday: DEBUG
+    com.sportday: INFO
+    org.hibernate.SQL: WARN

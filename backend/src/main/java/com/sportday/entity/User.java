@@ -22,7 +22,11 @@ public class User {
     @Column(nullable = false)
     private String password;
 
-    @Column(nullable = false, unique = true)
+    /**
+     * Optional: staff accounts have one, imported student accounts do not.
+     * MySQL permits repeated NULLs in a unique index, so this stays unique.
+     */
+    @Column(unique = true)
     private String email;
 
     private String fullName;
@@ -57,6 +61,11 @@ public class User {
     }
 
     public enum Role {
-        USER, ADMIN, MANAGER
+        /** Staff/legacy account that may browse and enter events manually. */
+        USER,
+        ADMIN,
+        MANAGER,
+        /** Imported student account: username is the student id. */
+        STUDENT
     }
 }

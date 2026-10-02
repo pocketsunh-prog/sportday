@@ -6,14 +6,6 @@ import { api, AuthResponse } from './api';
 interface AuthContextType {
   user: AuthResponse | null;
   login: (username: string, password: string) => Promise<void>;
-  register: (data: {
-    username: string;
-    password: string;
-    email: string;
-    fullName?: string;
-    age?: number;
-    gender?: string;
-  }) => Promise<void>;
   logout: () => void;
   isLoading: boolean;
 }
@@ -39,20 +31,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(response);
   }, []);
 
-  const register = useCallback(async (data: {
-    username: string;
-    password: string;
-    email: string;
-    fullName?: string;
-    age?: number;
-    gender?: string;
-  }) => {
-    const response = await api.register(data);
-    localStorage.setItem('token', response.token);
-    localStorage.setItem('user', JSON.stringify(response));
-    setUser(response);
-  }, []);
-
   const logout = useCallback(() => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
@@ -60,7 +38,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, login, register, logout, isLoading }}>
+    <AuthContext.Provider value={{ user, login, logout, isLoading }}>
       {children}
     </AuthContext.Provider>
   );

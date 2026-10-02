@@ -26,6 +26,19 @@ public class Enrollment {
     @JoinColumn(name = "event_id", nullable = false)
     private Event event;
 
+    /**
+     * Heat/group this entry was allocated to. Null until the administrator
+     * runs group allocation for the event.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "event_group_id")
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
+    private EventGroup eventGroup;
+
+    /** Lane / start position inside the group, assigned during allocation. */
+    private Integer lane;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private EnrollmentStatus status;

@@ -1,0 +1,338 @@
+package com.sportday.service;
+
+import com.sportday.entity.Enrollment;
+import com.sportday.entity.Event;
+import com.sportday.entity.EventCategory;
+import com.sportday.entity.EventGroup;
+import com.sportday.entity.EventResult;
+import com.sportday.entity.EventStage;
+import com.sportday.entity.FinalEntry;
+import com.sportday.entity.Grade;
+import com.sportday.entity.Sex;
+import com.sportday.entity.Student;
+import com.sportday.entity.User;
+import com.sportday.repository.EnrollmentRepository;
+import com.sportday.repository.EventGroupRepository;
+import com.sportday.repository.EventRepository;
+import com.sportday.repository.EventResultRepository;
+import com.sportday.repository.FinalEntryRepository;
+import com.sportday.repository.StudentRepository;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.*;
+
+/**
+ * Drawing the final of a short sprint from the heat results.
+ *
+ * <p>Requirement: 60/100/200/400 may be run as heats and then a final, with the
+ * top 8 going through.</p>
+ */
+@ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
+class FinalQualificationServiceTest {
+
+    private static final long EVENT_ID = 2L;
+
+    @Mock private EventRepository eventRepository;
+    @Mock private EventGroupRepository groupRepository;
+    @Mock private EventResultRepository resultRepository;
+    @Mock private EnrollmentRepository enrollmentRepository;
+    @Mock private StudentRepository studentRepository;
+    @Mock private FinalEntryRepository finalEntryRepository;
+    @Mock private RecordService recordService;
+
+    @InjectMocks private FinalQualificationService service;
+
+    private Event event;
+
+    @BeforeEach
+    void setUp() {
+        event = Event.builder()
+                .id(EVENT_ID)
+                .name("Boys 60M")
+                .type(Event.EventType.RUN_60M)
+                .category(EventCategory.TRACK)
+                .sex(Sex.MALE)
+                .groupSize(8)
+                .eventDate(LocalDate.of(2026, 11, 6))
+                .enabled(true)
+                .build();
+        when(eventRepository.findById(EVENT_ID)).thenReturn(Optional.of(event));
+        when(groupRepository.findFirstByEventIdAndStage(EVENT_ID, EventStage.FINAL))
+                .thenReturn(Optional.empty());
+        when(resultRepository.deleteByEventIdAndStage(EVENT_ID, EventStage.FINAL)).thenReturn(0);
+    }
+
+    // ------------------------------------------------------------- fixtures
+
+    private User user(long id) {
+        return User.builder().id(id).username(String.format("S%04d", id)).fullName("Athlete " + id).build();
+    }
+
+    /** A recorded heat mark, and the confirmed entry needed to be considered. */
+    private void record(long userId, String mark) {
+        User athlete = user(userId);
+        recorded.add(EventResult.builder()
+                .id(userId).user(athlete).event(event).stage(EventStage.HEAT)
+                .mark(new BigDecimal(mark)).unit("seconds").build());
+    }
+
+    private final List<EventResult> recorded = new ArrayList<>();
+
+    /** Wires up the mocks from everything handed to {@link #record}. */
+    private void givenHeatMarks() {
+        when(resultRepository.findByEventIdAndStageOrderByMarkAsc(EVENT_ID, EventStage.HEAT))
+                .thenReturn(recorded);
+
+        List<Enrollment> entries = new ArrayList<>();
+        List<Student> students = new ArrayList<>();
+        for (EventResult result : recorded) {
+            entries.add(Enrollment.builder().user(result.getUser()).event(event)
+                    .status(Enrollment.EnrollmentStatus.CONFIRMED).build());
+            students.add(Student.builder()
+                    .id(result.getUser().getId())
+                    .user(result.getUser())
+                    .studentId(result.getUser().getUsername())
+                    .name("Athlete " + result.getUser().getId())
+                    .dob(LocalDate.of(2012, 1, 1))
+                    .sex(Sex.MALE)
+                    .className("1A")
+                    .classNumber(result.getUser().getId().intValue())
+                    .house("Red")
+                    .grade(Grade.C)
+                    .enabled(true)
+                    .build());
+        }
+        when(enrollmentRepository.findConfirmedWithUserByEvent(EVENT_ID, Enrollment.EnrollmentStatus.CONFIRMED))
+                .thenReturn(entries);
+        when(studentRepository.findWithUserByUserIdIn(any())).thenReturn(students);
+        when(groupRepository.save(any(EventGroup.class))).thenAnswer(invocation -> {
+            EventGroup saved = invocation.getArgument(0);
+            saved.setId(99L);
+            return saved;
+        });
+        for (EventResult result : recorded) {
+            when(enrollmentRepository.findByUserIdAndEventId(result.getUser().getId(), EVENT_ID))
+                    .thenReturn(Optional.of(Enrollment.builder().user(result.getUser()).event(event)
+                            .status(Enrollment.EnrollmentStatus.CONFIRMED).build()));
+        }
+    }
+
+    // ---------------------------------------------------------------- tests
+
+    @Test
+    @DisplayName("a track event puts the fastest first")
+    void trackRanksFastestFirst() {
+        record(1, "12.500");
+        record(2, "11.900");
+        record(3, "13.100");
+        givenHeatMarks();
+
+        var summary = service.preview(EVENT_ID, null);
+
+        assertEquals(3, summary.rankedAthletes());
+        assertEquals(2L, summary.qualifiers().get(0).userId(), "11.900 is the fastest");
+        assertEquals(1L, summary.qualifiers().get(1).userId());
+        assertEquals(3L, summary.qualifiers().get(2).userId());
+        assertEquals(1, summary.qualifiers().get(0).rank());
+        assertEquals(new BigDecimal("11.900"), summary.qualifiers().get(0).heatMark());
+    }
+
+    @Test
+    @DisplayName("a field event puts the longest or highest first")
+    void fieldRanksFurthestFirst() {
+        event.setType(Event.EventType.LONG_JUMP);
+        event.setCategory(EventCategory.FIELD);
+        record(1, "5.100");
+        record(2, "7.200");
+        record(3, "6.050");
+        givenHeatMarks();
+
+        var summary = service.preview(EVENT_ID, null);
+
+        assertEquals(2L, summary.qualifiers().get(0).userId(), "7.200 is the best jump");
+        assertEquals(3L, summary.qualifiers().get(1).userId());
+        assertEquals(1L, summary.qualifiers().get(2).userId());
+    }
+
+    @Test
+    @DisplayName("the top 8 go through out of a full field")
+    void onlyTheTopEightQualify() {
+        for (int i = 1; i <= 20; i++) {
+            record(i, String.format("%.3f", 10.0 + i * 0.1));
+        }
+        givenHeatMarks();
+
+        var summary = service.preview(EVENT_ID, null);
+
+        assertEquals(8, summary.finalSize(), "a short sprint's group size is the final size");
+        assertEquals(20, summary.rankedAthletes());
+        assertEquals(8, summary.qualified());
+        assertEquals(1L, summary.qualifiers().get(0).userId(), "10.100 is the fastest");
+        assertEquals(8L, summary.qualifiers().get(7).userId(), "10.800 is the last qualifier");
+    }
+
+    @Test
+    @DisplayName("a limit overrides the default final size")
+    void limitOverridesTheSize() {
+        for (int i = 1; i <= 10; i++) {
+            record(i, String.format("%.3f", 10.0 + i * 0.1));
+        }
+        givenHeatMarks();
+
+        assertEquals(6, service.preview(EVENT_ID, 6).qualified());
+        assertEquals(6, service.preview(EVENT_ID, 6).finalSize());
+    }
+
+    @Test
+    @DisplayName("equal marks are separated by student id, so the draw is repeatable")
+    void tiesAreBrokenDeterministically() {
+        record(7, "12.000");
+        record(3, "12.000");
+        record(5, "12.000");
+        givenHeatMarks();
+
+        var summary = service.preview(EVENT_ID, null);
+
+        assertEquals(List.of(3L, 5L, 7L), summary.qualifiers().stream().map(q -> q.userId()).toList());
+        // And again, to prove it does not depend on iteration order.
+        assertEquals(List.of(3L, 5L, 7L), service.preview(EVENT_ID, null).qualifiers().stream()
+                .map(q -> q.userId()).toList());
+    }
+
+    @Test
+    @DisplayName("an athlete who withdrew cannot qualify")
+    void withdrawnAthletesAreExcluded() {
+        record(1, "11.000");
+        record(2, "12.000");
+        givenHeatMarks();
+        // Athlete 1 is no longer on the confirmed entry list.
+        when(enrollmentRepository.findConfirmedWithUserByEvent(EVENT_ID, Enrollment.EnrollmentStatus.CONFIRMED))
+                .thenReturn(List.of(Enrollment.builder().user(user(2)).event(event)
+                        .status(Enrollment.EnrollmentStatus.CONFIRMED).build()));
+
+        var summary = service.preview(EVENT_ID, null);
+
+        assertEquals(1, summary.qualified());
+        assertEquals(2L, summary.qualifiers().get(0).userId());
+    }
+
+    @Test
+    @DisplayName("drawing a final with no heat results is refused with an explanation")
+    void drawingWithoutHeatMarksIsRejected() {
+        givenHeatMarks();
+
+        IllegalStateException error = assertThrows(IllegalStateException.class,
+                () -> service.generate(EVENT_ID, null));
+        assertTrue(error.getMessage().contains("heat"), error.getMessage());
+    }
+
+    @Test
+    @DisplayName("drawing the final creates the group, its field and the seeding")
+    void generateCreatesTheFinal() {
+        for (int i = 1; i <= 10; i++) {
+            record(i, String.format("%.3f", 10.0 + i * 0.1));
+        }
+        givenHeatMarks();
+
+        var summary = service.generate(EVENT_ID, null);
+
+        assertTrue(summary.drawn());
+        assertEquals(8, summary.qualified());
+
+        ArgumentCaptor<EventGroup> group = ArgumentCaptor.forClass(EventGroup.class);
+        verify(groupRepository).save(group.capture());
+        assertEquals(EventStage.FINAL, group.getValue().getStage());
+        assertEquals(EventGroup.FINAL_GROUP_NUMBER, group.getValue().getGroupNumber(),
+                "the final is group 0 so it cannot collide with Heat 1");
+        assertEquals(8, group.getValue().getCapacity());
+        assertEquals(8, group.getValue().getAthleteCount());
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<FinalEntry>> entries = ArgumentCaptor.forClass(List.class);
+        verify(finalEntryRepository).saveAll(entries.capture());
+        assertEquals(8, entries.getValue().size());
+        assertEquals(1, entries.getValue().get(0).getLane());
+        assertEquals(1, entries.getValue().get(0).getSeed());
+        assertEquals(new BigDecimal("10.100"), entries.getValue().get(0).getSeedMark(),
+                "the seeding keeps the heat mark that earned the place");
+        assertEquals(8, entries.getValue().get(7).getLane());
+    }
+
+    @Test
+    @DisplayName("a preview never writes anything")
+    void previewIsReadOnly() {
+        record(1, "11.000");
+        givenHeatMarks();
+
+        service.preview(EVENT_ID, null);
+
+        verify(groupRepository, never()).save(any());
+        verify(finalEntryRepository, never()).saveAll(any());
+        verify(resultRepository, never()).deleteByEventIdAndStage(anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("re-drawing clears the previous final and the marks recorded in it")
+    void redrawingClearsThePreviousFinal() {
+        record(1, "11.000");
+        record(2, "12.000");
+        givenHeatMarks();
+
+        EventGroup previous = EventGroup.builder()
+                .id(55L).event(event).groupNumber(EventGroup.FINAL_GROUP_NUMBER)
+                .stage(EventStage.FINAL).capacity(8).athleteCount(2).build();
+        when(groupRepository.findFirstByEventIdAndStage(EVENT_ID, EventStage.FINAL))
+                .thenReturn(Optional.of(previous));
+        when(resultRepository.deleteByEventIdAndStage(EVENT_ID, EventStage.FINAL)).thenReturn(2);
+
+        var summary = service.generate(EVENT_ID, null);
+
+        assertEquals(2, summary.clearedFinalMarks(), "the old final's marks are gone with the field");
+        verify(finalEntryRepository).deleteByGroupId(55L);
+        verify(groupRepository).delete(previous);
+        // The delete must be flushed before the replacement is inserted: Hibernate
+        // orders inserts ahead of deletes in a flush, so without this the new final
+        // (event_id, group_number 0) collides with the old one on the unique key.
+        InOrder ordered = inOrder(groupRepository);
+        ordered.verify(groupRepository).delete(previous);
+        ordered.verify(groupRepository).flush();
+        // Heat marks and heats are untouched.
+        verify(resultRepository, never()).deleteByEventId(anyLong());
+    }
+
+    @Test
+    @DisplayName("the summary describes the event, so the UI can label the sheet")
+    void summaryDescribesTheEvent() {
+        record(1, "11.000");
+        givenHeatMarks();
+
+        var summary = service.preview(EVENT_ID, null);
+
+        assertEquals("Boys 60M", summary.eventName());
+        assertEquals("60M", summary.eventTypeLabel());
+        assertEquals("TRACK", summary.category());
+        assertEquals("A5", summary.sheetSize(), "short sprints print on A5");
+        assertTrue(summary.shortSprint());
+    }
+}

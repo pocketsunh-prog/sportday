@@ -4,12 +4,14 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { api, EventDTO, EventResultDTO } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+import { useI18n } from '@/lib/i18n';
 import Link from 'next/link';
 
 export default function EventDetailPage() {
   const params = useParams();
   const router = useRouter();
   const { user } = useAuth();
+  const { t, label } = useI18n();
   const [event, setEvent] = useState<EventDTO | null>(null);
   const [results, setResults] = useState<EventResultDTO[]>([]);
   const [loading, setLoading] = useState(true);
@@ -48,8 +50,8 @@ export default function EventDetailPage() {
     }
   };
 
-  if (loading) return <div>Loading...</div>;
-  if (!event) return <div className="card">Event not found</div>;
+  if (loading) return <div>{t('common.loading')}</div>;
+  if (!event) return <div className="card">{t('events.notFound')}</div>;
 
   const isAdmin = user?.role === 'ADMIN' || user?.role === 'MANAGER';
 
@@ -59,28 +61,30 @@ export default function EventDetailPage() {
         <div className="flex justify-between items-center">
           <div>
             <h1 className="page-title" style={{ marginBottom: '0.5rem' }}>{event.name}</h1>
-            <span className="badge badge-info">{event.type.replace(/_/g, ' ')}</span>
-            {!event.enabled && <span className="badge badge-warning ml-2">Disabled</span>}
+            <span className="badge badge-info">{event.typeLabel}</span>
+            {!event.enabled && (
+              <span className="badge badge-warning ml-2">{t('adminEvents.disabled')}</span>
+            )}
           </div>
           <div className="flex gap-2">
             {user && event.enabled && (
               enrolled ? (
                 <button onClick={handleCancel} className="btn btn-sm btn-danger">
-                  Cancel Enrollment
+                  {t('events.withdraw')}
                 </button>
               ) : (
                 <button onClick={handleEnroll} className="btn btn-sm btn-success">
-                  Enroll Now
+                  {t('events.enter')}
                 </button>
               )
             )}
             {isAdmin && (
               <>
                 <Link href={`/admin/events/${event.id}/edit`} className="btn btn-sm btn-secondary">
-                  Edit
+                  {t('common.edit')}
                 </Link>
                 <Link href={`/admin/results/new?eventId=${event.id}`} className="btn btn-sm btn-primary">
-                  Record Result
+                  {t('results.recordResult')}
                 </Link>
               </>
             )}
@@ -90,28 +94,28 @@ export default function EventDetailPage() {
         <div className="mt-3" style={{ color: '#666' }}>
           <p>{event.description}</p>
           <div style={{ marginTop: '1rem' }}>
-            <div><strong>Date:</strong> {new Date(event.eventDate).toLocaleDateString()}</div>
-            {event.location && <div><strong>Location:</strong> {event.location}</div>}
+            <div><strong>{t('events.date')}:</strong> {new Date(event.eventDate).toLocaleDateString()}</div>
+            {event.location && <div><strong>{t('events.place')}:</strong> {event.location}</div>}
             <div>
-              <strong>Participants:</strong> {event.enrolledCount || 0} / {event.maxParticipants}
+              <strong>{t('events.participants')}:</strong> {event.enrolledCount || 0} / {event.maxParticipants}
             </div>
           </div>
         </div>
       </div>
 
       <div className="card mt-2">
-        <h2>Results</h2>
+        <h2>{t('results.title')}</h2>
         {results.length === 0 ? (
-          <p style={{ color: '#888' }}>No results recorded yet.</p>
+          <p style={{ color: '#888' }}>{t('results.noResults')}</p>
         ) : (
           <table>
             <thead>
               <tr>
-                <th>Rank</th>
-                <th>Athlete</th>
-                <th>Mark</th>
-                <th>Unit</th>
-                <th>Notes</th>
+                <th>{t('marks.rank')}</th>
+                <th>{t('results.athlete')}</th>
+                <th>{t('marks.record')}</th>
+                <th>{t('marks.unit')}</th>
+                <th>{t('results.notes')}</th>
               </tr>
             </thead>
             <tbody>
@@ -120,7 +124,7 @@ export default function EventDetailPage() {
                   <td>{idx + 1}</td>
                   <td>{result.fullName || result.username}</td>
                   <td>{result.mark}</td>
-                  <td>{result.unit || '-'}</td>
+                  <td>{result.unit ? label('unit', result.unit) : '-'}</td>
                   <td>{result.notes || '-'}</td>
                 </tr>
               ))}
