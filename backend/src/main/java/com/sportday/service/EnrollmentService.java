@@ -42,6 +42,7 @@ public class EnrollmentService {
     private final StudentRepository studentRepository;
     private final SettingsService settingsService;
     private final SeasonService seasonService;
+    private final GradeEligibilityService gradeEligibilityService;
 
     /** How many entries a student still has available, per category. */
     public record Quota(
@@ -81,6 +82,16 @@ public class EnrollmentService {
             throw new IllegalStateException(
                     "This is the " + event.getSex().getLabel() + " event and you are entered as "
                             + roster.getSex().getLabel() + ".");
+        }
+
+        // Grade: an event is not open to every grade — a C grade student does not run
+        // the 1500M, and only the A grade runs the 5000M.
+        if (roster != null && roster.getGrade() != null && event.getType() != null
+                && !gradeEligibilityService.isAllowed(event.getType(), roster.getGrade())) {
+            throw new IllegalStateException(String.format(
+                    "%s grade does not enter %s. The events open to that grade are on the entry "
+                            + "list — the organiser sets this on the grade assignment page.",
+                    roster.getGrade().getLabel(), event.getName()));
         }
 
         // Quota: at most 2 track (徑項) and 1 field (田項) per student.

@@ -60,6 +60,12 @@ public class EventDTO {
     /** True when this event may be run as heats and a final: only 60/100/200/400. */
     private Boolean mayHaveFinal;
 
+    /**
+     * The grades that may enter this event, e.g. {@code ["A", "B"]} for a 1500M. Lets
+     * the entry page leave out what a student's grade cannot enter.
+     */
+    private java.util.List<String> allowedGrades;
+
     private Boolean enabled;
     private LocalDateTime createdAt;
     private Integer enrolledCount;
@@ -102,8 +108,7 @@ public class EventDTO {
                 .shortSprint(event.isShortSprint())
                 .sheetSize(event.isShortSprint() ? "A5" : "A4")
                 .defaultUnit(type == null ? null : type.getDefaultUnit())
-                .directToFinal(event.isDirectToFinal())
-                .mayHaveFinal(event.mayHaveFinal())
+                .directToFinal(event.isDirectToFinal())                .mayHaveFinal(event.mayHaveFinal())
                 .enabled(event.getEnabled())
                 .createdAt(event.getCreatedAt())
                 .seasonId(event.getSeason() == null ? null : event.getSeason().getId())

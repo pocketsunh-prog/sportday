@@ -1865,6 +1865,149 @@ def main() -> int:
           "leaving the catalogue as it was",
           f"got {len(after_cleanup)} of {len(catalogue_now)}")
 
+    # ---------------- 18. which grades may enter which events
+    section("18. Grade eligibility: who may enter what")
+
+    status, grid = api.request("GET", "/grade-events", token=admin_token)
+    check(status == 200 and isinstance(grid, dict), "the assignment page loads", f"status={status}")
+    check(grid.get("grades") == ["A", "B", "C"], "with a column per grade",
+          f"got {grid.get('grades')}")
+    check(len(grid.get("events", [])) == 19,
+          "and a row per event type", f"got {len(grid.get('events', []))}")
+
+    def cell(event_type: str, grade: str) -> bool:
+        row = next(r for r in grid["events"] if r["eventType"] == event_type)
+        return bool(row["allowed"].get(grade))
+
+    check(cell("RUN_1500M", "C") is False,
+          "by default the C grade cannot enter the 1500M")
+    check(cell("RUN_1500M", "A") is True and cell("RUN_1500M", "B") is True,
+          "but the A and B grades can")
+    check(cell("RUN_5000M", "B") is False and cell("RUN_5000M", "C") is False
+          and cell("RUN_5000M", "A") is True,
+          "and only the A grade runs the 5000M")
+    check(cell("RUN_60M", "C") is True and cell("SHOT_PUT", "C") is True
+          and cell("RUN_800M", "C") is True,
+          "everything else is open to the youngest grade as well")
+
+    counts = grid.get("allowedEventCounts", {})
+    check(counts.get("A") == grid.get("totalEvents"),
+          "the A grade may enter every event in the programme",
+          f"got {counts.get('A')} of {grid.get('totalEvents')}")
+    check(counts.get("A", 0) > counts.get("B", 0) > counts.get("C", 0),
+          "and each grade below has fewer, which is what the page shows",
+          f"got {counts}")
+
+    # The events themselves say the same thing.
+    status, catalogue_now = api.request("GET", "/events", token=admin_token)
+    f1500 = next(e for e in catalogue_now if e["type"] == "RUN_1500M")
+    check(f1500.get("allowedGrades") == ["A", "B"],
+          "each event carries the grades that may enter it",
+          f"got {f1500.get('allowedGrades')}")
+    f5000 = next(e for e in catalogue_now if e["type"] == "RUN_5000M")
+    check(f5000.get("allowedGrades") == ["A"], f"got {f5000.get('allowedGrades')}")
+
+    # ---- the rule is enforced, for a student and for an admin acting for one ----
+    status, credentials = api.request("GET", "/admin/students/credentials.csv",
+                                      token=admin_token, raw=True)
+    grade_c = [r for r in csv.DictReader(io.StringIO(credentials.decode("utf-8-sig")))
+               if r["grade"] == "C"]
+    check(bool(grade_c), "there are C grade students on the register", f"got {len(grade_c)}")
+
+    subject = None
+    for candidate in grade_c[:10]:
+        status, entries = api.request(
+            "GET", f"/admin/students/{candidate['studentId']}/enrollments", token=admin_token)
+        quota = entries.get("quota", {}) if isinstance(entries, dict) else {}
+        if quota.get("trackRemaining", 0) > 0:
+            subject = candidate
+            break
+    check(subject is not None, "and one of them has a track entry to spare")
+
+    if subject:
+        # The 1500M in the student's own division, so the grade rule is what is
+        # being tested rather than the sex division.
+        status, subject_info = api.request("GET", f"/admin/students/{subject['studentId']}",
+                                           token=admin_token)
+        subject_sex = subject_info.get("sex")
+        my_1500 = next(e for e in catalogue_now
+                       if e["type"] == "RUN_1500M" and e["sex"] == subject_sex)
+        check(my_1500.get("allowedGrades") == ["A", "B"],
+              f"the {my_1500['name']} is open to the A and B grades only",
+              f"got {my_1500.get('allowedGrades')}")
+
+        # The student's own attempt.
+        status, session = api.request("POST", "/auth/login",
+                                      {"username": subject["studentId"],
+                                       "password": subject["password"]})
+        student_token = session.get("token") if isinstance(session, dict) else None
+        status, refused = api.request("POST", f"/enrollments/{my_1500['id']}",
+                                      token=student_token)
+        check(status == 409, "a C grade student cannot enter the 1500M",
+              f"status={status} body={refused}")
+        check("grade" in str(refused).lower(),
+              "and it is the grade that refuses them, not the division",
+              f"got {refused}")
+
+        # An administrator is bound by the same rule.
+        status, refused_admin = api.request(
+            "POST", f"/admin/students/{subject['studentId']}/enrollments/{my_1500['id']}",
+            token=admin_token)
+        check(status == 409, "and neither can an admin enter them in it",
+              f"status={status} body={refused_admin}")
+
+        # Opening the 1500M to the C grade lets them in.
+        status, opened = api.request(
+            "PUT", "/admin/grade-events",
+            [{"eventType": "RUN_1500M", "grade": "C", "allowed": True}], token=admin_token)
+        opened_cell = next(r for r in opened["events"] if r["eventType"] == "RUN_1500M") \
+            if isinstance(opened, dict) else {"allowed": {}}
+        check(status == 200 and opened_cell["allowed"].get("C") is True,
+              "the assignment can be changed, and the C grade is now ticked for the 1500M",
+              f"status={status} got {opened_cell['allowed']}")
+        check(opened.get("allowedEventCounts", {}).get("C", 0) > counts.get("C", 0),
+              "so the C grade's event count goes up",
+              f"{counts.get('C')} -> {opened.get('allowedEventCounts', {}).get('C')}")
+
+        status, allowed_entry = api.request(
+            "POST", f"/admin/students/{subject['studentId']}/enrollments/{my_1500['id']}",
+            token=admin_token)
+        check(status == 200, "and the student can now be entered",
+              f"status={status} body={allowed_entry}")
+        # Put the entry and the rule back.
+        api.request("DELETE", f"/admin/students/{subject['studentId']}/enrollments/{my_1500['id']}",
+                    token=admin_token)
+        status, closed = api.request(
+            "PUT", "/admin/grade-events",
+            [{"eventType": "RUN_1500M", "grade": "C", "allowed": False}], token=admin_token)
+        closed_cell = next(r for r in closed["events"] if r["eventType"] == "RUN_1500M")
+        check(closed_cell["allowed"]["C"] is False, "and the rule is closed again",
+              f"got {closed_cell['allowed']}")
+        # The student's own attempt must be refused again too.
+        status, refused_again = api.request(
+            "POST", f"/enrollments/{my_1500['id']}", token=student_token)
+        check(status == 409, "so the student is refused once more",
+              f"status={status} body={refused_again}")
+
+    # ---- only an admin assigns them, and the defaults can be restored ----
+    status, refused_update = api.request(
+        "PUT", "/admin/grade-events",
+        [{"eventType": "RUN_1500M", "grade": "C", "allowed": True}], token=manager_token)
+    check(status == 403, "a manager cannot change the assignment",
+          f"status={status} body={refused_update}")
+
+    status, reset = api.request("POST", "/admin/grade-events/reset", token=admin_token)
+    check(status == 200 and isinstance(reset, dict), "the assignment can be reset",
+          f"status={status}")
+    status, restored_grid = api.request("GET", "/grade-events", token=admin_token)
+    restored_1500 = next(r for r in restored_grid["events"] if r["eventType"] == "RUN_1500M")
+    restored_5000 = next(r for r in restored_grid["events"] if r["eventType"] == "RUN_5000M")
+    check(restored_1500["allowed"]["C"] is False and restored_5000["allowed"]["B"] is False,
+          "and the school's starting rules come back",
+          f"1500M C={restored_1500['allowed']['C']}, 5000M B={restored_5000['allowed']['B']}")
+    check(restored_grid.get("allowedEventCounts") == counts,
+          "leaving the counts as they were", f"got {restored_grid.get('allowedEventCounts')}")
+
     # ------------------------------------------------------------------ summary
     section("Summary")
     print(f"  checks run : {CHECKS}")

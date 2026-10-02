@@ -19,11 +19,12 @@ public class UserService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final com.sportday.repository.StudentRepository studentRepository;
 
     public UserDTO getUserById(Long id) {
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + id));
-        return UserDTO.from(user);
+        return withRoster(user);
     }
 
     public List<UserDTO> getAllUsers() {
@@ -114,6 +115,21 @@ public class UserService {
     public UserDTO getCurrentUserProfile(String username) {
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
-        return UserDTO.from(user);
+        return withRoster(user);
+    }
+
+    /**
+     * The account, plus its roster record when it has one.
+     *
+     * <p>A student's grade lives on the register, not on the account, and the entry
+     * pages need it to leave out the events that grade may not enter — so it is
+     * looked up here rather than left for a client to infer from what the student
+     * happens to have entered already.</p>
+     */
+    private UserDTO withRoster(User user) {
+        UserDTO dto = UserDTO.from(user);
+        studentRepository.findByUserId(user.getId())
+                .ifPresent(student -> UserDTO.applyRoster(dto, student));
+        return dto;
     }
 }

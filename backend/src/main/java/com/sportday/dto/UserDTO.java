@@ -23,6 +23,25 @@ public class UserDTO {
     private Boolean enabled;
     private LocalDateTime createdAt;
 
+    // ---- the roster record, for a student account ----
+
+    /** The student id, which is also their username. Null for staff accounts. */
+    private String studentRef;
+
+    /**
+     * The grade the student competes in — A, B or C. Null for staff, and for a
+     * student who has no roster record. The entry pages need it to leave out the
+     * events a grade may not enter, so it is read from the register rather than
+     * inferred from whatever they have already entered.
+     */
+    private String grade;
+
+    private String gradeLabel;
+
+    private String className;
+    private Integer classNumber;
+    private String house;
+
     public static UserDTO from(User user) {
         return UserDTO.builder()
                 .id(user.getId())
@@ -35,5 +54,27 @@ public class UserDTO {
                 .enabled(user.getEnabled())
                 .createdAt(user.getCreatedAt())
                 .build();
+    }
+
+    /** As {@link #from(User)}, plus the roster record when there is one. */
+    public static UserDTO from(User user, com.sportday.entity.Student student) {
+        UserDTO dto = from(user);
+        applyRoster(dto, student);
+        return dto;
+    }
+
+    /** Fills in the roster fields on an already-built DTO. */
+    public static void applyRoster(UserDTO dto, com.sportday.entity.Student student) {
+        if (dto == null || student == null) {
+            return;
+        }
+        dto.setStudentRef(student.getStudentId());
+        if (student.getGrade() != null) {
+            dto.setGrade(student.getGrade().name());
+            dto.setGradeLabel(student.getGrade().getLabel());
+        }
+        dto.setClassName(student.getClassName());
+        dto.setClassNumber(student.getClassNumber());
+        dto.setHouse(student.getHouse());
     }
 }

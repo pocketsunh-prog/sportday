@@ -41,6 +41,7 @@ const en = {
   'nav.championships': 'Championships',
   'nav.settings': 'Settings',
   'nav.users': 'Users',
+  'nav.gradeEvents': 'Grade events',
   'nav.sportDay': 'Sport day',
   'nav.login': 'Login',
   'nav.logout': 'Logout',
@@ -385,6 +386,15 @@ const en = {
   'events.backToEvent': 'Back to event',
   'events.browse': 'Browse events',
 
+  /* ---------------- grade eligibility, seen from the entry list ---------------- */
+  'events.allowedGrades': 'Allowed grades',
+  'events.gradeNotAllowed': '{grade} grade does not run this event',
+  'events.gradeNotAllowedHint':
+    'Only the {grades} grades may enter. The organiser sets this on the grade assignment page.',
+  'events.gradeSummary': '{grade} grade may enter {allowed} of {total} events',
+  'events.gradeUnknown':
+    'Your grade could not be read from your entries, so every event is shown. The server still refuses an event your grade may not enter.',
+
   /* ---------------- the programme by date ---------------- */
   'events.programmeDate': 'Programme date',
   'events.allDates': 'All dates',
@@ -417,6 +427,8 @@ const en = {
   'my.reEnter': 'Re-enter',
   'my.confirmed': 'Confirmed',
   'my.withdrawn': 'Withdrawn',
+  'my.entryGradeNotAllowed':
+    'Your grade no longer enters this event. The entry stands — a new entry would be refused.',
 
   /* ---------------- results (extended) ---------------- */
   'results.athlete': 'Athlete',
@@ -627,6 +639,7 @@ const en = {
   'admin.seasonResetFailed': 'Season reset failed',
   'admin.resetting': 'Resetting…',
   'admin.createEventHint': 'Add a new sport event',
+  'admin.gradeEventsHint': 'Assign which grades may enter which events',
   'admin.recordHint': 'Input event marks',
   'admin.leaderboardHint': 'View event results',
   'admin.allUsers': 'All users',
@@ -845,6 +858,7 @@ const en = {
     'New events join the current school year. Switch the year above to work on a past one.',
   'adminEvents.viewingYear': 'Viewing {year} — {name}',
   'adminEvents.viewingAllYears': 'Showing every school year',
+  'adminEvents.allGrades': 'All grades',
 
   /* ---------------- groups / heats (extended) ---------------- */
   'groups.loadFailed': 'Failed to load heats',
@@ -919,6 +933,46 @@ const en = {
   'entries.removedNotice': 'Removed {name}’s entry to {event}.',
   'entries.addFailed': 'Could not add the entry',
   'entries.removeFailed': 'Could not remove the entry',
+
+  /* ---------------- admin: grade eligibility ---------------- */
+  'gradeEvents.title': 'Grade events',
+  'gradeEvents.subtitle':
+    'Which grades may enter which events. Everything is open to all three grades except the long distances, where the C grade does not run the 1500M or 5000M and only the A grade runs the 5000M.',
+  'gradeEvents.summaryTitle': 'Events each grade may enter',
+  'gradeEvents.summaryLead': '{grade} grade: {count} of {total} events',
+  'gradeEvents.summaryRest': '{grade}: {count}',
+  'gradeEvents.countsNote': 'Counted against the current programme of {total} events.',
+  'gradeEvents.preview': 'After saving: {counts}',
+  'gradeEvents.assignment': 'The assignment grid',
+  'gradeEvents.assignmentHint':
+    'Tick a box where that grade may enter the event. Untick it and the entry is refused for that grade from then on.',
+  'gradeEvents.tickHint': 'A tick means that grade may enter the event.',
+  'gradeEvents.colEvent': 'Event',
+  'gradeEvents.colGrades': 'Grades that may enter',
+  'gradeEvents.gradeCellAria': '{grade} grade may enter {event}',
+  'gradeEvents.warningTitle': 'Before you change anything',
+  'gradeEvents.warning':
+    'A change affects who may enter from then on. It does not remove entries already made — a student who entered before the change keeps that entry and their place in it.',
+  'gradeEvents.unsaved': 'Unsaved changes',
+  'gradeEvents.changedCount': '{count} box(es) changed, not saved yet',
+  'gradeEvents.saveHint': 'Only the boxes you changed are sent.',
+  'gradeEvents.save': 'Save the assignment',
+  'gradeEvents.saved': 'Grade assignment saved.',
+  'gradeEvents.saveFailed': 'Failed to save the grade assignment',
+  'gradeEvents.noChanges': 'Nothing has been changed yet.',
+  'gradeEvents.unsavedConfirm':
+    'The grade assignment has unsaved changes. Discard them?',
+  'gradeEvents.reset': 'Reset to the school’s defaults',
+  'gradeEvents.resetting': 'Resetting…',
+  'gradeEvents.resetConfirm':
+    'Reset the grade assignment to the school’s defaults? The C grade will not run the 1500M or 5000M, and only the A grade will run the 5000M.',
+  'gradeEvents.resetUnsaved':
+    'You have unsaved changes. Resetting the assignment discards them and restores the defaults. Continue?',
+  'gradeEvents.resetDone': 'Reset to the school’s defaults — {count} rule(s) written.',
+  'gradeEvents.resetFailed': 'Failed to reset the grade assignment',
+  'gradeEvents.loading': 'Loading the grade assignment…',
+  'gradeEvents.loadFailed': 'Failed to load the grade assignment',
+  'gradeEvents.empty': 'The programme has no events yet.',
 } as const;
 
 /** Traditional Chinese (Hong Kong) wording. */
@@ -936,6 +990,7 @@ const zh: Record<keyof typeof en, string> = {
   'nav.championships': '錦標賽',
   'nav.settings': '設定',
   'nav.users': '使用者',
+  'nav.gradeEvents': '級別項目',
   'nav.sportDay': '運動會',
   'nav.login': '登入',
   'nav.logout': '登出',
@@ -1251,6 +1306,14 @@ const zh: Record<keyof typeof en, string> = {
   'events.backToEvent': '返回項目',
   'events.browse': '瀏覽項目',
 
+  /* ---------------- grade eligibility, seen from the entry list ---------------- */
+  'events.allowedGrades': '可報名級別',
+  'events.gradeNotAllowed': '{grade} 組不設此項目',
+  'events.gradeNotAllowedHint': '只限 {grades} 組報名。此設定由賽會於級別項目頁面設定。',
+  'events.gradeSummary': '{grade} 組可報名 {total} 項中的 {allowed} 項',
+  'events.gradeUnknown':
+    '未能從你的報名紀錄讀取級別，因此顯示所有項目。若你的級別不可報名某項目，伺服器仍會拒絕該報名。',
+
   /* ---------------- the programme by date ---------------- */
   'events.programmeDate': '比賽日期',
   'events.allDates': '所有日期',
@@ -1281,6 +1344,7 @@ const zh: Record<keyof typeof en, string> = {
   'my.reEnter': '重新報名',
   'my.confirmed': '已確認',
   'my.withdrawn': '已退出',
+  'my.entryGradeNotAllowed': '你的級別已不可報名此項目。現有報名仍然有效 — 但重新報名將被拒絕。',
 
   'results.athlete': '運動員',
   'results.eventResults': '比賽成績',
@@ -1480,6 +1544,7 @@ const zh: Record<keyof typeof en, string> = {
   'admin.seasonResetFailed': '重設賽季失敗',
   'admin.resetting': '重設中…',
   'admin.createEventHint': '新增比賽項目',
+  'admin.gradeEventsHint': '設定各級別可報名的項目',
   'admin.recordHint': '輸入比賽成績',
   'admin.leaderboardHint': '查看比賽成績',
   'admin.allUsers': '所有使用者',
@@ -1675,6 +1740,7 @@ const zh: Record<keyof typeof en, string> = {
   'adminEvents.defaultsYearNote': '新項目會加入現行學年。如要處理過往學年，請先切換上方的學年。',
   'adminEvents.viewingYear': '正在查看 {year} — {name}',
   'adminEvents.viewingAllYears': '顯示所有學年',
+  'adminEvents.allGrades': '全部級別',
 
   'groups.loadFailed': '無法載入分組',
   'groups.allocated': '已分組 — 共 {count} 組。',
@@ -1744,6 +1810,45 @@ const zh: Record<keyof typeof en, string> = {
   'entries.removedNotice': '已取消 {name} 在「{event}」的報名。',
   'entries.addFailed': '無法新增報名',
   'entries.removeFailed': '無法取消報名',
+
+  /* ---------------- admin: grade eligibility ---------------- */
+  'gradeEvents.title': '級別項目',
+  'gradeEvents.subtitle':
+    '設定各級別可報名的項目。除長跑外，所有項目均開放予三個級別：C 組不設 1500M 及 5000M，而 5000M 亦只限 A 組報名。',
+  'gradeEvents.summaryTitle': '各級別可報名的項目數',
+  'gradeEvents.summaryLead': '{grade} 組：{total} 項中可報 {count} 項',
+  'gradeEvents.summaryRest': '{grade}：{count} 項',
+  'gradeEvents.countsNote': '以現時 {total} 項比賽計算。',
+  'gradeEvents.preview': '儲存後：{counts}',
+  'gradeEvents.assignment': '級別項目對照表',
+  'gradeEvents.assignmentHint':
+    '在可報名的級別上打勾。取消勾選後，該級別將不可再報名此項目。',
+  'gradeEvents.tickHint': '勾選代表該級別可報名此項目。',
+  'gradeEvents.colEvent': '項目',
+  'gradeEvents.colGrades': '可報名級別',
+  'gradeEvents.gradeCellAria': '{grade} 組可否報名 {event}',
+  'gradeEvents.warningTitle': '更改前請注意',
+  'gradeEvents.warning':
+    '更改只影響之後的報名。已完成的報名不會被移除 — 在更改前已報名的學生仍然保留該報名及名額。',
+  'gradeEvents.unsaved': '尚未儲存的變更',
+  'gradeEvents.changedCount': '已更改 {count} 個選框，尚未儲存',
+  'gradeEvents.saveHint': '只會送出你更改過的選框。',
+  'gradeEvents.save': '儲存設定',
+  'gradeEvents.saved': '級別項目設定已儲存。',
+  'gradeEvents.saveFailed': '無法儲存級別項目設定',
+  'gradeEvents.noChanges': '尚未有任何更改。',
+  'gradeEvents.unsavedConfirm': '級別項目設定有尚未儲存的變更，確定放棄這些更改？',
+  'gradeEvents.reset': '還原學校預設值',
+  'gradeEvents.resetting': '還原中…',
+  'gradeEvents.resetConfirm':
+    '確定將級別項目設定還原為學校預設值？C 組將不可報名 1500M 及 5000M，而 5000M 亦只限 A 組報名。',
+  'gradeEvents.resetUnsaved':
+    '你有尚未儲存的更改。還原預設值會放棄這些更改並回復學校預設設定。確定繼續？',
+  'gradeEvents.resetDone': '已還原為學校預設值 — 共寫入 {count} 條規則。',
+  'gradeEvents.resetFailed': '無法還原級別項目設定',
+  'gradeEvents.loading': '載入級別項目設定…',
+  'gradeEvents.loadFailed': '無法載入級別項目設定',
+  'gradeEvents.empty': '項目表尚未有任何項目。',
 };
 
 const messages: Record<Lang, Record<keyof typeof en, string>> = { en, zh };

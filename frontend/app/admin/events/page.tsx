@@ -192,6 +192,24 @@ export default function AdminEventsPage() {
     });
   }, [events, filterCategory, filterSex, search]);
 
+  /**
+   * The grades that may enter an event, as compact badges (`A B` or `A B C`).
+   * The list is the organiser's rule, assigned on the grade assignment page.
+   */
+  const allowedGradesCell = (event: EventDTO) => {
+    const allowed = event.allowedGrades;
+    if (!allowed || allowed.length === 0) return <span className="muted">—</span>;
+    return (
+      <div className="flex gap-2">
+        {allowed.map(grade => (
+          <span className="badge badge-success" key={grade}>
+            {label('grade.short', grade)}
+          </span>
+        ))}
+      </div>
+    );
+  };
+
   const totals = useMemo(() => {
     const enabled = events.filter(event => event.enabled).length;
     const entries = events.reduce((sum, event) => sum + (event.enrolledCount || 0), 0);
@@ -365,6 +383,7 @@ export default function AdminEventsPage() {
                   <th>{t('events.sheet')}</th>
                   <th>{t('events.format')}</th>
                   <th>{t('marks.unit')}</th>
+                  <th>{t('events.allowedGrades')}</th>
                   <th>{t('events.entries')}</th>
                   <th>{t('admin.colStatus')}</th>
                   <th>{t('common.actions')}</th>
@@ -425,6 +444,7 @@ export default function AdminEventsPage() {
                     <td>
                       {label('unit', event.defaultUnit || defaultUnitForCategory(event.category))}
                     </td>
+                    <td>{allowedGradesCell(event)}</td>
                     <td>
                       {event.enrolledCount} / {event.maxParticipants}
                       {event.groupCount > 0 && (

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { api, defaultUnitForCategory, EnrollmentDTO, EventCategory } from '@/lib/api';
+import { api, defaultUnitForCategory, EnrollmentDTO, EventCategory, EventDTO, gradeMayEnterEvent } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { formatDate } from '@/lib/format';
 import { useI18n } from '@/lib/i18n';
@@ -15,13 +15,27 @@ export default function MyEnrollmentsPage() {
   const { t, label } = useI18n();
   const router = useRouter();
   const [enrollments, setEnrollments] = useState<EnrollmentDTO[]>([]);
+  /**
+   * The events the entries point at, by id, so each entry can be measured
+   * against the organiser's grade rule (`EventDTO.allowedGrades`). An event the
+   * list does not cover simply carries no rule to apply.
+   */
+  const [eventById, setEventById] = useState<Record<number, EventDTO>>({});
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [message, setMessage] = useState<{ kind: 'error' | 'success'; text: string } | null>(null);
 
   const load = useCallback(async () => {
-    const list = await api.getMyEnrollments();
+    const [list, events] = await Promise.all([
+      api.getMyEnrollments(),
+      api.getEvents({ onlyEnabled: false }).catch(() => [] as EventDTO[]),
+    ]);
     setEnrollments(list);
+    const byId: Record<number, EventDTO> = {};
+    events.forEach(event => {
+      byId[event.id] = event;
+    });
+    setEventById(byId);
   }, []);
 
   useEffect(() => {
@@ -137,6 +151,14 @@ export default function MyEnrollmentsPage() {
                   const confirmed = entry.status === 'CONFIRMED';
                   const busy = busyId === entry.eventId;
                   const allocated = typeof entry.groupLabel === 'string' && entry.groupLabel !== '';
+                  // The organiser's grade rule, read against the grade the entry
+                  // itself was made under. Withdrawing always stays possible; it
+                  // is a new entry that would be refused.
+                  const event = eventById[entry.eventId];
+                  const gradeBlocked = !!event && !gradeMayEnterEvent(event, entry.grade);
+                  const gradeReason = t('events.gradeNotAllowed', {
+                    grade: label('grade.short', entry.grade),
+                  });
                   return (
                     <div key={entry.id} className="card event-card">
                       <div className="flex justify-between items-center mb-2">
@@ -203,7 +225,8 @@ export default function MyEnrollmentsPage() {
                           <button
                             type="button"
                             className="btn btn-sm btn-success"
-                            disabled={busy}
+                            disabled={busy || gradeBlocked}
+                            title={gradeBlocked ? gradeReason : undefined}
                             onClick={() => handleReEnroll(entry)}
                           >
                             {busy ? t('common.processing') : t('my.reEnter')}
@@ -219,6 +242,16 @@ export default function MyEnrollmentsPage() {
                           {t('results.title')}
                         </Link>
                       </div>
+
+                      {gradeBlocked && (
+                        <div className="blocked-note">
+                          {confirmed
+                            ? t('my.entryGradeNotAllowed', {
+                                grade: label('grade.short', entry.grade),
+                              })
+                            : gradeReason}
+                        </div>
+                      )}
                     </div>
                   );
                 })}

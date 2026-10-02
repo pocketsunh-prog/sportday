@@ -33,6 +33,7 @@ Spring Boot 4.1 (Java 25) backend, Next.js 16 web app, MySQL 8.
 | 19 | Marks are recorded in **M** for a field event and **s** for a track one | `Event.EventType.getDefaultUnit()` |
 | 20 | A field event gives **three attempts**, and the best of them is the result | `EventResult.attempt1..3`, `MarkEntryService` |
 | 21 | An event runs **direct to a final** by default; only 60/100/200/400 can be split into heats and a final | `Event.directToFinal`, `FinalQualificationService` |
+| 22 | **Which grades may enter which events**, assigned on a page — by default C does not run the 1500M/5000M, nor B the 5000M | `EventGradeRule`, `GradeEligibilityService` |
 
 Events are also split by **sex division** (Boys / Girls), so each event is
 contested in exactly one division.
@@ -303,6 +304,45 @@ needs no separate step.
 A student is locked by disabling both their roster record and the account they sign
 in with, so the lock is enforced at sign-in and at entry, not just in the user
 interface. A locked account signing in gets a **403** saying why.
+
+### Which grades may enter which events
+
+Not every event is for everybody. Out of the box:
+
+| Grade | May enter |
+|-------|-----------|
+| A | everything — 38 events |
+| B | everything except the 5000M — 36 |
+| C | one fewer again: no 1500M, no 5000M — 34 |
+
+The sprints, the 800M, the hurdles, the relays and every field event are open to all
+three grades. Only the long distances are restricted.
+
+```
+GET  /api/grade-events                # the event-by-grade grid, with each grade's count
+PUT  /api/admin/grade-events          # [{eventType, grade, allowed}, …] — the cells that changed
+POST /api/admin/grade-events/reset    # back to the school's defaults
+```
+
+The rules are stored per **event type**, not per event: Boys 1500M and Girls 1500M
+are the same race in two divisions, so the school sets the rule once. A **missing
+rule means allowed**, so an event type added later is open to every grade until
+somebody says otherwise — and an event whose only rule is a refusal still reports all
+the *other* grades as allowed, rather than locking the race for everyone.
+
+The page shows how many events each grade ends up with, because that is the number a
+school checks against. Each event also carries `allowedGrades`, so the entry list can
+leave out what a student's grade cannot enter.
+
+Entry is refused server-side for a grade that is not allowed — including when an
+administrator enters a student on their behalf, so the rule cannot be worked around
+by doing it for them:
+
+> `C Grade does not enter Boys 1500M. The events open to that grade are on the entry list — the organiser sets this on the grade assignment page.`
+
+Changing a rule affects **who may enter from then on**. It does not remove entries
+already made, which is deliberate: a withdrawal is a decision for the school, not a
+side effect of editing a grid.
 
 ### School records
 
@@ -700,6 +740,9 @@ reported in `errors` while the good rows are still stored.
 | GET | `/api/events/past` | Authenticated | Events already held, most recent first |
 | GET | `/api/events/dates` | Public | Every date that has events, with its count |
 | GET | `/api/seasons` | Authenticated | Every school year, newest first, with its event count |
+| GET | `/api/grade-events` | Authenticated | The event-by-grade grid, with each grade's event count |
+| PUT | `/api/admin/grade-events` | Admin | Assign which grades may enter which events |
+| POST | `/api/admin/grade-events/reset` | Admin | Back to the school's starting rules |
 | GET | `/api/seasons/current` | Authenticated | The year students may enter |
 | POST | `/api/admin/seasons` | Admin | Set up a year, optionally copying a programme |
 | PUT | `/api/admin/seasons/{id}` | Admin | A year's date, name, notes, enrolment switch |
@@ -740,7 +783,7 @@ mvn clean compile     # wipe and build main sources
 mvn test              # run the tests against what was just built
 ```
 
-225 tests covering the grade bands and their boundaries, the password rule, thegroup sizes, sheet sizes and default units for every event type, the register
+238 tests covering the grade bands and their boundaries, the password rule, thegroup sizes, sheet sizes and default units for every event type, the register
 reader (headings, encodings, date spellings, BOM, quoted fields, bad rows), the
 sample generator's invariants, the marking-sheet PDFs — page size, page count, the
 five columns and glyph accuracy — the heat/final draw (track ranked fastest first,
@@ -758,7 +801,10 @@ pushing it onto a second page, every event type's unit (`s` for track, `M` for
 every field event), and the best of three field attempts — including a missed
 attempt being ignored, the first attempt winning, and the placings, results and
 records all reading the best — plus the old spelled-out unit being normalised, so a
-stored mark cannot drift back to words.
+stored mark cannot drift back to words, which events may be split into heats and a
+final (the default, the four splittable types, and a final needing both conditions),
+and grade eligibility (the starting rules, a missing rule meaning allowed, a cell
+being closed and reopened, and the grid counting each grade's events).
 
 > Run those as two commands. A single `mvn clean test` can fail with
 > `package com.sportday.entity does not exist` on Windows even though the classes
@@ -775,7 +821,7 @@ With the backend running:
 python backend/scripts/smoke_test.py
 ```
 
-341 checks over real HTTP: admin login, season reset, the event catalogue and its
+367 checks over real HTTP: admin login, season reset, the event catalogue and its
 group/sheet sizes, the event filters, the 600-student import, student login with
 the derived password, the 2-track/1-field quota including the refusals, heat
 allocation at 8 and 24 per group, CSV **and** XLSX register upload with row-level
@@ -802,8 +848,13 @@ student being refused sign-in and entry, unlocking, restoring a returning studen
 by re-uploading them, every field event reporting `M` and every track event `s`,
 three attempts saved and the best taken as the result (with a miss ignored, the
 first attempt winning, the placings and results agreeing, and clearing removing
-the whole set), and the whole-school print run. It resets the season first and
-cleans up after itself, so it can be run repeatedly. Artifacts go to `artifacts/`.
+the whole set), the direct-to-final default (only the four sprints splittable, a new
+event direct, a final refused until the box is unticked, an existing split left
+alone), grade eligibility (the C grade refused the 1500M and 5000M, the B grade the
+5000M, each grade's event count, an administrator bound by the same rule, reopening
+a cell letting the entry through, and the reset restoring the defaults), and the
+whole-school print run. It resets the season first and cleans up after itself, so it
+can be run repeatedly. Artifacts go to `artifacts/`.
 
 ---
 
@@ -904,6 +955,19 @@ It adds `events.direct_to_final` and preserves what each event is already doing:
 straight to a final. The column is deliberately added **without** a default first —
 `ADD COLUMN ... DEFAULT b'1'` fills existing rows immediately, so a backfill keyed
 on `IS NULL` would never match and every split sprint would silently become direct.
+
+Grade eligibility needs an eighth:
+
+```bash
+docker exec -i sportday-mysql mysql -usportday -psportday123 -D sportday \
+  < backend/db/migration/grade-eligibility-migration.sql
+```
+
+It creates `event_grade_rules` — one row per event type and grade — and opens
+everything to every grade except the long distances. The application seeds the same
+rules on start, so this script is only needed where `ddl-auto` is validate, or to
+apply the schema ahead of a deploy. Note the column names differ either side of the
+join: an event's type is `events.type` but `event_grade_rules.event_type`.
 
 A brand new database needs none of this.
 

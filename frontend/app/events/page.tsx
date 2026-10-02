@@ -10,6 +10,7 @@ import {
   EventCategory,
   EventDateDTO,
   EventDTO,
+  gradeMayEnterEvent,
   QuotaDTO,
   SeasonDTO,
   SexCode,
@@ -36,6 +37,17 @@ export default function EventsPage() {
   const [events, setEvents] = useState<EventDTO[]>([]);
   const [quota, setQuota] = useState<QuotaDTO | null>(null);
   const [enrolledIds, setEnrolledIds] = useState<number[]>([]);
+  /**
+   * The signed-in student's grade, read from their own entries.
+   *
+   * `GET /users/me` carries no grade (`UserDTO` has age and gender only) and the
+   * quota does not either, so the grade is taken from the entries themselves:
+   * every `EnrollmentDTO` names the grade it was entered under, including the
+   * withdrawn ones. A student with no entries at all has no grade to read, and
+   * the programme is then shown in full — the server still refuses an event that
+   * grade may not enter, with its own message.
+   */
+  const [myGrade, setMyGrade] = useState('');
   const [sexFilter, setSexFilter] = useState<SexCode | ''>('');
   const [dateFilter, setDateFilter] = useState('');
   const [dates, setDates] = useState<EventDateDTO[]>([]);
@@ -123,6 +135,8 @@ export default function EventsPage() {
         // 徑項/田項 are split client-side from each event's own `category`
         // field, so one request covers both sections. The date and the school
         // year narrow the programme without replacing the division filter.
+        // The student's grade comes from their own profile, which reads it off the
+        // register — so it is right even before they have entered anything.
         const [list, quotaResult, mine] = await Promise.all([
           api.getEvents({
             onlyEnabled: true,
@@ -137,6 +151,7 @@ export default function EventsPage() {
         setEvents(list);
         setQuota(quotaResult);
         setEnrolledIds(mine.map(entry => entry.eventId));
+        setMyGrade(me?.role === 'STUDENT' ? me.grade ?? '' : '');
       } catch (err: any) {
         if (!cancelled) {
           setMessage({ kind: 'error', text: err?.message || t('events.loadFailed') });
@@ -208,6 +223,12 @@ export default function EventsPage() {
   const blockedReason = (event: EventDTO): string | null => {
     if (enrolledIds.includes(event.id)) return null;
     if (!event.enabled) return t('adminEvents.disabled');
+    // Which grades may enter the event is the organiser's rule, and the server
+    // refuses a grade that is not allowed with a 409; saying so up front is
+    // kinder than letting the click fail.
+    if (myGrade && !gradeMayEnterEvent(event, myGrade)) {
+      return t('events.gradeNotAllowed', { grade: label('grade.short', myGrade) });
+    }
     // A year whose entries are closed refuses every new entry with a 409; saying
     // so up front is kinder than letting the click fail.
     if (selectedSeason && !selectedSeason.enrollmentOpen) {
@@ -228,6 +249,19 @@ export default function EventsPage() {
       }
     }
     return null;
+  };
+
+  /** Whether the organiser's grade rule keeps this student out of the event. */
+  const gradeBlocked = (event: EventDTO): boolean =>
+    !!myGrade && !gradeMayEnterEvent(event, myGrade);
+
+  /** Which grades the event is open to, as the tooltip behind a blocked entry. */
+  const allowedGradesHint = (event: EventDTO): string | undefined => {
+    const allowed = event.allowedGrades;
+    if (!allowed || allowed.length === 0) return undefined;
+    return t('events.gradeNotAllowedHint', {
+      grades: allowed.map(grade => label('grade.short', grade)).join(' / '),
+    });
   };
 
   const byCategory = useMemo(() => {
@@ -395,6 +429,17 @@ export default function EventsPage() {
           </div>
         </div>
 
+        {isStudent && myGrade && (
+          <p className="muted">
+            {t('events.gradeSummary', {
+              grade: label('grade.short', myGrade),
+              allowed: events.filter(event => gradeMayEnterEvent(event, myGrade)).length,
+              total: events.length,
+            })}
+          </p>
+        )}
+        {isStudent && !myGrade && <p className="muted">{t('events.gradeUnknown')}</p>}
+
         {selectedSeason && !selectedSeason.enrollmentOpen && (
           <div className="blocked-note">
             {t('events.entriesClosedYear', { year: selectedSeason.year })}
@@ -427,12 +472,15 @@ export default function EventsPage() {
                 <div className="card-grid">
                   {list.map(event => {
                     const enrolled = enrolledIds.includes(event.id);
+                    const blocked = gradeBlocked(event);
                     const reason = blockedReason(event);
                     const busy = busyId === event.id;
                     return (
                       <div
                         key={event.id}
-                        className={`card event-card${event.enabled ? '' : ' card-disabled'}`}
+                        className={`card event-card${
+                          event.enabled && !blocked ? '' : ' card-disabled'
+                        }`}
                       >
                         <div className="flex justify-between items-center mb-2">
                           <h3>{event.name}</h3>
@@ -501,7 +549,11 @@ export default function EventsPage() {
                               type="button"
                               className="btn btn-sm btn-success"
                               disabled={busy || reason !== null}
-                              title={reason || undefined}
+                              title={
+                                [reason, blocked ? allowedGradesHint(event) : undefined]
+                                  .filter(Boolean)
+                                  .join(' — ') || undefined
+                              }
                               onClick={() => handleEnroll(event)}
                             >
                               {busy ? t('common.processing') : t('events.enter')}

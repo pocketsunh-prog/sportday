@@ -13,6 +13,7 @@ import com.sportday.repository.EventResultRepository;
 import com.sportday.repository.StudentRepository;
 import com.sportday.repository.UserRepository;
 import com.sportday.service.EventService;
+import com.sportday.service.GradeEligibilityService;
 import com.sportday.service.SeasonService;
 import com.sportday.service.SettingsService;
 import com.sportday.service.StudentService;
@@ -47,6 +48,7 @@ public class DataInitializer {
                                       EventResultRepository eventResultRepository,
                                       SettingsService settingsService,
                                       SeasonService seasonService,
+                                      GradeEligibilityService gradeEligibilityService,
                                       @Value("${app.events.seed-defaults:true}") boolean seedDefaults,
                                       @Value("${app.events.seed-event-date:}") String seedEventDate,
                                       @Value("${app.students.seed-sample-count:0}") int seedSampleCount) {
@@ -68,6 +70,10 @@ public class DataInitializer {
             // marking sheets only ever read it, and an administrator always has a row
             // to edit.
             settingsService.get();
+
+            // Which grades may enter which events, seeded once with the school's
+            // starting rules. An administrator's later changes are left alone.
+            gradeEligibilityService.seedDefaults();
 
             backfillLegacyEvents();
             backfillStages(eventGroupRepository, eventResultRepository);

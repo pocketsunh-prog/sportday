@@ -33,6 +33,7 @@ public class EventService {
     private final SettingsService settingsService;
     private final RecordService recordService;
     private final SeasonService seasonService;
+    private final GradeEligibilityService gradeEligibilityService;
 
     /**
      * The order a sports-day programme runs in: 徑項 before 田項, then the natural
@@ -350,8 +351,13 @@ public class EventService {
         dto.setGroupCount(eventGroupRepository.countByEventId(event.getId()));
         dto.setUngroupedCount(enrollmentRepository.countUngroupedByEvent(
                 event.getId(), Enrollment.EnrollmentStatus.CONFIRMED));
-        // The entry limit is a setting, not a constant, so it is filled in here.
+        // The entry limit and the grades that may enter are assigned, not constants,
+        // so they are filled in here.
         dto.setMaxEntriesPerStudent(settingsService.maxEntriesFor(event.getCategoryOrDefault()));
+        dto.setAllowedGrades(gradeEligibilityService.allowedGrades(event.getType()).stream()
+                .sorted()
+                .map(Enum::name)
+                .toList());
         return dto;
     }
 

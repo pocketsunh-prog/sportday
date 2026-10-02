@@ -130,7 +130,7 @@ export interface AuthResponse {
 export interface UserDTO {
   id: number;
   username: string;
-  email: string;
+  email?: string;
   fullName: string;
   age?: number;
   /** Sex code: `M` or `F` for students. */
@@ -138,6 +138,17 @@ export interface UserDTO {
   role: Role;
   enabled: boolean;
   createdAt: string;
+
+  /* ---- the roster record, present for a student account ---- */
+
+  /** The student id, which is also their username. */
+  studentRef?: string;
+  /** The grade the student competes in: `A`, `B` or `C`. */
+  grade?: string;
+  gradeLabel?: string;
+  className?: string;
+  classNumber?: number;
+  house?: string;
 }
 
 /* ------------------------------------------------------------------ *
@@ -189,12 +200,41 @@ export interface EventDTO {
    * every event, and always rendered through `label('unit', …)`.
    */
   defaultUnit?: string;
+  /**
+   * The grades that may enter this event, e.g. `["A", "B"]` for a 1500M and
+   * `["A"]` for a 5000M. An administrator assigns this on the grade
+   * assignment page (`/admin/grade-events`).
+   *
+   * Entry is enforced server-side: entering an event a grade may not enter is
+   * refused with a 409. The field is optional like every other collection the
+   * API omits when it has nothing to say, so a missing list means "not spelled
+   * out here" rather than "nobody may enter".
+   */
+  allowedGrades?: string[];
   enabled: boolean;
   createdAt: string;
   enrolledCount: number;
   groupCount: number;
   ungroupedCount: number;
   maxEntriesPerStudent: number;
+}
+
+/**
+ * Whether `grade` may enter `event`, from the event's own `allowedGrades`.
+ *
+ * A missing or empty list means the event does not spell its grades out, and it
+ * is treated as open: the server is the authority either way, and refusing to
+ * show an event on a field the response omitted would be worse than letting the
+ * entry be attempted and refused with the server's own message.
+ */
+export function gradeMayEnterEvent(
+  event: Pick<EventDTO, 'allowedGrades'>,
+  grade: string | null | undefined
+): boolean {
+  const allowed = event.allowedGrades;
+  if (!allowed || allowed.length === 0) return true;
+  if (!grade) return true;
+  return allowed.includes(grade);
 }
 
 export interface EventQuery {
@@ -722,6 +762,58 @@ export type SettingsUpdate = Partial<Omit<SettingsDTO, 'updatedAt'>>;
 
 export interface SettingsResetResultDTO extends SettingsDTO {
   message?: string;
+}
+
+/* ------------------------------------------------------------------ *
+ * Grade eligibility — which grades may enter which events
+ * ------------------------------------------------------------------ */
+
+/**
+ * One event type's row in the event-by-grade grid: the event, and which grades
+ * may enter it. `allowed` is keyed by grade name (`A`, `B`, `C`).
+ */
+export interface GradeEligibilityRowDTO {
+  /** Enum name, e.g. `RUN_1500M`. */
+  eventType: string;
+  /** e.g. `1500M`. */
+  eventTypeLabel: string;
+  category: EventCategory;
+  /** e.g. `徑項 Track`. */
+  categoryLabel: string;
+  allowed: Record<string, boolean>;
+}
+
+/**
+ * The whole grid, as `GET /api/grade-events` answers with it — and as the two
+ * admin endpoints answer with it after a change, so the page always re-renders
+ * the server's own counts.
+ */
+export interface GradeEligibilityDTO {
+  /** The grades the grid has columns for, in order: `A`, `B`, `C`. */
+  grades: string[];
+  /** One row per event type. */
+  events: GradeEligibilityRowDTO[];
+  /**
+   * How many events of the current programme each grade may enter, e.g.
+   * `{ A: 38, B: 36, C: 34 }` — the count against `totalEvents`.
+   */
+  allowedEventCounts: Record<string, number>;
+  /** How many events the programme holds altogether. */
+  totalEvents: number;
+}
+
+/** One changed cell of the grid, as sent to `PUT /api/admin/grade-events`. */
+export interface GradeEligibilityUpdate {
+  eventType: string;
+  grade: string;
+  allowed: boolean;
+}
+
+/** The reply of `POST /api/admin/grade-events/reset`. */
+export interface GradeEligibilityResetResultDTO {
+  /** How many rule rows the reset wrote. */
+  rulesCreated: number;
+  matrix: GradeEligibilityDTO;
 }
 
 /* ------------------------------------------------------------------ *
@@ -1529,6 +1621,39 @@ class ApiClient {
   /** Admin: restores the documented defaults. */
   async resetSettings(): Promise<SettingsResetResultDTO> {
     return this.request('/admin/settings/reset', { method: 'POST' });
+  }
+
+  /* ---------------- Grade eligibility ---------------- */
+
+  /**
+   * Which grades may enter which events — the assignment grid, with how many
+   * events each grade ends up with. Readable by any signed-in role.
+   */
+  async getGradeEvents(): Promise<GradeEligibilityDTO> {
+    return this.request('/grade-events');
+  }
+
+  /**
+   * Admin: assigns the grade rules. Send only the cells that changed, as
+   * `{ eventType, grade, allowed }`; the reply is the whole grid again, so the
+   * counts on screen are always the server's.
+   */
+  async updateGradeEvents(
+    updates: GradeEligibilityUpdate[]
+  ): Promise<GradeEligibilityDTO> {
+    return this.request('/admin/grade-events', {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    });
+  }
+
+  /**
+   * Admin: back to the school's starting position — everything open except the
+   * long distances: the C grade does not run the 1500M or 5000M, and only the A
+   * grade runs the 5000M.
+   */
+  async resetGradeEvents(): Promise<GradeEligibilityResetResultDTO> {
+    return this.request('/admin/grade-events/reset', { method: 'POST' });
   }
 
   /* ---------------- School records ---------------- */
