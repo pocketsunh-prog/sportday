@@ -1,6 +1,7 @@
 package com.sportday.config;
 
 import com.sportday.entity.Event;
+import com.sportday.entity.EventCategory;
 import com.sportday.entity.EventStage;
 import com.sportday.entity.Season;
 import com.sportday.entity.Sex;
@@ -70,6 +71,8 @@ public class DataInitializer {
 
             backfillLegacyEvents();
             backfillStages(eventGroupRepository, eventResultRepository);
+            normaliseUnits(eventResultRepository);
+            backfillDirectToFinal(eventRepository, eventGroupRepository);
 
             LocalDate seedDate = seedEventDate == null || seedEventDate.isBlank()
                     ? LocalDate.now() : LocalDate.parse(seedEventDate.trim());
@@ -114,6 +117,50 @@ public class DataInitializer {
         } catch (IllegalArgumentException ex) {
             // Already there — nothing to do.
             return seasonService.currentSeason();
+        }
+    }
+
+    /**
+     * Decides, once, whether each event runs straight to a final.
+     *
+     * <p>A new event does. An event that already exists keeps whatever it was
+     * doing: a 60/100/200/400 that has heats drawn was clearly being run as heats
+     * and a final, so it stays that way rather than losing a final the school has
+     * already set up. Everything else — including a distance event split into
+     * several sheets — is decided by its own run.</p>
+     */
+    private void backfillDirectToFinal(EventRepository eventRepository,
+                                       EventGroupRepository groupRepository) {
+        int changed = 0;
+        for (Event event : eventRepository.findAll()) {
+            if (event.getDirectToFinal() != null) {
+                continue;
+            }
+            boolean alreadySplit = event.mayHaveFinal()
+                    && groupRepository.countByEventId(event.getId()) > 0;
+            event.setDirectToFinal(!alreadySplit);
+            eventRepository.save(event);
+            changed++;
+        }
+        if (changed > 0) {
+            log.info("Decided the final format for {} event(s): the ones already split keep their "
+                    + "heats and final, the rest run straight to a final", changed);
+        }
+    }
+
+    /**
+     * Marks carry the unit they were recorded in. That used to be the spelled-out
+     * "metres" and "seconds"; a programme writes {@code M} and {@code s}, so what
+     * is already stored is rewritten once and any later drift (a helper typing
+     * "metres" by hand) is cleaned up on the next start.
+     */
+    private void normaliseUnits(EventResultRepository resultRepository) {
+        int field = resultRepository.normaliseUnits(EventCategory.FIELD,
+                java.util.List.of("metres", "metre", "m"), Event.EventType.UNIT_FIELD);
+        int track = resultRepository.normaliseUnits(EventCategory.TRACK,
+                java.util.List.of("seconds", "second", "sec", "s"), Event.EventType.UNIT_TRACK);
+        if (field > 0 || track > 0) {
+            log.info("Shortened the unit on {} field and {} track mark(s) to M and s", field, track);
         }
     }
 

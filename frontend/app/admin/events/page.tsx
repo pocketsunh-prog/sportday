@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { api, EventCategory, EventDateDTO, EventDTO, SeasonDTO, SexCode } from '@/lib/api';
+import { api, defaultUnitForCategory, EventCategory, EventDateDTO, EventDTO, SeasonDTO, SexCode } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { formatDate } from '@/lib/format';
 import { useI18n } from '@/lib/i18n';
@@ -363,6 +363,8 @@ export default function AdminEventsPage() {
                   <th>{t('events.date')}</th>
                   <th>{t('events.groupSize')}</th>
                   <th>{t('events.sheet')}</th>
+                  <th>{t('events.format')}</th>
+                  <th>{t('marks.unit')}</th>
                   <th>{t('events.entries')}</th>
                   <th>{t('admin.colStatus')}</th>
                   <th>{t('common.actions')}</th>
@@ -406,6 +408,23 @@ export default function AdminEventsPage() {
                     <td>{formatDate(event.eventDate)}</td>
                     <td>{event.groupSize}</td>
                     <td>{label('sheet', event.sheetSize)}</td>
+                    <td>
+                      {/* The shape of the programme at a glance: an event is
+                          decided by its own run unless it was split into heats
+                          and a final. */}
+                      <span
+                        className={
+                          event.directToFinal !== false ? 'badge badge-info' : 'badge badge-warning'
+                        }
+                      >
+                        {event.directToFinal !== false
+                          ? t('events.directToFinal')
+                          : t('events.heatsAndFinal')}
+                      </span>
+                    </td>
+                    <td>
+                      {label('unit', event.defaultUnit || defaultUnitForCategory(event.category))}
+                    </td>
                     <td>
                       {event.enrolledCount} / {event.maxParticipants}
                       {event.groupCount > 0 && (

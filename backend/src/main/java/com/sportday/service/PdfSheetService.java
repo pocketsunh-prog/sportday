@@ -14,6 +14,7 @@ import com.lowagie.text.pdf.PdfPTable;
 import com.lowagie.text.pdf.PdfWriter;
 import com.sportday.dto.EnrollmentDTO;
 import com.sportday.dto.EventGroupDTO;
+import com.sportday.entity.Event;
 import com.sportday.entity.SportDaySettings;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -165,26 +166,52 @@ public class PdfSheetService {
         metaLine2.setSpacingAfter(a5 ? 6f : 8f);
         document.add(metaLine2);
 
-        // ---- the five columns ----
-        PdfPTable table = new PdfPTable(5);
+        // ---- the columns ----
+        // A field event gives three attempts and the best one counts, so its sheet
+        // carries three boxes under one Record heading instead of one.
+        boolean field = "FIELD".equals(group.getCategory());
+        int attempts = field ? Event.EventType.FIELD_ATTEMPTS : 1;
+        int columns = 3 + attempts + 1;
+        PdfPTable table = new PdfPTable(columns);
         table.setWidthPercentage(100f);
-        // student id | name | grade | record | remark
-        table.setWidths(a5
-                ? new float[]{2.1f, 2.7f, 1.0f, 2.0f, 2.0f}
-                : new float[]{2.2f, 3.0f, 0.9f, 2.0f, 1.9f});
-        table.setHeaderRows(1);
+        // student id | name | grade | record (1..n) | remark
+        if (field) {
+            table.setWidths(a5
+                    ? new float[]{1.9f, 2.4f, 0.8f, 1.05f, 1.05f, 1.05f, 1.75f}
+                    : new float[]{2.0f, 2.7f, 0.8f, 1.1f, 1.1f, 1.1f, 1.7f});
+        } else {
+            table.setWidths(a5
+                    ? new float[]{2.1f, 2.7f, 1.0f, 2.0f, 2.0f}
+                    : new float[]{2.2f, 3.0f, 0.9f, 2.0f, 1.9f});
+        }
+        table.setHeaderRows(field ? 2 : 1);
 
-        table.addCell(headerCell("學號", "Student ID", headFont, metaFont, a5));
-        table.addCell(headerCell("姓名", "Name", headFont, metaFont, a5));
-        table.addCell(headerCell("級別", "Grade", headFont, metaFont, a5));
-        table.addCell(headerCell("成績", "Record", headFont, metaFont, a5));
-        table.addCell(headerCell("備註", "Remark", headFont, metaFont, a5));
+        String unit = unitFor(group);
+        if (field) {
+            // First header row: the three shared columns span both rows, and the
+            // Record heading spans its three attempt boxes.
+            table.addCell(headerCell("學號", "Student ID", headFont, metaFont, a5, 1, 2));
+            table.addCell(headerCell("姓名", "Name", headFont, metaFont, a5, 1, 2));
+            table.addCell(headerCell("級別", "Grade", headFont, metaFont, a5, 1, 2));
+            table.addCell(headerCell("成績 Record" + (unit == null ? "" : " (" + unit + ")"),
+                    null, headFont, metaFont, a5, attempts, 1));
+            table.addCell(headerCell("備註", "Remark", headFont, metaFont, a5, 1, 2));
+            for (int attempt = 1; attempt <= attempts; attempt++) {
+                table.addCell(headerCell(String.valueOf(attempt), null, headFont, metaFont, a5, 1, 1));
+            }
+        } else {
+            table.addCell(headerCell("學號", "Student ID", headFont, metaFont, a5));
+            table.addCell(headerCell("姓名", "Name", headFont, metaFont, a5));
+            table.addCell(headerCell("級別", "Grade", headFont, metaFont, a5));
+            table.addCell(headerCell("成績", "Record", headFont, metaFont, a5));
+            table.addCell(headerCell("備註", "Remark", headFont, metaFont, a5));
+        }
 
         List<EnrollmentDTO> athletes = group.getAthletes() == null ? List.of() : group.getAthletes();
         // Pad out to the group's capacity so a late entry can still be written in.
         int rows = Math.max(athletes.size(), group.getCapacity() == null ? athletes.size() : group.getCapacity());
 
-        float rowHeight = rowHeight(pageSize, margin, a5, rows);
+        float rowHeight = rowHeight(pageSize, margin, a5, rows, field);
 
         for (int i = 0; i < rows; i++) {
             EnrollmentDTO athlete = i < athletes.size() ? athletes.get(i) : null;
@@ -194,7 +221,9 @@ public class PdfSheetService {
                     cellFont, Element.ALIGN_LEFT, rowHeight, a5));
             table.addCell(bodyCell(athlete == null || athlete.getGrade() == null ? "" : athlete.getGrade(),
                     cellFont, Element.ALIGN_CENTER, rowHeight, a5));
-            table.addCell(bodyCell("", cellFont, Element.ALIGN_CENTER, rowHeight, a5));
+            for (int attempt = 0; attempt < attempts; attempt++) {
+                table.addCell(bodyCell("", cellFont, Element.ALIGN_CENTER, rowHeight, a5));
+            }
             table.addCell(bodyCell("", cellFont, Element.ALIGN_LEFT, rowHeight, a5));
         }
         document.add(table);
@@ -207,8 +236,9 @@ public class PdfSheetService {
     }
 
     /** Chooses a row height that fills the sheet without overflowing the page. */
-    private float rowHeight(Rectangle pageSize, float margin, boolean a5, int rows) {
-        float headerBlock = a5 ? 96f : 122f;
+    private float rowHeight(Rectangle pageSize, float margin, boolean a5, int rows, boolean field) {
+        // A field sheet has a two-row header, so it starts a little lower.
+        float headerBlock = a5 ? (field ? 108f : 96f) : (field ? 136f : 122f);
         float footerBlock = a5 ? 24f : 30f;
         float usable = pageSize.getHeight() - (2 * margin) - headerBlock - footerBlock;
         float ideal = rows <= 0 ? 18f : usable / rows;
@@ -217,17 +247,42 @@ public class PdfSheetService {
         return Math.max(min, Math.min(max, ideal));
     }
 
+    /** The unit this group's marks are recorded in, for the Record heading. */
+    private static String unitFor(EventGroupDTO group) {
+        if ("FIELD".equals(group.getCategory())) {
+            return Event.EventType.UNIT_FIELD;
+        }
+        if ("TRACK".equals(group.getCategory())) {
+            return Event.EventType.UNIT_TRACK;
+        }
+        return null;
+    }
+
     private PdfPCell headerCell(String zh, String en, Font zhFont, Font enFont, boolean a5) {
+        return headerCell(zh, en, zhFont, enFont, a5, 1, 1);
+    }
+
+    /** A header cell that may span several columns or rows, for a field sheet. */
+    private PdfPCell headerCell(String zh, String en, Font zhFont, Font enFont, boolean a5,
+                                int colspan, int rowspan) {
         Phrase phrase = new Phrase();
         phrase.add(new Chunk(zh, zhFont));
-        phrase.add(Chunk.NEWLINE);
-        phrase.add(new Chunk(en, enFont));
+        if (en != null) {
+            phrase.add(Chunk.NEWLINE);
+            phrase.add(new Chunk(en, enFont));
+        }
         PdfPCell cell = new PdfPCell(phrase);
         cell.setHorizontalAlignment(Element.ALIGN_CENTER);
         cell.setVerticalAlignment(Element.ALIGN_MIDDLE);
         cell.setPadding(a5 ? 3f : 4f);
         cell.setMinimumHeight(a5 ? 22f : 26f);
         cell.setBackgroundColor(new java.awt.Color(232, 232, 232));
+        if (colspan > 1) {
+            cell.setColspan(colspan);
+        }
+        if (rowspan > 1) {
+            cell.setRowspan(rowspan);
+        }
         return cell;
     }
 

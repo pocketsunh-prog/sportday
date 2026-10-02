@@ -62,13 +62,54 @@ export function eventTypeCategory(type: string): EventCategory {
   return EVENT_TYPE_OPTIONS.find(option => option.value === type)?.category || 'TRACK';
 }
 
+/**
+ * How an event is measured: `M` for the field events and `s` for the track.
+ * This is the rule the backend applies to `EventDTO.defaultUnit`, and it stands
+ * in for it on the responses that do not spell the unit out (an enrollment, for
+ * instance, carries only its category).
+ */
+export function defaultUnitForCategory(category: EventCategory): string {
+  return category === 'FIELD' ? 'M' : 's';
+}
+
+/**
+ * A field result's attempts on one line, e.g. `8.20 / – / 9.90`.
+ *
+ * A miss arrives as an explicit `null` and renders as a dash; an attempt that
+ * was never taken is left off the end altogether. An empty or missing list
+ * renders as nothing at all, which is what a track result wants.
+ */
+export function formatAttempts(attempts?: Array<number | null> | null): string {
+  if (!attempts || attempts.length === 0) return '';
+  return attempts.map(attempt => (attempt === null || attempt === undefined ? '–' : String(attempt))).join(' / ');
+}
+
+/**
+ * The only event types a school may split into heats and a final: the four
+ * short sprints. Every other type — every field event, the 800M / 1500M /
+ * 5000M, the hurdles and the relays — is decided by its own run.
+ *
+ * This is the rule behind `EventDTO.mayHaveFinal`.
+ */
+export const FINAL_EVENT_TYPES: ReadonlyArray<string> = [
+  'RUN_60M',
+  'RUN_100M',
+  'RUN_200M',
+  'RUN_400M',
+];
+
+/** Whether `type` may be run as heats and a final (`EventDTO.mayHaveFinal`). */
+export function mayHaveFinalForType(type: string): boolean {
+  return FINAL_EVENT_TYPES.includes(type);
+}
+
 /** Suggested group size / sheet size / sprint flag for a given event type. */
 export function sheetDefaultsForType(type: string): {
   groupSize: number;
   sheetSize: SheetSize;
   shortSprint: boolean;
 } {
-  const isShortSprint = ['RUN_60M', 'RUN_100M', 'RUN_200M', 'RUN_400M'].includes(type);
+  const isShortSprint = mayHaveFinalForType(type);
   return isShortSprint
     ? { groupSize: 8, sheetSize: 'A5', shortSprint: true }
     : { groupSize: 24, sheetSize: 'A4', shortSprint: false };
@@ -130,6 +171,24 @@ export interface EventDTO {
   groupSize: number;
   shortSprint: boolean;
   sheetSize: SheetSize;
+  /**
+   * True when the event is decided by its own run, with no final. Every new
+   * event defaults to this, and only the four short sprints may turn it off —
+   * see `mayHaveFinal`. A direct-to-final event may still have groups drawn,
+   * but those only split the field across the marking sheets.
+   */
+  directToFinal: boolean;
+  /**
+   * True only for 60M / 100M / 200M / 400M, i.e. whether `directToFinal` may be
+   * unticked at all. Every other type must run straight to a final, and the
+   * server refuses a final for it with a 400 (or a 409 on the final endpoints).
+   */
+  mayHaveFinal: boolean;
+  /**
+   * How the event is measured: `M` in the field, `s` on the track. Populated on
+   * every event, and always rendered through `label('unit', …)`.
+   */
+  defaultUnit?: string;
   enabled: boolean;
   createdAt: string;
   enrolledCount: number;
@@ -191,6 +250,12 @@ export interface EnrollmentDTO {
   groupLabel?: string | null;
   lane?: number | null;
   sheetSize: SheetSize;
+  /**
+   * How the event is measured (`M` / `s`), when the response spells it out.
+   * An enrollment does not always carry it, so fall back to
+   * `defaultUnitForCategory(entry.category)`, which is the same rule.
+   */
+  defaultUnit?: string;
   /** Numeric student primary key. */
   studentId: number;
   userId?: number;
@@ -327,8 +392,16 @@ export interface EventResultDTO {
   fullName: string;
   eventId: number;
   eventName: string;
+  /** The best mark. For a field event that is the best of `attempts`. */
   mark: number;
+  /** `M` in the field, `s` on the track. */
   unit?: string;
+  /**
+   * A field event's attempts, in order. A miss arrives as an explicit `null`, so
+   * the positions line up; an attempt that was never taken is left off the end.
+   * A track result carries no list at all.
+   */
+  attempts?: Array<number | null>;
   notes?: string;
   /** Which sheet the mark was recorded on. */
   stage?: MarkStage;
@@ -355,8 +428,16 @@ export interface MarkRowDTO {
   groupLabel?: string;
   lane?: number;
   resultId?: number;
+  /** The best mark. For a field event that is the best of `attempts`. */
   mark?: number;
+  /** `M` in the field, `s` on the track. */
   unit?: string;
+  /**
+   * A field event's attempts, in order. A miss arrives as an explicit `null`, so
+   * the positions line up; an attempt that was never taken is left off the end.
+   * A track row carries no list at all.
+   */
+  attempts?: Array<number | null>;
   notes?: string;
 }
 
@@ -388,7 +469,12 @@ export interface MarkSheetDTO {
   finalDrawn: boolean;
   /** How many athletes go through, e.g. 8. */
   finalSize: number;
+  /** `M` in the field, `s` on the track. */
   defaultUnit?: string;
+  /** How many attempts a row on this sheet carries: 3 in the field, 1 on the track. */
+  attemptCount?: number;
+  /** True when this is a field event, i.e. when the three attempts count. */
+  fieldEvent?: boolean;
   groups: MarkGroupOption[];
   grades: string[];
   totalAthletes: number;
@@ -399,7 +485,13 @@ export interface MarkSheetDTO {
 /** One row sent back to the server when the grid is saved. */
 export interface MarkEntryInput {
   userId: number;
+  /** The single mark a track row is recorded with. */
   mark?: number | null;
+  /**
+   * A field row's attempts, in order, of which the server keeps the best. A miss
+   * is `null`, and the last attempt may simply be left off rather than padded.
+   */
+  attempts?: Array<number | null> | null;
   unit?: string | null;
   notes?: string | null;
   clear?: boolean;
@@ -695,7 +787,7 @@ export interface RecordDTO {
 /** The body of `PUT /admin/records/{recordId}` — an administrator's typed-in mark. */
 export interface RecordBaselineInput {
   mark: number;
-  /** Defaults to seconds on the track and metres in the field. */
+  /** Defaults to `s` on the track and `M` in the field. */
   unit?: string | null;
   /** Free text: a record may be held by a student who has left. */
   holderName?: string | null;
@@ -1327,9 +1419,10 @@ class ApiClient {
   }
 
   /**
-   * Saves the whole grid at once. Rows carrying a mark are stored, rows flagged
-   * `clear` have the mark removed, and rows with no mark are left untouched.
-   * `stage` decides whether the rows land on the heats or on the final.
+   * Saves the whole grid at once. Rows carrying a mark — or, in the field, a set
+   * of attempts — are stored, rows flagged `clear` have the whole result removed
+   * (attempts included), and rows with no mark are left untouched. `stage`
+   * decides whether the rows land on the heats or on the final.
    */
   async saveMarks(
     eventId: number,
@@ -1343,6 +1436,13 @@ class ApiClient {
   }
 
   /* ---------------- Final (short sprints) ---------------- */
+
+  /*
+   * All three of these answer with a 409 whose message is worth showing as it
+   * stands when the event is set to run direct to a final, and again when its
+   * type cannot have a final at all (`mayHaveFinal` is false). A direct-to-final
+   * event still has heats, but never a final.
+   */
 
   /**
    * Who would qualify for the final, ranked by heat mark. Changes nothing, so

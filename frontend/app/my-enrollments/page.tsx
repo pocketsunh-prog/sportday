@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { api, EnrollmentDTO, EventCategory } from '@/lib/api';
+import { api, defaultUnitForCategory, EnrollmentDTO, EventCategory } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { formatDate } from '@/lib/format';
 import { useI18n } from '@/lib/i18n';
@@ -162,6 +162,10 @@ export default function MyEnrollmentsPage() {
                         <div>
                           <strong>{t('events.sheet')}:</strong>{' '}
                           <span className="badge badge-info">{label('sheet', entry.sheetSize)}</span>
+                        </div>
+                        <div>
+                          <strong>{t('marks.unit')}:</strong>{' '}
+                          {label('unit', entry.defaultUnit || defaultUnitForCategory(entry.category))}
                         </div>
                         <div>
                           <strong>{t('my.heat')}:</strong>{' '}

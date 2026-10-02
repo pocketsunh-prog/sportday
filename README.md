@@ -30,6 +30,9 @@ Spring Boot 4.1 (Java 25) backend, Next.js 16 web app, MySQL 8.
 | 16 | The programme can be **viewed by date**, and an event edited from there | `GET /api/events/dates`, `?date=` |
 | 17 | The admin uploads **all students every year**; anyone not on the list is **locked** | `StudentService.importStudents`, `Student.enabled` |
 | 18 | **One sport day per school year**, with the school's details and an enrolment switch; past years browsable and editable | `Season`, `SeasonService`, `SportDaySettings.schoolName` |
+| 19 | Marks are recorded in **M** for a field event and **s** for a track one | `Event.EventType.getDefaultUnit()` |
+| 20 | A field event gives **three attempts**, and the best of them is the result | `EventResult.attempt1..3`, `MarkEntryService` |
+| 21 | An event runs **direct to a final** by default; only 60/100/200/400 can be split into heats and a final | `Event.directToFinal`, `FinalQualificationService` |
 
 Events are also split by **sex division** (Boys / Girls), so each event is
 contested in exactly one division.
@@ -197,14 +200,29 @@ means anything.
 
 ### Heats and the final (60 / 100 / 200 / 400)
 
-The short sprints are run in two stages. Everyone runs a heat, the marks are
-recorded, and the **fastest eight go through to the final**.
+An event is **decided by its own run** unless the school asks for heats and a
+final. That is the default, and what most of a school day is: everybody competes
+once and that is the result. Each event carries a **direct to final** check box,
+ticked by default.
+
+Only **60M, 100M, 200M and 400M** may be unticked. Every other event — every field
+event, the 800M and above, the hurdles, the relays — is run straight to a final and
+cannot be asked for one; the request is refused with the reason rather than quietly
+ignored.
+
+A direct-to-final event may still have **groups drawn**: that is how a large field
+is split across several marking sheets. What it does not have is a final. So the
+800M can be printed as three sheets of 24 and still be one race decided by time.
 
 ```
-POST /api/events/2/final        # draw (or re-draw) the final from the heat marks
-GET  /api/events/2/final        # who would qualify right now — changes nothing
-DELETE /api/events/2/final      # remove the final and the marks recorded in it
+POST   /api/events/2/final        # draw (or re-draw) — refused unless the event is split
+GET    /api/events/2/final        # who would qualify — likewise
+DELETE /api/events/2/final        # remove the final and the marks recorded in it
+PUT    /api/events/2              # {"directToFinal": false} to allow a final
 ```
+
+The short sprints are run in two stages. Everyone runs a heat, the marks are
+recorded, and the **fastest eight go through to the final**.
 
 Ranking follows the event: a **track** event is ordered fastest first, a **field**
 event longest or highest first, and ties are broken by student id so the same
@@ -408,11 +426,45 @@ password. Asking for the `STUDENT` role here is refused with a message saying so
 
 ### Marking sheets
 
-One sheet per heat or final, with five columns: **student id / name / grade /
-record / remark**. The record and remark columns are left blank for the helper.
-The sheet is padded out to the group size, so a late entry still has a line, and
-a final's sheet is headed `組別 Group: Final … 決賽 Final` so it cannot be mistaken
-for another heat.
+One sheet per heat or final, with **student id / name / grade / record / remark**.
+The record and remark columns are left blank for the helper. The sheet is padded
+out to the group size, so a late entry still has a line, and a final's sheet is
+headed `組別 Group: Final … 決賽 Final` so it cannot be mistaken for another heat.
+
+A **field** sheet gets three attempt boxes under one `成績 Record (M)` heading
+instead of a single record column, because a field event gives three attempts and
+the best counts. A track sheet keeps its single column, headed in seconds.
+
+### Units and attempts
+
+Marks are written the way an athletics programme writes them: **`M`** for a field
+event (a distance or a height) and **`s`** for a track one (a time). The unit is
+carried on the event itself, so the entry page and the mark-entry grid both show
+it without anyone typing it per athlete. Marks recorded before the units were
+shortened are rewritten once on the next start.
+
+**A field event gives every athlete three attempts, and the best one becomes their
+result.** The attempts are kept as well as the best, so a marking sheet can be
+checked against the system afterwards.
+
+```jsonc
+// POST /api/events/9/marks — a field row, the second throw the best
+{ "stage": "HEAT",
+  "rows": [ { "userId": 61, "unit": "M", "attempts": [8.20, 11.45, 9.90] } ] }
+
+// POST /api/events/2/marks — a track row, a single time (unchanged)
+{ "stage": "HEAT", "rows": [ { "userId": 61, "mark": 12.34, "unit": "s" } ] }
+```
+
+A missed attempt is sent as `null` (or simply left off the end) and is **ignored
+rather than counted as zero**. The best of what is left becomes `mark`, which is
+what the placings, the school records and the championships all read — so an
+athlete is ranked on their best throw, and a record is set by it, with no special
+handling anywhere downstream.
+
+`GET /api/events/{id}/marks` reports `attemptCount` (3 for a field event, 1 for a
+track one) and `fieldEvent`, so the UI knows how many boxes to draw, and returns
+each row's `attempts` in order.
 
 ---
 
@@ -688,8 +740,7 @@ mvn clean compile     # wipe and build main sources
 mvn test              # run the tests against what was just built
 ```
 
-188 tests covering the grade bands and their boundaries, the password rule, the
-group sizes, sheet sizes and default units for every event type, the register
+225 tests covering the grade bands and their boundaries, the password rule, thegroup sizes, sheet sizes and default units for every event type, the register
 reader (headings, encodings, date spellings, BOM, quoted fields, bad rows), the
 sample generator's invariants, the marking-sheet PDFs — page size, page count, the
 five columns and glyph accuracy — the heat/final draw (track ranked fastest first,
@@ -703,7 +754,11 @@ copying a programme, activating one year closing the others, refusing to delete 
 year with events, and adopting events from before years existed) and locking
 (locking an account with the student, unlocking, keeping the history, and filtering
 the register), and the school's name and title heading a marking sheet without
-pushing it onto a second page.
+pushing it onto a second page, every event type's unit (`s` for track, `M` for
+every field event), and the best of three field attempts — including a missed
+attempt being ignored, the first attempt winning, and the placings, results and
+records all reading the best — plus the old spelled-out unit being normalised, so a
+stored mark cannot drift back to words.
 
 > Run those as two commands. A single `mvn clean test` can fail with
 > `package com.sportday.entity does not exist` on Windows even though the classes
@@ -720,7 +775,7 @@ With the backend running:
 python backend/scripts/smoke_test.py
 ```
 
-298 checks over real HTTP: admin login, season reset, the event catalogue and its
+341 checks over real HTTP: admin login, season reset, the event catalogue and its
 group/sheet sizes, the event filters, the 600-student import, student login with
 the derived password, the 2-track/1-field quota including the refusals, heat
 allocation at 8 and 24 per group, CSV **and** XLSX register upload with row-level
@@ -744,7 +799,10 @@ copying a programme into it, opening a past year closing the others, refusing
 entry once entries are closed while an admin can still add a late one, rehearsing a
 full-roster upload and seeing exactly who would be locked, applying it, a locked
 student being refused sign-in and entry, unlocking, restoring a returning student
-by re-uploading them, and the whole-school print run. It resets the season first and
+by re-uploading them, every field event reporting `M` and every track event `s`,
+three attempts saved and the best taken as the result (with a miss ignored, the
+first attempt winning, the placings and results agreeing, and clearing removing
+the whole set), and the whole-school print run. It resets the season first and
 cleans up after itself, so it can be run repeatedly. Artifacts go to `artifacts/`.
 
 ---
@@ -820,6 +878,32 @@ It creates `seasons`, adds `events.season_id`, and adds the school's own details
 (`school_name`, `school_name_zh`, `address`, `principal`, `sport_day_title`) to
 `sport_day_settings`. Events that predate years are adopted into the year of their
 own date on the next start, so the year picker is never empty.
+
+Field attempts need a sixth:
+
+```bash
+docker exec -i sportday-mysql mysql -usportday -psportday123 -D sportday \
+  < backend/db/migration/field-attempts-migration.sql
+```
+
+It adds `attempt_1`, `attempt_2` and `attempt_3` to `event_results` for a field
+athlete's three attempts, and rewrites the stored units to the short `M` and `s`.
+`mark` still holds the best attempt, so nothing downstream changes. The
+application also rewrites the units on start, so a database that misses the script
+still reads correctly — it only needs this one for the attempt columns.
+
+The direct-to-final flag needs a seventh:
+
+```bash
+docker exec -i sportday-mysql mysql -usportday -psportday123 -D sportday \
+  < backend/db/migration/direct-to-final-migration.sql
+```
+
+It adds `events.direct_to_final` and preserves what each event is already doing: a
+60/100/200/400 that has heats drawn keeps them and its final, everything else runs
+straight to a final. The column is deliberately added **without** a default first —
+`ADD COLUMN ... DEFAULT b'1'` fills existing rows immediately, so a backfill keyed
+on `IS NULL` would never match and every split sprint would silently become direct.
 
 A brand new database needs none of this.
 

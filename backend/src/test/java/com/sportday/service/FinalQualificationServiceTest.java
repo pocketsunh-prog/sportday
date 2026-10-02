@@ -76,6 +76,9 @@ class FinalQualificationServiceTest {
                 .groupSize(8)
                 .eventDate(LocalDate.of(2026, 11, 6))
                 .enabled(true)
+                // This event is being run as heats and a final; a new event would
+                // default to running straight to a final instead.
+                .directToFinal(false)
                 .build();
         when(eventRepository.findById(EVENT_ID)).thenReturn(Optional.of(event));
         when(groupRepository.findFirstByEventIdAndStage(EVENT_ID, EventStage.FINAL))
@@ -159,20 +162,33 @@ class FinalQualificationServiceTest {
     }
 
     @Test
-    @DisplayName("a field event puts the longest or highest first")
-    void fieldRanksFurthestFirst() {
+    @DisplayName("a field event is decided by its own run, so it has no final to draw")
+    void aFieldEventCannotHaveAFinal() {
+        // Every field event goes straight to a final: one attempt at each athlete's
+        // best throw or jump, and that is the result. Ranking a field event is the
+        // championship's job, not this one's.
         event.setType(Event.EventType.LONG_JUMP);
         event.setCategory(EventCategory.FIELD);
+        event.setDirectToFinal(false);
         record(1, "5.100");
         record(2, "7.200");
-        record(3, "6.050");
         givenHeatMarks();
 
-        var summary = service.preview(EVENT_ID, null);
+        IllegalStateException error = assertThrows(IllegalStateException.class,
+                () -> service.preview(EVENT_ID, null));
+        assertTrue(error.getMessage().contains("straight to a final"), error.getMessage());
+        assertThrows(IllegalStateException.class, () -> service.generate(EVENT_ID, null));
+    }
 
-        assertEquals(2L, summary.qualifiers().get(0).userId(), "7.200 is the best jump");
-        assertEquals(3L, summary.qualifiers().get(1).userId());
-        assertEquals(1L, summary.qualifiers().get(2).userId());
+    @Test
+    @DisplayName("a distance event is decided by its own run too")
+    void aDistanceEventCannotHaveAFinal() {
+        event.setType(Event.EventType.RUN_800M);
+        event.setDirectToFinal(false);
+        record(1, "150.000");
+        givenHeatMarks();
+
+        assertThrows(IllegalStateException.class, () -> service.generate(EVENT_ID, null));
     }
 
     @Test
@@ -245,6 +261,47 @@ class FinalQualificationServiceTest {
         IllegalStateException error = assertThrows(IllegalStateException.class,
                 () -> service.generate(EVENT_ID, null));
         assertTrue(error.getMessage().contains("heat"), error.getMessage());
+    }
+    @Test
+    @DisplayName("an event set to run straight to a final has no final to draw")
+    void drawingIsRefusedWhenTheEventIsDirectToFinal() {
+        event.setDirectToFinal(true);
+        givenHeatMarks();
+
+        IllegalStateException error = assertThrows(IllegalStateException.class,
+                () -> service.generate(EVENT_ID, null));
+        assertTrue(error.getMessage().contains("direct"), error.getMessage());
+        assertThrows(IllegalStateException.class, () -> service.preview(EVENT_ID, null),
+                "a preview would suggest a final that can never be drawn");
+        verify(groupRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("an event that cannot have a final is refused outright")
+    void drawingIsRefusedForAnEventThatCannotHaveAFinal() {
+        // An 800M is decided by its own run, whatever the flag says.
+        event.setType(Event.EventType.RUN_800M);
+        event.setDirectToFinal(false);
+        givenHeatMarks();
+
+        IllegalStateException error = assertThrows(IllegalStateException.class,
+                () -> service.generate(EVENT_ID, null));
+        assertTrue(error.getMessage().contains("straight to a final"), error.getMessage());
+    }
+
+    @Test
+    @DisplayName("unticking the box allows a final for a short sprint")
+    void untickingAllowsAFinal() {
+        event.setDirectToFinal(false);
+        for (int i = 1; i <= 10; i++) {
+            record(i, String.format("%.3f", 10.0 + i * 0.1));
+        }
+        givenHeatMarks();
+
+        var summary = service.generate(EVENT_ID, null);
+
+        assertTrue(summary.drawn());
+        assertEquals(8, summary.qualified());
     }
 
     @Test

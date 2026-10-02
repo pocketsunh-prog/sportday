@@ -9,6 +9,7 @@ import {
   EventSex,
   EVENT_TYPE_OPTIONS,
   eventTypeCategory,
+  mayHaveFinalForType,
   SheetSize,
   sheetDefaultsForType,
 } from '@/lib/api';
@@ -33,13 +34,26 @@ export default function EditEventPage() {
     sheetSize: 'A4' as SheetSize,
     maxEntriesPerStudent: 1,
     enabled: true,
+    directToFinal: true,
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  /**
+   * Whether the event already has heats, or a final, drawn. The format may
+   * still be changed, but a programme that has already been run is at stake.
+   */
+  const [hasDrawings, setHasDrawings] = useState(false);
 
   const eventId = Number(params.id);
+
+  /**
+   * The same rule the server applies: only the four short sprints may be split
+   * into heats and a final. It follows the type picked on this form, so the box
+   * locks itself the moment the type is changed to one that cannot have a final.
+   */
+  const mayHaveFinal = mayHaveFinalForType(form.type);
 
   useEffect(() => {
     api
@@ -59,7 +73,10 @@ export default function EditEventPage() {
           sheetSize: event.sheetSize,
           maxEntriesPerStudent: event.maxEntriesPerStudent,
           enabled: event.enabled,
+          directToFinal: event.directToFinal !== false,
         });
+        // `groupCount` counts the heats and, where one was drawn, the final.
+        setHasDrawings((event.groupCount || 0) > 0);
       })
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
@@ -78,6 +95,8 @@ export default function EditEventPage() {
       if (name === 'type') {
         next.category = eventTypeCategory(value);
         Object.assign(next, sheetDefaultsForType(value));
+        // A type that cannot have a final is locked back to direct to a final.
+        if (!mayHaveFinalForType(value)) next.directToFinal = true;
       }
       return next;
     });
@@ -256,6 +275,28 @@ export default function EditEventPage() {
               </label>
             </div>
           </div>
+          <div className="form-group">
+            <label className="checkbox-line">
+              <input
+                name="directToFinal"
+                type="checkbox"
+                checked={form.directToFinal}
+                disabled={!mayHaveFinal}
+                onChange={handleChange}
+              />
+              {t('events.directToFinal')}
+            </label>
+            <p className="muted">{t('events.directToFinalHint')}</p>
+            {!mayHaveFinal && <p className="muted">{t('events.directToFinalForced')}</p>}
+          </div>
+          {/* Unticking the box on an event whose heats or final are already
+              drawn changes a programme that may already have been run. */}
+          {!form.directToFinal && hasDrawings && (
+            <p className="muted">
+              <span className="badge badge-warning">{t('events.heatsAndFinal')}</span>{' '}
+              {t('adminEvents.directToFinalWarning')}
+            </p>
+          )}
           <div className="flex gap-2 mt-2">
             <button type="submit" className="btn btn-primary" disabled={saving}>
               {saving ? t('common.saving') : t('common.saveChanges')}

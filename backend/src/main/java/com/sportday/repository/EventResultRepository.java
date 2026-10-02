@@ -48,6 +48,19 @@ public interface EventResultRepository extends JpaRepository<EventResult, Long> 
     int backfillNullStages(@Param("stage") EventStage stage);
 
     /**
+     * Rewrites stored units to the short form a programme uses — {@code M} for a
+     * field event, {@code s} for a track one. Marks recorded before the units were
+     * shortened say "metres" or "seconds", and a sheet should read one way.
+     */
+    @Modifying
+    @Transactional
+    @Query("update EventResult r set r.unit = :to "
+            + "where r.event.category = :category and lower(r.unit) in :from")
+    int normaliseUnits(@Param("category") com.sportday.entity.EventCategory category,
+                       @Param("from") java.util.Collection<String> from,
+                       @Param("to") String to);
+
+    /**
      * Every mark ever recorded in events of one type and division. A school record
      * spans every edition of the event, not just today's, so it is rebuilt from
      * these rather than from a single event.

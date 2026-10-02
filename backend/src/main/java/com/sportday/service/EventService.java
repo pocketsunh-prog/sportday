@@ -166,6 +166,9 @@ public class EventService {
                 .groupSize(eventDTO.getGroupSize() != null && eventDTO.getGroupSize() > 0
                         ? eventDTO.getGroupSize() : type.getDefaultGroupSize())
                 .enabled(eventDTO.getEnabled() == null || eventDTO.getEnabled())
+                // Direct to a final unless the school asks otherwise, and only an
+                // event that may have a final can be asked to.
+                .directToFinal(!requestedFinal(eventDTO, type))
                 // A new event joins the year the school is working on, so it lands
                 // in this year's programme rather than nowhere.
                 .season(eventDTO.getSeasonId() != null
@@ -208,6 +211,11 @@ public class EventService {
         if (eventDTO.getEnabled() != null) event.setEnabled(eventDTO.getEnabled());
         if (eventDTO.getSeasonId() != null) {
             event.setSeason(seasonService.find(eventDTO.getSeasonId()).orElse(null));
+        }
+        if (eventDTO.getDirectToFinal() != null) {
+            // Changing the type and the final flag together must be judged on the
+            // type the event will end up with, which is set above.
+            event.setDirectToFinal(!requestedFinal(eventDTO, event.getType()));
         }
 
         event.applyTypeDefaults();
@@ -282,6 +290,9 @@ public class EventService {
                         .maxParticipants(Event.DEFAULT_MAX_PARTICIPANTS)
                         .groupSize(type.getDefaultGroupSize())
                         .enabled(true)
+                        // The seeded programme runs straight to finals; the school
+                        // untickes the sprints it wants run as heats and a final.
+                        .directToFinal(true)
                         .season(seasonService.currentSeason())
                         .build());
                 // Every event has a record from the start, one per grade.
@@ -294,6 +305,27 @@ public class EventService {
 
     public static String defaultName(Event.EventType type, Sex sex) {
         return (sex == Sex.MALE ? "Boys " : "Girls ") + type.getDisplayName();
+    }
+
+    /**
+     * Whether the request asks for heats and a final.
+     *
+     * <p>A new event is direct to a final unless asked otherwise, and only
+     * 60M/100M/200M/400M can be asked — everything else, including every field
+     * event, is decided by its own run. Asking for a final on one of those is
+     * refused rather than quietly ignored, so the school knows why.</p>
+     */
+    private static boolean requestedFinal(EventDTO eventDTO, Event.EventType type) {
+        if (eventDTO.getDirectToFinal() == null || Boolean.TRUE.equals(eventDTO.getDirectToFinal())) {
+            return false;
+        }
+        if (type == null || !type.isShortSprint()) {
+            throw new IllegalArgumentException(
+                    (type == null ? "This event" : type.getDisplayName())
+                            + " is run straight to a final — only 60M, 100M, 200M and 400M can be "
+                            + "split into heats and a final.");
+        }
+        return true;
     }
 
     /**

@@ -260,6 +260,55 @@ class PdfSheetServiceTest {
         }
     }
 
+    @Test
+    @DisplayName("a field sheet gives three attempt boxes and names the unit")
+    void aFieldSheetHasThreeAttempts() throws Exception {
+        EventGroupDTO shot = EventGroupDTO.builder()
+                .id(9L)
+                .eventId(2L)
+                .eventName("Boys Shot Put")
+                .eventTypeLabel("Shot Put")
+                .category("FIELD")
+                .categoryLabel("田項 Field")
+                .sex("MALE")
+                .sexLabel("男 Boys")
+                .groupNumber(1)
+                .label("Heat 1")
+                .capacity(24)
+                .athleteCount(2)
+                .sheetSize("A4")
+                .athletes(List.of(athlete("S0001", "Chan Tai Man", "B"),
+                        athlete("S0002", "Lee Siu Ming", "A")))
+                .build();
+
+        byte[] pdf = service.renderSheets(List.of(shot));
+
+        try (PDDocument document = load(pdf)) {
+            assertEquals(1, document.getNumberOfPages(),
+                    "a bigger header must not push a field sheet onto a second page");
+            var box = document.getPage(0).getMediaBox();
+            assertTrue(Math.abs(box.getWidth() - 595) < 3 && Math.abs(box.getHeight() - 842) < 3,
+                    "a field event is not a short sprint, so it prints on A4");
+            String text = new org.apache.pdfbox.text.PDFTextStripper().getText(document);
+            assertTrue(text.contains("Record"),
+                    "the Record heading spans the three attempt boxes");
+            assertTrue(text.contains("(M)"),
+                    "and says the throws are measured in metres");
+        }
+    }
+
+    @Test
+    @DisplayName("a track sheet keeps its single record column")
+    void aTrackSheetHasOneRecord() throws Exception {
+        byte[] pdf = service.renderSheets(List.of(group("A5", 8, 1, sprintHeat())));
+
+        try (PDDocument document = load(pdf)) {
+            String text = new org.apache.pdfbox.text.PDFTextStripper().getText(document);
+            assertFalse(text.contains("(M)"),
+                    "a time is not measured in metres");
+        }
+    }
+
     /** Renders preview PNGs for eyeballing; skipped when a PDF renderer is unavailable. */
     @Test
     @DisplayName("writes preview PNGs of the A5 and A4 sheets")
@@ -275,8 +324,27 @@ class PdfSheetServiceTest {
         }
         writePreview("marking-sheet-A4.png", service.renderSheets(List.of(group("A4", 24, 1, heat24))));
 
+        // A field sheet, so the three attempt boxes can be eyeballed too.
+        List<EnrollmentDTO> field24 = new ArrayList<>();
+        for (int i = 1; i <= 24; i++) {
+            field24.add(athlete(String.format("S%04d", i),
+                    List.of("陳大文", "李小明", "黃詠詩", "張家俊", "劉美華", "何志強").get(i % 6),
+                    i % 3 == 0 ? "A" : (i % 2 == 0 ? "B" : "C")));
+        }
+        EventGroupDTO shot = EventGroupDTO.builder()
+                .id(9L).eventId(2L).eventName("Boys Shot Put").eventTypeLabel("Shot Put")
+                .category("FIELD").categoryLabel("田項 Field")
+                .sex("MALE").sexLabel("男 Boys")
+                .groupNumber(1).label("Heat 1")
+                .capacity(24).athleteCount(field24.size()).sheetSize("A4")
+                .athletes(field24)
+                .build();
+        writePreview("marking-sheet-field-A4.png", service.renderSheets(List.of(shot)));
+
         assertTrue(Files.exists(PREVIEW_DIR.resolve("marking-sheet-A5.png")));
         assertTrue(Files.exists(PREVIEW_DIR.resolve("marking-sheet-A4.png")));
+        assertTrue(Files.exists(PREVIEW_DIR.resolve("marking-sheet-field-A4.png")),
+                "a field sheet preview, so the three attempts can be checked");
     }
 
     static boolean rendererAvailable() {

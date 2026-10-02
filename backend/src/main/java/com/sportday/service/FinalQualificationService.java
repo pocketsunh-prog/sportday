@@ -98,6 +98,7 @@ public class FinalQualificationService {
     @Transactional(readOnly = true)
     public FinalSummary preview(Long eventId, Integer limit) {
         Event event = requireEvent(eventId);
+        requireAFinalIsPossible(event);
         int size = resolveSize(event, limit);
         List<Qualifier> ranked = rank(event);
         List<Qualifier> qualifiers = ranked.size() > size ? ranked.subList(0, size) : ranked;
@@ -118,6 +119,7 @@ public class FinalQualificationService {
     @Transactional
     public FinalSummary generate(Long eventId, Integer limit) {
         Event event = requireEvent(eventId);
+        requireAFinalIsPossible(event);
         int size = resolveSize(event, limit);
         List<Qualifier> ranked = rank(event);
         if (ranked.isEmpty()) {
@@ -291,6 +293,22 @@ public class FinalQualificationService {
     private Event requireEvent(Long eventId) {
         return eventRepository.findById(eventId)
                 .orElseThrow(() -> new ResourceNotFoundException("Event not found with id: " + eventId));
+    }
+
+    /**
+     * An event that is run straight to a final has no final to draw: everyone
+     * competes once and that is the result. Only 60M/100M/200M/400M can be run as
+     * heats and a final, and only once the school has asked for one.
+     */
+    private void requireAFinalIsPossible(Event event) {
+        if (!event.mayHaveFinal()) {
+            throw new IllegalStateException(event.getName() + " is run straight to a final. Only 60M, "
+                    + "100M, 200M and 400M can be split into heats and a final.");
+        }
+        if (event.isDirectToFinal()) {
+            throw new IllegalStateException("This event is set to run direct to a final, so there is "
+                    + "no final to draw. Untick \"direct to final\" on the event first.");
+        }
     }
 
     private com.sportday.entity.User enrollmentUser(Long eventId, Long userId) {

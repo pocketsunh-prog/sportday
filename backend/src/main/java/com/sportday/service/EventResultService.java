@@ -62,6 +62,9 @@ public class EventResultService {
         if (!enrollmentRepository.existsByUserIdAndEventId(userId, eventId)) {
             throw new IllegalStateException("User is not enrolled in this event");
         }
+        // The unit follows from the event, so "seconds" on a field event still ends
+        // up stored as the metres that event is measured in.
+        unit = event.getType() == null ? unit : event.getType().normaliseUnit(unit);
 
         EventResult result = resultRepository
                 .findByUserIdAndEventIdAndStage(userId, eventId, EventStage.HEAT)

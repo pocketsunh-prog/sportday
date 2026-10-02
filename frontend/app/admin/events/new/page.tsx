@@ -8,6 +8,7 @@ import {
   EventSex,
   EVENT_TYPE_OPTIONS,
   eventTypeCategory,
+  mayHaveFinalForType,
   SheetSize,
   sheetDefaultsForType,
 } from '@/lib/api';
@@ -31,9 +32,14 @@ export default function NewEventPage() {
     sheetSize: 'A5' as SheetSize,
     maxEntriesPerStudent: 1,
     enabled: true,
+    // Every new event runs straight to a final; only the short sprints may be
+    // split into heats and a final.
+    directToFinal: true,
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  const mayHaveFinal = mayHaveFinalForType(form.type);
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
@@ -49,6 +55,8 @@ export default function NewEventPage() {
       if (name === 'type') {
         next.category = eventTypeCategory(value);
         Object.assign(next, sheetDefaultsForType(value));
+        // A type that cannot have a final is locked back to direct to a final.
+        if (!mayHaveFinalForType(value)) next.directToFinal = true;
       }
       return next;
     });
@@ -194,6 +202,20 @@ export default function NewEventPage() {
                 {t('events.visibleToStudents')}
               </label>
             </div>
+          </div>
+          <div className="form-group">
+            <label className="checkbox-line">
+              <input
+                name="directToFinal"
+                type="checkbox"
+                checked={form.directToFinal}
+                disabled={!mayHaveFinal}
+                onChange={handleChange}
+              />
+              {t('events.directToFinal')}
+            </label>
+            <p className="muted">{t('events.directToFinalHint')}</p>
+            {!mayHaveFinal && <p className="muted">{t('events.directToFinalForced')}</p>}
           </div>
           <div className="flex gap-2 mt-2">
             <button type="submit" className="btn btn-primary" disabled={loading}>

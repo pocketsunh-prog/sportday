@@ -72,13 +72,21 @@ class EventTypeGroupingTest {
     @Test
     @DisplayName("track events default to seconds and field events to metres")
     void defaultUnits() {
-        assertEquals("seconds", Event.EventType.RUN_60M.getDefaultUnit());
-        assertEquals("seconds", Event.EventType.RUN_100M.getDefaultUnit());
-        assertEquals("seconds", Event.EventType.RUN_5000M.getDefaultUnit());
-        assertEquals("seconds", Event.EventType.HURDLES_110M.getDefaultUnit());
-        assertEquals("metres", Event.EventType.LONG_JUMP.getDefaultUnit());
-        assertEquals("metres", Event.EventType.SHOT_PUT.getDefaultUnit());
-        assertEquals("metres", Event.EventType.POLE_VAULT.getDefaultUnit());
+        // Written the way an athletics programme writes them, because that is what
+        // fits a marking-sheet column: s for a time, M for a distance or height.
+        assertEquals("s", Event.EventType.RUN_60M.getDefaultUnit());
+        assertEquals("s", Event.EventType.RUN_100M.getDefaultUnit());
+        assertEquals("s", Event.EventType.RUN_5000M.getDefaultUnit());
+        assertEquals("s", Event.EventType.HURDLES_110M.getDefaultUnit());
+        assertEquals("M", Event.EventType.LONG_JUMP.getDefaultUnit());
+        assertEquals("M", Event.EventType.SHOT_PUT.getDefaultUnit());
+        assertEquals("M", Event.EventType.POLE_VAULT.getDefaultUnit());
+        // Every field event measures in metres, without exception.
+        for (Event.EventType type : Event.EventType.values()) {
+            if (type.getCategory() == EventCategory.FIELD) {
+                assertEquals("M", type.getDefaultUnit(), type + " measures in metres");
+            }
+        }
     }
 
     @ParameterizedTest
@@ -86,7 +94,8 @@ class EventTypeGroupingTest {
     @DisplayName("every event type has a usable default unit")
     void everyTypeHasADefaultUnit(Event.EventType type) {
         String unit = type.getDefaultUnit();
-        assertTrue("seconds".equals(unit) || "metres".equals(unit), type + " has unit " + unit);
+        assertEquals(type.getCategory() == EventCategory.FIELD ? "M" : "s", unit,
+                type + " has unit " + unit);
     }
 
     @Test

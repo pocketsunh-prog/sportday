@@ -31,6 +31,13 @@ public class EnrollmentDTO {
     private String eventTypeLabel;
     private String category;
     private String categoryLabel;
+
+    /**
+     * The unit this event's marks are recorded in — {@code s} for a track event,
+     * {@code M} for a field one. Lets an entry page show the unit without looking
+     * the event up again.
+     */
+    private String defaultUnit;
     private String sex;
     private String sexLabel;
     private LocalDate eventDate;
@@ -91,7 +98,8 @@ public class EnrollmentDTO {
                     .sexLabel(event.getSex() == null ? null : event.getSex().getLabel())
                     .eventDate(event.getEventDate())
                     .location(event.getLocation())
-                    .sheetSize(event.isShortSprint() ? "A5" : "A4");
+                    .sheetSize(event.isShortSprint() ? "A5" : "A4")
+                    .defaultUnit(event.getType() == null ? null : event.getType().getDefaultUnit());
         }
 
         var user = enrollment.getUser();

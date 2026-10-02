@@ -90,6 +90,16 @@ const en = {
   'grade.short.C': 'C',
   'sheet.A5': 'A5',
   'sheet.A4': 'A4',
+  /*
+   * The units an athletics programme prints: `M` for the field events and `s`
+   * for the track. Both are short enough for a table cell.
+   */
+  'unit.M': 'M',
+  'unit.s': 's',
+  /*
+   * The words the API used to store. Kept as the rendering fallback for results
+   * and school records saved before the switch, which still carry them.
+   */
   'unit.seconds': 'seconds',
   'unit.metres': 'metres',
 
@@ -180,6 +190,10 @@ const en = {
   'marks.record': 'Record',
   'marks.remark': 'Remark',
   'marks.unit': 'Unit',
+  'marks.attempt': 'Attempt {n}',
+  'marks.best': 'Best',
+  'marks.fieldHint':
+    'Field event — three attempts each. Type them in order, leave a miss blank, and the best one counts.',
   'marks.marked': '{marked} of {total} recorded',
   'marks.saveAll': 'Save all marks',
   'marks.clearMark': 'Clear',
@@ -267,6 +281,8 @@ const en = {
   'adminEvents.groups': 'Heats',
   'adminEvents.delete': 'Delete',
   'adminEvents.deleteConfirm': 'Delete this event, its entries and its results?',
+  'adminEvents.directToFinalWarning':
+    'This event already has heats or a final drawn. Changing the format now affects a programme that may already have been run.',
 
   /* ---------------- groups / heats ---------------- */
   'groups.title': 'Heats',
@@ -358,6 +374,12 @@ const en = {
   'events.maxEntries': 'Max entries per student',
   'events.shortSprint': 'Short sprint (lane-based)',
   'events.lanesPhotoFinish': 'Lanes & photo-finish',
+  'events.directToFinal': 'Direct to final',
+  'events.directToFinalHint':
+    'The event is decided by its own run. Untick this to run heats and then a final.',
+  'events.directToFinalForced': 'Only 60M, 100M, 200M and 400M can be run as heats and a final.',
+  'events.heatsAndFinal': 'Heats + final',
+  'events.format': 'Format',
   'events.visibleToStudents': 'Visible to students',
   'events.event': 'Event',
   'events.backToEvent': 'Back to event',
@@ -408,7 +430,7 @@ const en = {
   'results.recordFailed': 'Failed to record the result',
   'results.selectAthlete': 'Select athlete',
   'results.markPlaceholder': 'e.g. 10.123',
-  'results.unitPlaceholder': 'e.g. seconds, metres',
+  'results.unitPlaceholder': 'e.g. s, M',
   'results.notesPlaceholder': 'Optional notes…',
   'results.tabEvent': 'By event',
   'results.tabPast': 'Past events',
@@ -842,6 +864,9 @@ const en = {
   'groups.downloadAllSheets': 'All heats PDF ({sheet})',
   'groups.loadingRosters': 'Loading heat rosters…',
   'groups.noGroupsHint': 'Use “Allocate groups” to lay out heats of {groupSize}.',
+  'groups.directToFinalNote':
+    'This event is run straight to a final, so there is no final to draw. Its groups are only there to split the field across the marking sheets.',
+  'groups.untickDirectToFinal': 'Untick “direct to final” on the event',
   'groups.allocatedSummary': '{athletes} athletes in {groups} heat(s)',
   'groups.downloadSheet': 'Download {sheet} PDF',
   'groups.noAthletes': 'No athletes in this heat yet.',
@@ -957,6 +982,9 @@ const zh: Record<keyof typeof en, string> = {
   'grade.short.C': 'C',
   'sheet.A5': 'A5',
   'sheet.A4': 'A4',
+  'unit.M': '米',
+  'unit.s': '秒',
+  /* Legacy unit words — see the note in the `en` block. */
   'unit.seconds': '秒',
   'unit.metres': '米',
 
@@ -1040,6 +1068,9 @@ const zh: Record<keyof typeof en, string> = {
   'marks.record': '成績',
   'marks.remark': '備註',
   'marks.unit': '單位',
+  'marks.attempt': '第 {n} 次',
+  'marks.best': '最佳',
+  'marks.fieldHint': '田項 — 每人三次試擲。依次輸入，失敗留空，以最佳成績為準。',
   'marks.marked': '已記錄 {marked} / {total}',
   'marks.saveAll': '儲存全部成績',
   'marks.clearMark': '清除',
@@ -1123,6 +1154,8 @@ const zh: Record<keyof typeof en, string> = {
   'adminEvents.groups': '分組',
   'adminEvents.delete': '刪除',
   'adminEvents.deleteConfirm': '確定刪除此項目、其報名及成績？',
+  'adminEvents.directToFinalWarning':
+    '此項目已分組或已抽決賽。現時更改賽制，會影響可能已經舉行的賽事程序。',
 
   'groups.title': '分組',
   'groups.allocate': '分組',
@@ -1208,6 +1241,11 @@ const zh: Record<keyof typeof en, string> = {
   'events.maxEntries': '每人最多報名項目',
   'events.shortSprint': '短跑（分線道）',
   'events.lanesPhotoFinish': '線道及終點攝影',
+  'events.directToFinal': '直接決賽',
+  'events.directToFinalHint': '此項目由自己一輪賽事決定成績。取消勾選即可先跑初賽，再跑決賽。',
+  'events.directToFinalForced': '只有 60M、100M、200M 及 400M 可分初賽及決賽。',
+  'events.heatsAndFinal': '初賽 + 決賽',
+  'events.format': '賽制',
   'events.visibleToStudents': '開放給學生',
   'events.event': '項目',
   'events.backToEvent': '返回項目',
@@ -1655,6 +1693,9 @@ const zh: Record<keyof typeof en, string> = {
   'groups.downloadAllSheets': '下載全部點名表 PDF（{sheet}）',
   'groups.loadingRosters': '載入運動員名單…',
   'groups.noGroupsHint': '按「分組」以每組 {groupSize} 人編排組別。',
+  'groups.directToFinalNote':
+    '此項目直接進行決賽，因此沒有決賽需要抽籤。分組只是為了把參賽者分到各張記錄表。',
+  'groups.untickDirectToFinal': '在項目設定中取消勾選「直接決賽」',
   'groups.allocatedSummary': '已編入 {athletes} 位運動員 · {groups} 組',
   'groups.downloadSheet': '下載 {sheet} PDF',
   'groups.noAthletes': '此組暫無運動員。',

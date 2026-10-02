@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   api,
+  defaultUnitForCategory,
   EnrollmentDTO,
   EventCategory,
   EventDateDTO,
@@ -471,6 +472,10 @@ export default function EventsPage() {
                           </div>
                           <div>
                             <strong>{t('events.sheet')}:</strong> {label('sheet', event.sheetSize)}
+                          </div>
+                          <div>
+                            <strong>{t('marks.unit')}:</strong>{' '}
+                            {label('unit', event.defaultUnit || defaultUnitForCategory(event.category))}
                           </div>
                           {event.groupCount > 0 && (
                             <div>

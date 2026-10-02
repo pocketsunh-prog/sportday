@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { api, EventResultDTO, EventDTO, EventStandingsDTO, SeasonDTO } from '@/lib/api';
+import { api, EventResultDTO, EventDTO, EventStandingsDTO, SeasonDTO, formatAttempts } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n';
 import { formatDate } from '@/lib/format';
@@ -166,6 +166,11 @@ export default function ResultsPage() {
                       <td>
                         <strong>{result.mark}</strong>
                         {result.newRecord && newRecordBadge}
+                        {/* A field result carries its three attempts; the mark
+                            above is the best of them. A track result has none. */}
+                        {formatAttempts(result.attempts) && (
+                          <div className="muted">{formatAttempts(result.attempts)}</div>
+                        )}
                       </td>
                       <td>{result.unit ? label('unit', result.unit) : '-'}</td>
                       <td>{result.notes || '-'}</td>

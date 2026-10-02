@@ -42,9 +42,23 @@ public class EventDTO {
 
     /** True when this event is laid out 8 to a group on an A5 marking sheet. */
     private Boolean shortSprint;
-
     /** {@code A5} or {@code A4} — the marking sheet paper size for this event. */
     private String sheetSize;
+
+    /**
+     * The unit this event is recorded in: {@code s} for a track event, {@code M}
+     * for a field one. What the entry page and the mark grid show next to the box.
+     */
+    private String defaultUnit;
+
+    /**
+     * True when the event is decided by its own run and no final is drawn. The
+     * default for a new event, and what most of a school day is.
+     */
+    private Boolean directToFinal;
+
+    /** True when this event may be run as heats and a final: only 60/100/200/400. */
+    private Boolean mayHaveFinal;
 
     private Boolean enabled;
     private LocalDateTime createdAt;
@@ -87,6 +101,9 @@ public class EventDTO {
                 .groupSize(event.getGroupSize())
                 .shortSprint(event.isShortSprint())
                 .sheetSize(event.isShortSprint() ? "A5" : "A4")
+                .defaultUnit(type == null ? null : type.getDefaultUnit())
+                .directToFinal(event.isDirectToFinal())
+                .mayHaveFinal(event.mayHaveFinal())
                 .enabled(event.getEnabled())
                 .createdAt(event.getCreatedAt())
                 .seasonId(event.getSeason() == null ? null : event.getSeason().getId())

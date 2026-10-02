@@ -68,6 +68,18 @@ public class Event {
     private Boolean enabled;
 
     /**
+     * True when the event is decided by its own run and no final is drawn.
+     *
+     * <p>This is the default: a school day mostly consists of events where
+     * everybody competes once and that is the result. Unticking it — which only
+     * 60M, 100M, 200M and 400M allow — turns the event into heats and then a final.
+     * Null reads as true, so rows written before the flag existed behave as a
+     * direct final rather than silently acquiring one.</p>
+     */
+    @Column(name = "direct_to_final")
+    private Boolean directToFinal;
+
+    /**
      * The school year this event belongs to. Null on events created before
      * seasons existed; the bootstrap assigns them to the year their date falls in.
      */
@@ -122,6 +134,34 @@ public class Event {
         return type != null && type.isShortSprint();
     }
 
+    /**
+     * True when this event is decided by its own run and no final is drawn. Null —
+     * a row from before the flag existed — reads as true, which is the default.
+     */
+    @Transient
+    public boolean isDirectToFinal() {
+        return !Boolean.FALSE.equals(directToFinal);
+    }
+
+    /**
+     * True when this event <em>may</em> be run as heats and a final. Only
+     * 60/100/200/400 can: everything else, including every field event, is decided
+     * by its own run.
+     */
+    @Transient
+    public boolean mayHaveFinal() {
+        return isShortSprint();
+    }
+
+    /**
+     * True when a final is actually in play — the event allows one and the school
+     * has asked for one.
+     */
+    @Transient
+    public boolean runsAFinal() {
+        return mayHaveFinal() && !isDirectToFinal();
+    }
+
     @Transient
     public EventCategory getCategoryOrDefault() {
         if (category != null) {
@@ -161,6 +201,23 @@ public class Event {
         /** Athletes per group for 800 and above, and for all field events. */
         public static final int DISTANCE_GROUP_SIZE = 24;
 
+        /** The unit a track mark is recorded in — seconds, as a programme writes it. */
+        public static final String UNIT_TRACK = "s";
+
+        /** The unit a field mark is recorded in — metres, as a programme writes it. */
+        public static final String UNIT_FIELD = "M";
+
+        /** How many attempts a field athlete gets; the best one is their result. */
+        public static final int FIELD_ATTEMPTS = 3;
+
+        /**
+         * Every spelling of a length or a time a caller might send, so it can be
+         * snapped to the event's own unit rather than stored as typed.
+         */
+        private static final java.util.List<String> LENGTH_OR_TIME_UNITS = java.util.List.of(
+                "m", "metre", "metres", "meter", "meters",
+                "s", "sec", "secs", "second", "seconds");
+
         private final String displayName;
         private final EventCategory category;
         private final boolean shortSprint;
@@ -190,12 +247,35 @@ public class Event {
         }
 
         /**
-         * The unit a mark is normally recorded in: track events are timed in
-         * seconds, field events are measured in metres. Pre-fills the
-         * mark-entry grid so a helper does not pick a unit for every athlete.
+         * The unit a mark is recorded in: a track event is timed in seconds, a
+         * field event is measured in metres. Written the way an athletics
+         * programme writes it — {@code s} and {@code M} — because that is what
+         * fits a marking sheet column and what a timekeeper expects to see.
          */
         public String getDefaultUnit() {
-            return category == EventCategory.FIELD ? "metres" : "seconds";
+            return category == EventCategory.FIELD ? UNIT_FIELD : UNIT_TRACK;
+        }
+
+        /**
+         * The unit a mark is stored in, whatever the caller sent.
+         *
+         * <p>The unit follows from the event — a track event is a time and a field
+         * event is a distance — so a client sending the spelled-out "seconds" or
+         * "metres", or the wrong one entirely, still ends up recorded the same way
+         * as everything else. Anything unrecognised is kept, so a school that
+         * measures something unusual is not overruled.</p>
+         */
+        public String normaliseUnit(String requested) {
+            if (requested == null || requested.isBlank()) {
+                return getDefaultUnit();
+            }
+            String lower = requested.trim().toLowerCase();
+            for (String known : LENGTH_OR_TIME_UNITS) {
+                if (known.equals(lower)) {
+                    return getDefaultUnit();
+                }
+            }
+            return requested.trim();
         }
 
         /**

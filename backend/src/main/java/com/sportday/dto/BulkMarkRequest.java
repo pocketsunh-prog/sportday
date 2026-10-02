@@ -43,7 +43,15 @@ public class BulkMarkRequest {
         /** The recorded mark; null means "nothing to save for this athlete". */
         private BigDecimal mark;
 
-        /** Blank falls back to the event's default unit (seconds or metres). */
+        /**
+         * A field athlete's attempts, in order. A missed attempt is left null or
+         * absent — the last attempt may simply be omitted rather than padded. The
+         * best of them becomes the mark, so a helper can fill in only what was
+         * thrown or jumped.
+         */
+        private List<BigDecimal> attempts;
+
+        /** Blank falls back to the event's default unit (s or M). */
         private String unit;
 
         private String notes;

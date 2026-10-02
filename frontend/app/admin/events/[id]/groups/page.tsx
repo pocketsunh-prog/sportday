@@ -102,6 +102,18 @@ export default function EventGroupsPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
+  /**
+   * The event's format. Only the four short sprints may be split into heats and
+   * a final (`mayHaveFinal`); among those, the event may still be set to run
+   * straight to a final, in which case its groups are only the marking sheets
+   * and there is no final to draw. `shortSprint` stands in for an event that
+   * does not spell `mayHaveFinal` out.
+   */
+  const mayHaveFinal = event?.mayHaveFinal ?? event?.shortSprint ?? false;
+  const directToFinal = event?.directToFinal !== false;
+  /** A final may only be previewed, drawn or removed when both allow it. */
+  const finalUsable = mayHaveFinal && !directToFinal;
+
   const loadRosters = useCallback(async (list: EventGroupDTO[]) => {
     if (list.length === 0) {
       setGroups([]);
@@ -145,7 +157,10 @@ export default function EventGroupsPage() {
       ]);
       setEvent(eventResult);
       setGroups(groupList);
-      if (eventResult.shortSprint) await loadFinal();
+      // A direct-to-final event has no final, and the final endpoints refuse it
+      // with a 409, so the preview is only read when a final may exist.
+      const canHaveFinal = eventResult.mayHaveFinal ?? eventResult.shortSprint;
+      if (canHaveFinal && eventResult.directToFinal === false) await loadFinal();
       await loadRosters(groupList);
     } catch (err: any) {
       setError(err?.message || t('groups.loadFailed'));
@@ -184,7 +199,7 @@ export default function EventGroupsPage() {
       // Re-read rather than trusting the allocate payload: the event may also
       // carry a final group, which the heat allocation does not describe.
       await reloadGroups();
-      await loadFinal();
+      if (finalUsable) await loadFinal();
     } catch (err: any) {
       setError(err?.message || t('groups.allocateFailed'));
     } finally {
@@ -200,7 +215,7 @@ export default function EventGroupsPage() {
     try {
       await api.clearEventGroups(eventId);
       await reloadGroups();
-      await loadFinal();
+      if (finalUsable) await loadFinal();
       setNotice(t('groups.cleared'));
     } catch (err: any) {
       setError(err?.message || t('groups.clearFailed'));
@@ -280,7 +295,7 @@ export default function EventGroupsPage() {
         }`
       );
       await reloadGroups();
-      await loadFinal();
+      if (finalUsable) await loadFinal();
     } catch (err: any) {
       setError(err?.message || t('groups.finalRemoveFailed'));
     } finally {
@@ -487,8 +502,24 @@ export default function EventGroupsPage() {
         </>
       )}
 
-      {/* Short sprints get a final, drawn from the top finishers in the heats. */}
-      {event.shortSprint && (
+      {/* Only a short sprint may be split into heats and a final. When the
+          event is set to run straight to a final there is nothing to draw:
+          its groups are only the sheets the marks are written on. */}
+      {mayHaveFinal &&
+        (directToFinal ? (
+          <div className="card">
+            <div className="flex gap-2 items-center">
+              <h2>{t('groups.finalTitle')}</h2>
+              <span className="badge badge-info">{t('events.directToFinal')}</span>
+            </div>
+            <p className="muted mt-2">{t('groups.directToFinalNote')}</p>
+            <div className="pill-actions mt-3">
+              <Link href={`/admin/events/${eventId}/edit`} className="btn btn-sm btn-secondary">
+                {t('groups.untickDirectToFinal')}
+              </Link>
+            </div>
+          </div>
+        ) : (
         <div className="card">
           <div className="flex justify-between items-center">
             <div className="flex gap-2 items-center">
@@ -612,7 +643,7 @@ export default function EventGroupsPage() {
             </>
           )}
         </div>
-      )}
+        ))}
     </div>
   );
 }

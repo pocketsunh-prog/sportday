@@ -6,6 +6,7 @@ import com.sportday.dto.MarkRowDTO;
 import com.sportday.dto.MarkSheetDTO;
 import com.sportday.entity.Enrollment;
 import com.sportday.entity.Event;
+import com.sportday.entity.EventCategory;
 import com.sportday.entity.EventResult;
 import com.sportday.entity.EventStage;
 import com.sportday.entity.Grade;
@@ -32,6 +33,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -177,6 +179,8 @@ public class MarkEntryService {
                     .unit(result != null ? result.getUnit() : null)
                     .notes(result != null ? result.getNotes() : null)
                     .newRecord(result != null && recordHolders.contains(result.getId()))
+                    .attempts(result != null && result.hasAttempts()
+                            ? new ArrayList<>(result.getAttempts()) : null)
                     .build());
         }
 
@@ -185,6 +189,7 @@ public class MarkEntryService {
 
         boolean finalDrawn = groupRepository.findFirstByEventIdAndStage(eventId, EventStage.FINAL).isPresent();
         Event.EventType type = event.getType();
+        boolean field = event.getCategoryOrDefault() == EventCategory.FIELD;
         return MarkSheetDTO.builder()
                 .eventId(event.getId())
                 .eventName(event.getName())
@@ -198,6 +203,9 @@ public class MarkEntryService {
                 .location(event.getLocation())
                 .groupSize(event.getGroupSize())
                 .sheetSize(event.isShortSprint() ? "A5" : "A4")
+                // A field athlete gets three attempts; a track athlete one time.
+                .attemptCount(field ? Event.EventType.FIELD_ATTEMPTS : 1)
+                .fieldEvent(field)
                 .stage(effectiveStage.name())
                 .stageLabel(effectiveStage.getLabelEn() + " " + effectiveStage.getLabelZh())
                 .finalDrawn(finalDrawn)
@@ -260,6 +268,8 @@ public class MarkEntryService {
         List<BulkMarkRequest.Entry> rows = request == null || request.getRows() == null
                 ? List.of() : request.getRows();
         Set<Long> seen = new HashSet<>();
+        // A field event is decided by the best of three attempts.
+        boolean field = event.getCategoryOrDefault() == EventCategory.FIELD;
         // Marks whose event record may have changed, so the records can be rebuilt
         // once the batch has been flushed.
         Map<Long, EventResult> touched = new LinkedHashMap<>();
@@ -302,33 +312,43 @@ public class MarkEntryService {
                 continue;
             }
 
-            if (row.getMark() == null) {
+            // A field event gives three attempts and counts the best of them; a
+            // track event is a single performance.
+            List<BigDecimal> attempts = field ? fieldAttempts(row) : null;
+            BigDecimal value = field ? bestAttempt(attempts) : row.getMark();
+
+            if (value == null) {
                 // Nothing typed for this athlete: leave whatever is stored alone.
                 outcome.setSkipped(outcome.getSkipped() + 1);
                 continue;
             }
-            if (row.getMark().signum() < 0 || row.getMark().abs().compareTo(MAX_PLAUSIBLE_MARK) > 0) {
+            BigDecimal implausible = implausibleAmong(field ? attempts : List.of(value));
+            if (implausible != null) {
                 outcome.setFailed(outcome.getFailed() + 1);
-                outcome.addError(userId, "Implausible mark: " + row.getMark().toPlainString());
+                outcome.addError(userId, "Implausible mark: " + implausible.toPlainString());
                 continue;
             }
 
-            String unit = row.getUnit() == null || row.getUnit().isBlank()
-                    ? defaultUnit : row.getUnit().trim();
+            String unit = event.getType() == null
+                    ? (row.getUnit() == null || row.getUnit().isBlank() ? defaultUnit : row.getUnit().trim())
+                    : event.getType().normaliseUnit(row.getUnit());
 
             if (existing == null) {
                 existing = EventResult.builder()
                         .user(userRepository.getReferenceById(userId))
                         .event(event)
                         .stage(stage)
-                        .mark(row.getMark())
+                        .mark(value)
                         .unit(unit)
                         .notes(row.getNotes())
                         .build();
             } else {
-                existing.setMark(row.getMark());
+                existing.setMark(value);
                 existing.setUnit(unit);
                 existing.setNotes(row.getNotes());
+            }
+            if (field) {
+                existing.setAttempts(attempts);
             }
             resultRepository.save(existing);
             touched.put(existing.getId(), existing);
@@ -368,6 +388,45 @@ public class MarkEntryService {
     }
 
     // ------------------------------------------------------------- helpers
+
+    /**
+     * A field row's attempts, always three of them. A helper may send just the
+     * attempts that happened, or a single {@code mark}, so a missing attempt is
+     * simply left empty rather than treated as zero.
+     */
+    private static List<BigDecimal> fieldAttempts(BulkMarkRequest.Entry row) {
+        List<BigDecimal> sent = row.getAttempts();
+        if (sent == null || sent.isEmpty()) {
+            sent = row.getMark() == null ? List.of() : List.of(row.getMark());
+        }
+        List<BigDecimal> attempts = new ArrayList<>(Event.EventType.FIELD_ATTEMPTS);
+        for (int i = 0; i < Event.EventType.FIELD_ATTEMPTS; i++) {
+            attempts.add(i < sent.size() ? sent.get(i) : null);
+        }
+        return attempts;
+    }
+
+    /** The attempt that counts: a field event is won by the best of the three. */
+    private static BigDecimal bestAttempt(List<BigDecimal> attempts) {
+        if (attempts == null) {
+            return null;
+        }
+        return attempts.stream()
+                .filter(Objects::nonNull)
+                .max(Comparator.naturalOrder())
+                .orElse(null);
+    }
+
+    /** The first value that could not be a real mark, or null when all are fine. */
+    private static BigDecimal implausibleAmong(List<BigDecimal> values) {
+        for (BigDecimal value : values) {
+            if (value != null
+                    && (value.signum() < 0 || value.abs().compareTo(MAX_PLAUSIBLE_MARK) > 0)) {
+                return value;
+            }
+        }
+        return null;
+    }
 
     private Event requireEvent(Long eventId) {
         return eventRepository.findById(eventId)

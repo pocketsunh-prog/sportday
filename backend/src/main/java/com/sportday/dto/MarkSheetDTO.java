@@ -32,6 +32,15 @@ public class MarkSheetDTO {
     private Integer groupSize;
     private String sheetSize;
 
+    /**
+     * How many marks each athlete gets in this event: three attempts for a field
+     * event, one performance for a track event. What the grid renders.
+     */
+    private Integer attemptCount;
+
+    /** True for a field event, so the grid knows to take the best attempt. */
+    private Boolean fieldEvent;
+
     /** {@code HEAT} or {@code FINAL} — which stage this grid is for. */
     private String stage;
 

@@ -492,7 +492,7 @@ def main() -> int:
               f"grid lists all {entries} entered athletes", f"got {sheet.get('totalAthletes')}")
         check(sheet.get("markedCount") == 0, "no marks recorded yet",
               f"got {sheet.get('markedCount')}")
-        check(sheet.get("defaultUnit") == "seconds", "track events default to seconds",
+        check(sheet.get("defaultUnit") == "s", "track events default to seconds, written s",
               f"got {sheet.get('defaultUnit')}")
         check(len(sheet.get("groups", [])) == heats60, "the group filter lists every heat",
               f"got {len(sheet.get('groups', []))}")
@@ -551,7 +551,7 @@ def main() -> int:
             check(after.get("markedCount") == 2, "the grid now shows two marks",
                   f"got {after.get('markedCount')}")
             unit = next((r["unit"] for r in after["rows"] if r["mark"] is not None), None)
-            check(unit == "seconds", "a blank unit fell back to the event default", f"got {unit}")
+            check(unit == "s", "a blank unit fell back to the event default (s)", f"got {unit}")
 
         # ---- clear and validation ----
         clear_payload = {"rows": [{"userId": targets[0]["userId"], "clear": True}]}
@@ -1579,6 +1579,291 @@ def main() -> int:
     status, final_years = api.request("GET", "/seasons", token=admin_token)
     check(all(s["year"] != past_year for s in final_years),
           "and the test year is gone", f"got {[s['year'] for s in final_years]}")
+
+    # ---------------- 16. field units and the three attempts
+    section("16. Field events: metres, and the best of three attempts")
+
+    # ---- the unit every event records in ----
+    status, catalogue_now = api.request("GET", "/events", token=admin_token)
+    field_units = {e.get("defaultUnit") for e in catalogue_now if e["category"] == "FIELD"}
+    track_units = {e.get("defaultUnit") for e in catalogue_now if e["category"] == "TRACK"}
+    check(field_units == {"M"},
+          "every field event is recorded in metres, written M",
+          f"got {sorted(field_units)}")
+    check(track_units == {"s"},
+          "and every track event in seconds, written s",
+          f"got {sorted(track_units)}")
+    check(all(e.get("defaultUnit") for e in catalogue_now),
+          "every event carries its unit, so the entry page can show it")
+
+    # The mark grid agrees, and tells the UI how many boxes to draw.
+    field_event = next((e for e in catalogue_now
+                        if e["category"] == "FIELD" and e.get("sex") == subject_sex), None)
+    track_event = next((e for e in catalogue_now
+                        if e["category"] == "TRACK" and e.get("sex") == subject_sex), None)
+    check(field_event is not None and track_event is not None,
+          "there is a field event and a track event to compare")
+
+    status, field_sheet = api.request("GET", f"/events/{field_event['id']}/marks",
+                                      token=admin_token)
+    check(field_sheet.get("defaultUnit") == "M", "the field grid records in M",
+          f"got {field_sheet.get('defaultUnit')}")
+    check(field_sheet.get("attemptCount") == 3 and field_sheet.get("fieldEvent") is True,
+          "and asks for three attempts", f"got {field_sheet.get('attemptCount')}")
+    status, track_sheet = api.request("GET", f"/events/{track_event['id']}/marks",
+                                     token=admin_token)
+    check(track_sheet.get("defaultUnit") == "s" and track_sheet.get("attemptCount") == 1
+          and track_sheet.get("fieldEvent") is False,
+          "while the track grid records one time in s",
+          f"got {track_sheet.get('defaultUnit')} / {track_sheet.get('attemptCount')}")
+
+    # A client still sending the old spelled-out unit must not be able to drift the
+    # stored marks back to words.
+    track_athlete = next((r for r in (track_sheet.get("rows") or []) if r.get("userId")), None)
+    if track_athlete:
+        status, _ = api.request("POST", f"/events/{track_event['id']}/marks",
+                                {"stage": "HEAT",
+                                 "rows": [{"userId": track_athlete["userId"], "mark": 8.5,
+                                           "unit": "seconds"}]},
+                                token=admin_token)
+        status, after_save = api.request("GET", f"/events/{track_event['id']}/marks",
+                                         token=admin_token)
+        stored = next(r for r in after_save["rows"] if r["userId"] == track_athlete["userId"])
+        check(stored.get("unit") == "s",
+              "the old word 'seconds' is normalised to s, so a stored mark cannot drift",
+              f"got {stored.get('unit')}")
+    else:
+        check(True, "no athlete entered in the track event to test the unit with")
+
+    # ---- three attempts, and the best one counts ----
+    # Find a field event that actually has an athlete entered.
+    marked_field, runner_row = None, None
+    for candidate in [e for e in catalogue_now if e["category"] == "FIELD"]:
+        status, sheet = api.request("GET", f"/events/{candidate['id']}/marks", token=admin_token)
+        entered = [r for r in (sheet.get("rows") or []) if r.get("userId")]
+        if entered:
+            marked_field, runner_row = candidate, entered[0]
+            break
+    check(marked_field is not None,
+          "a field event with an athlete entered is available",
+          f"looked through the field programme")
+
+    if marked_field:
+        # The second attempt is the best, so the mark must come from it.
+        status, saved = api.request(
+            "POST", f"/events/{marked_field['id']}/marks",
+            {"stage": "HEAT",
+             "rows": [{"userId": runner_row["userId"], "unit": "M",
+                       "attempts": [8.20, 11.45, 9.90]}]},
+            token=admin_token)
+        check(status == 200 and isinstance(saved, dict) and saved.get("saved") == 1,
+              "three attempts can be saved in one row", f"status={status} body={saved}")
+
+        status, sheet = api.request("GET", f"/events/{marked_field['id']}/marks",
+                                    token=admin_token)
+        row = next(r for r in sheet["rows"] if r["userId"] == runner_row["userId"])
+        check(row.get("attempts") == [8.2, 11.45, 9.9],
+              "and all three come back, in order", f"got {row.get('attempts')}")
+        check(row.get("mark") == 11.45,
+              "with the best attempt taken as the result",
+              f"got {row.get('mark')} from [8.20, 11.45, 9.90]")
+        check(sheet.get("markedCount") == 1, "and the athlete counts as marked")
+
+        # The placings and the records read that mark, not an average.
+        status, standings = api.request("GET", f"/events/{marked_field['id']}/standings",
+                                        token=admin_token)
+        placing = next((p for p in standings["placings"] if p["userId"] == runner_row["userId"]),
+                       None)
+        check(placing is not None and placing["mark"] == 11.45,
+              "the placings use the best attempt", f"got {placing and placing['mark']}")
+        status, results_now = api.request("GET", f"/results/event/{marked_field['id']}",
+                                          token=admin_token)
+        result_row = next((r for r in results_now if r["userId"] == runner_row["userId"]), None)
+        check(result_row is not None and result_row.get("mark") == 11.45,
+              "and so do the results", f"got {result_row and result_row.get('mark')}")
+        check(result_row.get("attempts") == [8.2, 11.45, 9.9],
+              "with the attempts kept alongside, so a sheet can be checked",
+              f"got {result_row and result_row.get('attempts')}")
+        check(result_row.get("unit") == "M",
+              "recorded in metres", f"got {result_row and result_row.get('unit')}")
+
+        # A missed attempt is ignored, not counted as zero.
+        status, _ = api.request(
+            "POST", f"/events/{marked_field['id']}/marks",
+            {"stage": "HEAT",
+             "rows": [{"userId": runner_row["userId"], "unit": "M",
+                       "attempts": [None, 12.05, None]}]},
+            token=admin_token)
+        status, sheet = api.request("GET", f"/events/{marked_field['id']}/marks",
+                                    token=admin_token)
+        row = next(r for r in sheet["rows"] if r["userId"] == runner_row["userId"])
+        check(row.get("mark") == 12.05,
+              "a missed attempt is ignored rather than counted as zero",
+              f"got {row.get('mark')} from [miss, 12.05, miss]")
+
+        # A later attempt being the best is the normal case; check the other order too.
+        status, _ = api.request(
+            "POST", f"/events/{marked_field['id']}/marks",
+            {"stage": "HEAT",
+             "rows": [{"userId": runner_row["userId"], "unit": "M",
+                       "attempts": [13.10, 12.00, 11.00]}]},
+            token=admin_token)
+        status, sheet = api.request("GET", f"/events/{marked_field['id']}/marks",
+                                    token=admin_token)
+        row = next(r for r in sheet["rows"] if r["userId"] == runner_row["userId"])
+        check(row.get("mark") == 13.10,
+              "the first attempt can be the best one too",
+              f"got {row.get('mark')} from [13.10, 12.00, 11.00]")
+
+        # Clearing removes all three, not just the best.
+        status, cleared = api.request(
+            "POST", f"/events/{marked_field['id']}/marks",
+            {"stage": "HEAT", "rows": [{"userId": runner_row["userId"], "clear": True}]},
+            token=admin_token)
+        check(isinstance(cleared, dict) and cleared.get("cleared") == 1,
+              "clearing an athlete removes the whole set of attempts", f"got {cleared}")
+        status, sheet = api.request("GET", f"/events/{marked_field['id']}/marks",
+                                    token=admin_token)
+        row = next(r for r in sheet["rows"] if r["userId"] == runner_row["userId"])
+        check(row.get("mark") is None and not row.get("attempts"),
+              "leaving nothing behind", f"got {row.get('mark')} / {row.get('attempts')}")
+
+    # ---- the printed field sheet carries the three boxes ----
+    # Allocate the groups first: a print run has nothing to print without them.
+    sheet_event = marked_field if marked_field else field_event
+    status, allocated = api.request("POST", f"/events/{sheet_event['id']}/groups/allocate",
+                                    token=admin_token)
+    check(status == 200, "a field event's groups can be drawn",
+          f"status={status} body={allocated}")
+    status, group_list = api.request("GET", f"/events/{sheet_event['id']}/groups",
+                                     token=admin_token)
+    check(isinstance(group_list, list) and group_list,
+          "and it now has a heat to print", f"got {len(group_list or [])}")
+
+    if group_list:
+        field_group_id = group_list[0]["id"]
+        status, field_pdf = api.request("GET", f"/groups/{field_group_id}/sheet.pdf",
+                                        token=admin_token, raw=True)
+        field_pdf_path = os.path.join(output_dir, "marking-sheet-FIELD-A4.pdf")
+        with open(field_pdf_path, "wb") as handle:
+            handle.write(field_pdf)
+        check(status == 200 and field_pdf[:4] == b"%PDF",
+              "a field event's marking sheet downloads",
+              f"status={status} bytes={len(field_pdf)}")
+        field_box = media_box(field_pdf)
+        check(field_box is not None and abs(field_box[0] - 595) < 3
+              and abs(field_box[1] - 842) < 3,
+              "on A4, since a field event is not a short sprint", f"got {field_box}")
+        # The three attempt boxes make the data stream bigger than a track sheet
+        # of the same size, which is the observable difference in the file.
+        status, track_group_list = api.request("GET", f"/events/{e60['id']}/groups",
+                                               token=admin_token)
+        if track_group_list:
+            status, track_pdf = api.request("GET", f"/groups/{track_group_list[0]['id']}/sheet.pdf",
+                                            token=admin_token, raw=True)
+            check(len(field_pdf) != len(track_pdf),
+                  "and it differs from a track sheet, because of the attempt boxes",
+                  f"field={len(field_pdf)} track={len(track_pdf)}")
+
+    # Leave no drawn heats behind on an event that had none.
+    if not marked_field:
+        api.request("DELETE", f"/events/{sheet_event['id']}/groups", token=admin_token)
+        status, cleaned = api.request("GET", f"/events/{sheet_event['id']}/groups",
+                                      token=admin_token)
+        check(cleaned == [], "the test leaves the field event as it found it", f"got {cleaned}")
+
+    # ---------------- 17. direct to final, with an opt-in for the sprints
+    section("17. Direct to final, and the sprints that may be split")
+
+    status, catalogue_now = api.request("GET", "/events", token=admin_token)
+    may_split = {e["type"] for e in catalogue_now if e.get("mayHaveFinal")}
+    check(may_split == {"RUN_60M", "RUN_100M", "RUN_200M", "RUN_400M"},
+          "only 60M, 100M, 200M and 400M may be run as heats and a final",
+          f"got {sorted(may_split)}")
+    check(not any(e.get("mayHaveFinal") for e in catalogue_now if e["category"] == "FIELD"),
+          "no field event can have a final")
+    check(not any(e.get("mayHaveFinal") for e in catalogue_now
+                  if e["type"] in ("RUN_800M", "RUN_1500M", "RUN_5000M", "RELAY_4X100M")),
+          "nor can a distance race or a relay")
+
+    direct = [e for e in catalogue_now if e.get("directToFinal")]
+    check(len(direct) == len(catalogue_now) - 1,
+          "every event except the one already split runs straight to a final",
+          f"{len(direct)} of {len(catalogue_now)} direct")
+
+    # A brand new event is direct to a final unless the school asks otherwise.
+    status, brand_new = api.request(
+        "POST", "/events",
+        {"type": "RUN_100M", "sex": "F", "name": "Smoke Test 100M",
+         "eventDate": "2027-10-01", "location": "Main Sports Ground"},
+        token=admin_token)
+    check(status == 200 and brand_new.get("directToFinal") is True,
+          "a new event defaults to running direct to a final",
+          f"status={status} body={brand_new}")
+    check(brand_new.get("mayHaveFinal") is True,
+          "though a 100M may still be split if the school asks")
+
+    # The default really does mean no final.
+    status, refused_final = api.request("POST", f"/events/{brand_new['id']}/final",
+                                        token=admin_token)
+    check(status == 409, "so there is no final to draw on it",
+          f"status={status} body={refused_final}")
+    status, refused_preview = api.request("GET", f"/events/{brand_new['id']}/final",
+                                          token=admin_token)
+    check(status == 409, "and no final to preview either",
+          f"status={status} body={refused_preview}")
+
+    # Unticking the box is what allows one.
+    status, ticked_off = api.request("PUT", f"/events/{brand_new['id']}",
+                                     {"directToFinal": False}, token=admin_token)
+    check(status == 200 and ticked_off.get("directToFinal") is False,
+          "unticking the box turns the event into heats and a final",
+          f"status={status} body={ticked_off}")
+    # It has no entries, so the draw itself stops for a different, honest reason.
+    status, no_marks = api.request("POST", f"/events/{brand_new['id']}/final",
+                                   token=admin_token)
+    check(status == 409 and "heat" in str(no_marks),
+          "and it now looks for heat results rather than refusing outright",
+          f"status={status} body={no_marks}")
+    # Put it back to direct.
+    status, reticked = api.request("PUT", f"/events/{brand_new['id']}",
+                                   {"directToFinal": True}, token=admin_token)
+    check(reticked.get("directToFinal") is True, "and it can be set back to direct")
+
+    # An event that cannot have a final cannot be asked for one.
+    status, refused_ask = api.request(
+        "POST", "/events",
+        {"type": "SHOT_PUT", "sex": "M", "name": "Smoke Test Shot",
+         "eventDate": "2027-10-01", "directToFinal": False},
+        token=admin_token)
+    check(status == 400, "a field event cannot be asked for a final",
+          f"status={status} body={refused_ask}")
+    status, refused_800 = api.request(
+        "POST", "/events",
+        {"type": "RUN_800M", "sex": "M", "name": "Smoke Test 800M",
+         "eventDate": "2027-10-01", "directToFinal": False},
+        token=admin_token)
+    check(status == 400, "and neither can an 800M",
+          f"status={status} body={refused_800}")
+
+    # An event that already exists keeps the format it was running.
+    status, girls_60 = api.request("GET", "/events", token=admin_token)
+    existing_60 = [e for e in girls_60 if e["type"] == "RUN_60M" and e["id"] != e60["id"]]
+    if existing_60:
+        check(existing_60[0].get("directToFinal") is True,
+              "an existing 60M with no heats was left running direct to a final",
+              f"got {existing_60[0].get('directToFinal')}")
+    check(next(e for e in girls_60 if e["id"] == e60["id"]).get("directToFinal") is False,
+          "while the 60M that already had heats kept its final",
+          "the event the final was drawn on in section 12")
+
+    # Tidy up the event this section created.
+    status, _ = api.request("DELETE", f"/events/{brand_new['id']}", token=admin_token)
+    check(status in (200, 204), "the test event is removed", f"status={status}")
+    status, after_cleanup = api.request("GET", "/events", token=admin_token)
+    check(len(after_cleanup) == len(catalogue_now),
+          "leaving the catalogue as it was",
+          f"got {len(after_cleanup)} of {len(catalogue_now)}")
 
     # ------------------------------------------------------------------ summary
     section("Summary")

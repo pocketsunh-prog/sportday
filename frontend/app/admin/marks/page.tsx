@@ -8,6 +8,7 @@ import {
   api,
   BulkMarkResultDTO,
   EventDTO,
+  formatAttempts,
   MarkEntryInput,
   MarkRowDTO,
   MarkSheetDTO,
@@ -16,16 +17,20 @@ import {
 import { useAuth } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n';
 
-/** Only the two units the backend records. */
-const UNIT_OPTIONS = ['seconds', 'metres'];
+/** The two units the backend records: `s` on the track, `M` in the field. */
+const UNIT_OPTIONS = ['s', 'M'];
 
 /** The two sheets a short sprint has: the numbered heats and the final. */
 const STAGE_OPTIONS: MarkStage[] = ['HEAT', 'FINAL'];
 
-/** What the user has typed for one athlete. Marks stay strings while editing so
- *  partial input such as `8.` or `12.` is never clobbered. */
+/** What the user has typed for one athlete.
+ *
+ *  Marks stay strings while editing so partial input such as `8.` or `12.` is
+ *  never clobbered. A field row is typed into `attempts` (a miss is left blank);
+ *  a track row is typed into the single `mark`. */
 interface MarkDraft {
   mark: string;
+  attempts: string[];
   notes: string;
   clear: boolean;
 }
@@ -34,13 +39,61 @@ function errorText(err: unknown, fallback: string): string {
   return err instanceof Error && err.message ? err.message : fallback;
 }
 
-/** The value a mark arrived with, in the same shape as a draft. */
+/**
+ * A lone comma is a decimal point in much of the world; accept it, but leave
+ * anything that already carries a point (or several commas) alone.
+ */
+function normaliseDecimal(raw: string): string {
+  const trimmed = raw.trim();
+  return trimmed.includes('.') || (trimmed.match(/,/g) ?? []).length !== 1
+    ? trimmed
+    : trimmed.replace(',', '.');
+}
+
+/** The single mark a track row arrived with, in the same shape as a draft. */
 function serverMark(row: MarkRowDTO): string {
   return row.mark === null || row.mark === undefined ? '' : String(row.mark);
 }
 
-function draftFrom(row: MarkRowDTO): MarkDraft {
-  return { mark: serverMark(row), notes: row.notes ?? '', clear: false };
+/**
+ * One attempt of a field row, in the same shape as a draft cell. A missed
+ * attempt reads as an empty box, whatever shape it arrived in.
+ */
+function serverAttempt(row: MarkRowDTO, index: number): string {
+  const value = row.attempts?.[index];
+  return value === null || value === undefined ? '' : String(value);
+}
+
+/** True when the server holds anything at all for this row. */
+function hasServerValue(row: MarkRowDTO): boolean {
+  if (serverMark(row) !== '') return true;
+  return (row.attempts ?? []).some(value => value !== null && value !== undefined);
+}
+
+function draftFrom(row: MarkRowDTO, attemptCount: number): MarkDraft {
+  const attempts = Array.from({ length: attemptCount }, (_, index) => serverAttempt(row, index));
+  // A field mark recorded before the attempts existed carries no attempt list.
+  // It belongs in the first box, which is where it was measured, so the row
+  // shows the mark it already has rather than three blank boxes.
+  if (attempts.length > 1 && !row.attempts?.length) attempts[0] = serverMark(row);
+  return {
+    mark: serverMark(row),
+    attempts,
+    notes: row.notes ?? '',
+    clear: false,
+  };
+}
+
+/** The best of the attempts currently on screen, as typed, or `''` for none. */
+function bestOf(attempts: string[]): string {
+  let best: number | null = null;
+  attempts.forEach(raw => {
+    const text = normaliseDecimal(raw);
+    if (text === '') return;
+    const value = Number(text);
+    if (Number.isFinite(value) && value >= 0 && (best === null || value > best)) best = value;
+  });
+  return best === null ? '' : String(best);
 }
 
 type GroupedEvents = { key: string; category: string; sex: string; events: EventDTO[] }[];
@@ -74,7 +127,12 @@ export default function MarkEntryPage() {
   const [groupId, setGroupId] = useState(0);
   /** `''` is "All grades". */
   const [grade, setGrade] = useState('');
-  const [unit, setUnit] = useState('seconds');
+  /**
+   * The unit the marks are saved with. It is left empty until the sheet arrives,
+   * so that the event's own `defaultUnit` — `M` or `s` — always wins on a fresh
+   * event, while a reload after a save keeps whatever the user chose.
+   */
+  const [unit, setUnit] = useState('');
 
   const [sheet, setSheet] = useState<MarkSheetDTO | null>(null);
   const [drafts, setDrafts] = useState<Record<number, MarkDraft>>({});
@@ -139,7 +197,7 @@ export default function MarkEntryPage() {
         // Drafts are rebuilt from the server's copy: this only runs on an
         // explicit filter change or after a save.
         setDrafts({});
-        setUnit(prev => prev || data.defaultUnit || 'seconds');
+        setUnit(prev => prev || data.defaultUnit || 's');
       })
       .catch(err => {
         if (requestRef.current !== requestId) return;
@@ -151,21 +209,50 @@ export default function MarkEntryPage() {
       });
   }, [eventId, stage, groupId, grade, reloadToken]);
 
+  /**
+   * A field event is measured over `attemptCount` attempts (three), a track
+   * event in a single mark. `attemptIndexes` is only read on a field sheet: a
+   * track sheet is drawn with the one record box instead.
+   */
+  const fieldEvent = !!sheet?.fieldEvent;
+  const attemptCount = fieldEvent ? sheet?.attemptCount ?? 3 : 1;
+  const attemptIndexes = useMemo(
+    () => Array.from({ length: attemptCount }, (_, index) => index),
+    [attemptCount]
+  );
+
   const dirty = useMemo(() => {
     if (!sheet) return Object.keys(drafts).length > 0;
     return sheet.rows.some(row => {
       const draft = drafts[row.userId];
       if (!draft) return false;
       if (draft.clear) return true;
-      return draft.mark.trim() !== serverMark(row) || draft.notes !== (row.notes ?? '');
+      if (draft.notes !== (row.notes ?? '')) return true;
+      if (fieldEvent) {
+        return attemptIndexes.some(
+          index => (draft.attempts[index] ?? '').trim() !== serverAttempt(row, index)
+        );
+      }
+      return draft.mark.trim() !== serverMark(row);
     });
-  }, [sheet, drafts]);
+  }, [sheet, drafts, fieldEvent, attemptIndexes]);
 
   const updateDraft = (row: MarkRowDTO, patch: Partial<MarkDraft>) => {
     setDrafts(prev => ({
       ...prev,
-      [row.userId]: { ...(prev[row.userId] ?? draftFrom(row)), ...patch },
+      [row.userId]: { ...(prev[row.userId] ?? draftFrom(row, attemptCount)), ...patch },
     }));
+    setNotice(null);
+  };
+
+  /** Types into one of a field row's attempt boxes, leaving the others alone. */
+  const updateAttempt = (row: MarkRowDTO, index: number, value: string) => {
+    setDrafts(prev => {
+      const draft = prev[row.userId] ?? draftFrom(row, attemptCount);
+      const attempts = [...draft.attempts];
+      attempts[index] = value;
+      return { ...prev, [row.userId]: { ...draft, attempts } };
+    });
     setNotice(null);
   };
 
@@ -190,7 +277,7 @@ export default function MarkEntryPage() {
     setStage('HEAT');
     setGroupId(0);
     setGrade('');
-    setUnit('seconds');
+    setUnit('');
     setDrafts({});
     setResult(null);
     setNotice(null);
@@ -238,7 +325,8 @@ export default function MarkEntryPage() {
 
   /**
    * Only rows the user actually touched are sent back: `drafts` is populated
-   * lazily by `updateDraft`, so an untouched athlete is never part of the save.
+   * lazily by `updateDraft` / `updateAttempt`, so an untouched athlete is never
+   * part of the save.
    *
    * Three cases would otherwise lose data silently and are handled explicitly:
    *   - a value that is not a number (a helper writing "12.3s") is reported, not
@@ -247,6 +335,12 @@ export default function MarkEntryPage() {
    *     mark and the server would skip the row and discard the remark;
    *   - emptying a cell that held a mark means "remove it", which is what anyone
    *     erasing a wrong time expects. The Clear column does the same thing.
+   *
+   * A field event is typed into three attempt boxes instead of one, and the
+   * same distinction holds across all three: three empty boxes for an athlete
+   * with no mark are nothing to save, while clearing the attempts of an athlete
+   * who had a mark clears the whole result, attempts included. The best attempt
+   * is what the server stores in `mark`, so it is not sent separately.
    */
   const buildRows = (): { rows: MarkEntryInput[]; problems: string[] } => {
     const rows: MarkEntryInput[] = [];
@@ -266,12 +360,53 @@ export default function MarkEntryPage() {
         return;
       }
 
+      const notes = draft.notes.trim();
+
+      if (fieldEvent) {
+        const typed: Array<number | null> = [];
+        let invalid: string | null = null;
+
+        attemptIndexes.forEach(index => {
+          const raw = (draft.attempts[index] ?? '').trim();
+          if (invalid !== null) return;
+          if (raw === '') {
+            typed.push(null);
+            return;
+          }
+          const parsed = Number(normaliseDecimal(raw));
+          if (!Number.isFinite(parsed) || parsed < 0) {
+            invalid = raw;
+            return;
+          }
+          typed.push(parsed);
+        });
+
+        if (invalid !== null) {
+          problems.push(tRef.current('marks.invalidMark', { who, value: invalid }));
+          return;
+        }
+
+        // The last attempt may simply be left off rather than padded with
+        // misses, so a trailing blank is trimmed; a blank in the middle is a
+        // miss and is sent as one.
+        while (typed.length > 0 && typed[typed.length - 1] === null) typed.pop();
+
+        if (typed.length === 0) {
+          if (row && hasServerValue(row)) {
+            rows.push({ userId, mark: null, clear: true });
+          } else if (notes) {
+            problems.push(tRef.current('marks.remarkNeedsRecord', { who }));
+          }
+          return;
+        }
+
+        rows.push({ userId, attempts: typed, unit: unit || null, notes: notes || null });
+        return;
+      }
+
       // A lone comma is a decimal point in much of the world; accept it.
       const raw = draft.mark.trim();
-      const typed = raw.includes('.') || (raw.match(/,/g) ?? []).length !== 1
-        ? raw
-        : raw.replace(',', '.');
-      const notes = draft.notes.trim();
+      const typed = normaliseDecimal(raw);
 
       if (typed === '') {
         if (row && serverMark(row) !== '') {
@@ -481,7 +616,7 @@ export default function MarkEntryPage() {
         </div>
 
         <p className="muted" style={{ marginBottom: 0 }}>
-          {isFinal ? t('marks.finalHint') : t('marks.filterHint')}
+          {isFinal ? t('marks.finalHint') : fieldEvent ? t('marks.fieldHint') : t('marks.filterHint')}
         </p>
 
         {sheet && (
@@ -557,16 +692,31 @@ export default function MarkEntryPage() {
                     <th className="col-narrow">{t('marks.class')}</th>
                     <th className="col-narrow">{t('marks.heat')}</th>
                     <th className="col-narrow">{t('marks.lane')}</th>
-                    <th className="col-mark">
-                      {t('marks.record')} ({label('unit', unit)})
-                    </th>
+                    {/* A field event is measured over three attempts; the best
+                        of them is the mark, and is shown beside them. */}
+                    {fieldEvent ? (
+                      <>
+                        {attemptIndexes.map(index => (
+                          <th key={index} className="col-mark">
+                            {t('marks.attempt', { n: index + 1 })}
+                          </th>
+                        ))}
+                        <th className="col-mark">
+                          {t('marks.best')} ({label('unit', unit)})
+                        </th>
+                      </>
+                    ) : (
+                      <th className="col-mark">
+                        {t('marks.record')} ({label('unit', unit)})
+                      </th>
+                    )}
                     <th className="col-remark">{t('marks.remark')}</th>
                     <th className="col-narrow">{t('marks.clearMark')}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {sheet.rows.map(row => {
-                    const draft = drafts[row.userId] ?? draftFrom(row);
+                    const draft = drafts[row.userId] ?? draftFrom(row, attemptCount);
                     return (
                       <tr key={row.userId} className={draft.clear ? 'cell-cleared' : undefined}>
                         <td>{row.studentRef}</td>
@@ -579,16 +729,36 @@ export default function MarkEntryPage() {
                         </td>
                         <td>{row.groupLabel ?? '-'}</td>
                         <td>{row.lane ?? '-'}</td>
-                        <td>
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            value={draft.mark}
-                            placeholder={t('results.markPlaceholder')}
-                            aria-label={`${t('marks.record')} ${row.studentRef}`}
-                            onChange={e => updateDraft(row, { mark: e.target.value })}
-                          />
-                        </td>
+                        {fieldEvent ? (
+                          <>
+                            {attemptIndexes.map(index => (
+                              <td key={index}>
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  value={draft.attempts[index] ?? ''}
+                                  placeholder={t('results.markPlaceholder')}
+                                  aria-label={`${t('marks.attempt', { n: index + 1 })} ${row.studentRef}`}
+                                  onChange={e => updateAttempt(row, index, e.target.value)}
+                                />
+                              </td>
+                            ))}
+                            <td className="col-mark">
+                              <strong>{bestOf(draft.attempts) || '–'}</strong>
+                            </td>
+                          </>
+                        ) : (
+                          <td>
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={draft.mark}
+                              placeholder={t('results.markPlaceholder')}
+                              aria-label={`${t('marks.record')} ${row.studentRef}`}
+                              onChange={e => updateDraft(row, { mark: e.target.value })}
+                            />
+                          </td>
+                        )}
                         <td>
                           <input
                             type="text"
@@ -664,7 +834,14 @@ export default function MarkEntryPage() {
                       <td>{index + 1}</td>
                       <td>{athletes.get(entry.userId)?.studentRef ?? entry.username}</td>
                       <td>{athletes.get(entry.userId)?.name ?? entry.fullName}</td>
-                      <td>{entry.mark}</td>
+                      <td>
+                        {entry.mark}
+                        {/* The attempts behind a field mark, so the marker can
+                            see how the best was arrived at. */}
+                        {formatAttempts(entry.attempts) && (
+                          <div className="muted">{formatAttempts(entry.attempts)}</div>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

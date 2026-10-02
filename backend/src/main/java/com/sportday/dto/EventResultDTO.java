@@ -28,6 +28,12 @@ public class EventResultDTO {
     private String unit;
     private String notes;
 
+    /**
+     * A field athlete's three attempts in order, with a missed one left absent.
+     * Empty for a track event, which has a single performance.
+     */
+    private java.util.List<BigDecimal> attempts;
+
     /** True when this performance is the current school record for its event. */
     private Boolean newRecord;
 
@@ -45,6 +51,8 @@ public class EventResultDTO {
                 .mark(result.getMark())
                 .unit(result.getUnit())
                 .notes(result.getNotes())
+                .attempts(result.hasAttempts()
+                        ? new java.util.ArrayList<>(result.getAttempts()) : null)
                 .recordedAt(result.getRecordedAt())
                 .build();
     }

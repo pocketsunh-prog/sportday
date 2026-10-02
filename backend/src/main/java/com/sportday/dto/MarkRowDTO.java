@@ -38,6 +38,12 @@ public class MarkRowDTO {
     private String unit;
     private String notes;
 
+    /**
+     * A field athlete's attempts, in order, with a missed one left absent. A
+     * track event has a single performance, so this stays null.
+     */
+    private java.util.List<BigDecimal> attempts;
+
     /** True when this performance is the current school record for its event. */
     private Boolean newRecord;
 }

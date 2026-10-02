@@ -12,8 +12,8 @@ type Grouping = 'category' | 'event';
 const GRADE_ORDER = ['A', 'B', 'C'];
 const SEX_ORDER = ['FEMALE', 'MALE'];
 
-/** The units a school record is normally measured in. */
-const UNIT_SUGGESTIONS = ['seconds', 'metres'];
+/** The units a school record is measured in: seconds on the track, metres in the field. */
+const UNIT_SUGGESTIONS = ['s', 'M'];
 
 function sortRecords(records: RecordDTO[]): RecordDTO[] {
   return [...records].sort((a, b) => {
@@ -60,9 +60,9 @@ interface BaselineForm {
 
 const EMPTY_FORM: BaselineForm = { mark: '', unit: '', holderName: '', achievedOn: '' };
 
-/** Seconds on the track, metres in the field — the sensible default unit. */
+/** Written the way a programme writes it: metres in the field, seconds on the track. */
 function defaultUnit(record: RecordDTO): string {
-  return record.category === 'FIELD' ? 'metres' : 'seconds';
+  return record.category === 'FIELD' ? 'M' : 's';
 }
 
 export default function RecordsPage() {
