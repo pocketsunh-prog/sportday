@@ -43,6 +43,20 @@ public interface StudentRepository extends JpaRepository<Student, Long> {
     @Query("select s from Student s join fetch s.user u where u.id in :userIds")
     List<Student> findWithUserByUserIdIn(@Param("userIds") Collection<Long> userIds);
 
+    /**
+     * The students who may run in an event: the event's own division and grade, and
+     * on this year's list. This is what a relay team is derived from — one team per
+     * form, or one per house, among exactly these students — and the same filter the
+     * entry rules apply when they judge an athlete eligible for the event.
+     *
+     * <p>A locked student is left out: they are not on this year's list and may not
+     * be entered, so a team derived only for them would be a team nobody could fill.</p>
+     */
+    @EntityGraph(attributePaths = "user")
+    @Query("select s from Student s where s.sex = :sex and s.grade = :grade and s.enabled = true "
+            + "order by s.className asc, s.classNumber asc, s.studentId asc")
+    List<Student> findActiveBySexAndGrade(@Param("sex") Sex sex, @Param("grade") Grade grade);
+
     long countByGrade(Grade grade);
 
     long countBySex(Sex sex);

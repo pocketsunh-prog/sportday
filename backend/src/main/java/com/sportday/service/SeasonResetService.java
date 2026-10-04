@@ -17,6 +17,11 @@ import java.util.Map;
  * Clears the results of a sport day so the season can be run again — entries,
  * heats, the final and recorded marks — while leaving the student register and
  * the event catalogue untouched.
+ *
+ * <p>It does not do that until it has a way back: a backup of everything it is
+ * about to destroy, plus the school records, is written to a file first. If that
+ * file cannot be written the reset refuses to run and says why, because an
+ * unwanted reset with no backup is not something the school can undo.</p>
  */
 @Slf4j
 @Service
@@ -30,9 +35,17 @@ public class SeasonResetService {
     private final EventRecordRepository eventRecordRepository;
     private final RecordService recordService;
     private final EventService eventService;
+    private final SeasonBackupService seasonBackupService;
 
     @Transactional
     public Map<String, Object> resetSeason() {
+        // Before anything is touched: a restorable backup, or no reset at all.
+        // SeasonBackupService.writeSeasonBackup() throws if the file cannot be
+        // written, and nothing here catches it — so a failed backup means the
+        // transaction rolls back with every entry, heat, final place and mark still
+        // in place, and the caller is told why.
+        BackupStore.Written backup = seasonBackupService.writeSeasonBackup();
+
         long enrollments = enrollmentRepository.count();
         long finalPlaces = finalEntryRepository.count();
         long groups = eventGroupRepository.count();
@@ -58,12 +71,16 @@ public class SeasonResetService {
         // empty field, and the next entry would have to work it out again.
         int reformatted = eventService.reapplyFinalFormat();
 
-        log.warn("Season reset: removed {} entries, {} final places, {} groups and {} results; "
-                        + "kept the hand-entered school records ({}); {} event(s) back to a "
-                        + "straight final",
-                enrollments, finalPlaces, groups, results, records, reformatted);
+        log.warn("Season reset: backup {} ({} bytes); removed {} entries, {} final places, {} groups "
+                        + "and {} results; kept the hand-entered school records ({}); {} event(s) back "
+                        + "to a straight final",
+                backup.name(), backup.bytes(), enrollments, finalPlaces, groups, results, records,
+                reformatted);
 
         Map<String, Object> summary = new LinkedHashMap<>();
+        // Named and sized in the answer, so the administrator can find the file the
+        // reset left behind without going looking for it.
+        summary.putAll(backup.asMap());
         summary.put("enrollmentsRemoved", enrollments);
         summary.put("finalPlacesRemoved", finalPlaces);
         summary.put("groupsRemoved", groups);

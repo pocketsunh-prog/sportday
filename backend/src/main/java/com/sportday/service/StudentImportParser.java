@@ -55,6 +55,10 @@ public class StudentImportParser {
 
     private static final Map<Field, Set<String>> HEADER_ALIASES = buildAliases();
 
+    /** The cells of an uploaded sheet, before any column is given a meaning. */
+    public record Grid(List<String> header, List<List<String>> dataRows) {
+    }
+
     private static final List<DateTimeFormatter> DATE_FORMATS = List.of(
             DateTimeFormatter.ISO_LOCAL_DATE,
             DateTimeFormatter.ofPattern("yyyy/M/d"),
@@ -104,7 +108,7 @@ public class StudentImportParser {
     }
 
     /** Normalises a heading: strips BOM, whitespace, underscores and hyphens. */
-    static String normaliseHeader(String raw) {
+    public static String normaliseHeader(String raw) {
         if (raw == null) {
             return "";
         }
@@ -114,21 +118,78 @@ public class StudentImportParser {
                 .replaceAll("[\\s_\\-()（）.]", "");
     }
 
-    public List<RawRow> parse(String fileName, InputStream input) throws IOException {
+    /**
+     * Reads an uploaded CSV/XLSX into raw cells: the header row and every
+     * non-blank row under it, each still padded out to the width of the header.
+     *
+     * <p>This is the file-format half of an import — encodings, quoting, the
+     * leading blank lines a school's export often has, and the optional POI-backed
+     * {@code .xlsx} path — with no opinion about what the columns mean. The
+     * student register gives them one meaning and the teacher upload another, and
+     * both go through this so a school's spreadsheet behaves the same way
+     * whichever it is uploading.</p>
+     *
+     * <p>Row numbers are 1-based, as in the spreadsheet the file came from, so a
+     * row error points at the line the administrator is looking at.</p>
+     */
+    public static Grid parseGrid(String fileName, InputStream input) throws IOException {
+        List<List<String>> records = new StudentImportParser().readRecords(fileName, input);
+        return toGrid(records);
+    }
+
+    /** The same, for a file already read as a list of rows. */
+    public static Grid gridOf(List<List<String>> records) {
+        return toGrid(records);
+    }
+
+    private static Grid toGrid(List<List<String>> records) {
+        int headerIndex = -1;
+        for (int i = 0; i < records.size(); i++) {
+            if (records.get(i).stream().anyMatch(c -> c != null && !c.isBlank())) {
+                headerIndex = i;
+                break;
+            }
+        }
+        if (headerIndex < 0) {
+            throw new IllegalArgumentException("The uploaded file is empty.");
+        }
+        List<String> header = records.get(headerIndex);
+        int width = header.size();
+        List<List<String>> rows = new ArrayList<>();
+        for (int i = headerIndex + 1; i < records.size(); i++) {
+            List<String> cells = records.get(i);
+            if (cells.stream().allMatch(c -> c == null || c.isBlank())) {
+                continue;
+            }
+            List<String> padded = new ArrayList<>(width);
+            for (int c = 0; c < width; c++) {
+                padded.add(c < cells.size() ? cells.get(c) : null);
+            }
+            rows.add(padded);
+        }
+        return new Grid(header, rows);
+    }
+
+    /** The raw reader: CSV by default, XLSX through POI when the name says so. */
+    private List<List<String>> readRecords(String fileName, InputStream input) throws IOException {
         String name = fileName == null ? "" : fileName.toLowerCase(Locale.ROOT).trim();
         if (name.endsWith(".xls")) {
             throw new IllegalArgumentException(
-                    "Legacy .xls files are not supported — save the register as .xlsx or .csv and upload again.");
+                    "Legacy .xls files are not supported — save the file as .xlsx or .csv and upload again.");
         }
         if (name.endsWith(".xlsx") || name.endsWith(".xlsm")) {
-            return toRows(readXlsx(input));
+            return readXlsx(input);
         }
-        return parseCsv(input);
+        return readCsv(input);
+    }
+
+    public List<RawRow> parse(String fileName, InputStream input) throws IOException {
+        return toRows(readRecords(fileName, input));
     }
 
     // ------------------------------------------------------------------ CSV
 
-    List<RawRow> parseCsv(InputStream input) throws IOException {
+    List<List<String>> readCsv(InputStream input) throws IOException {
         List<List<String>> records = new ArrayList<>();
         try (BufferedReader reader = new BufferedReader(
                 new InputStreamReader(input, StandardCharsets.UTF_8))) {
@@ -183,7 +244,7 @@ public class StudentImportParser {
                 records.add(current);
             }
         }
-        return toRows(records);
+        return records;
     }
 
     // ----------------------------------------------------------------- XLSX

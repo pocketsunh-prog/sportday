@@ -66,6 +66,14 @@ public class User {
         ADMIN,
         MANAGER,
         /** Imported student account: username is the student id. */
-        STUDENT
+        STUDENT,
+        /**
+         * A teacher. A teacher may help a student in one of the classes assigned
+         * to them ({@link TeacherClass}) enter or withdraw from events, and read
+         * what that needs — the register of their own classes, the programme and
+         * their own profile. Nothing else: no mark entry, no settings, no uploads,
+         * no user management.
+         */
+        TEACHER
     }
 }

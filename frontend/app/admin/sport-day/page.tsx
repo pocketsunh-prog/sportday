@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { api, SeasonDTO, SeasonInput, SeasonUpdate, SettingsDTO, SettingsUpdate } from '@/lib/api';
+import { api, BackupSummaryDTO, SeasonDTO, SeasonInput, SeasonUpdate, SettingsDTO, SettingsUpdate } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { formatDate, formatDateTime } from '@/lib/format';
 import { useI18n } from '@/lib/i18n';
@@ -82,6 +82,12 @@ export default function AdminSportDayPage() {
   const [settings, setSettings] = useState<SettingsDTO | null>(null);
   const [schoolForm, setSchoolForm] = useState<SchoolForm>(EMPTY_SCHOOL_FORM);
   const [seasons, setSeasons] = useState<SeasonDTO[]>([]);
+  /**
+   * The season backups, so the office can see from here that a reset was backed
+   * up. The full list — with download and restore — lives on its own page; this
+   * card only names the newest one and points at it.
+   */
+  const [backups, setBackups] = useState<BackupSummaryDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState('');
@@ -113,13 +119,18 @@ export default function AdminSportDayPage() {
       router.push('/');
       return;
     }
-    Promise.all([api.getSettings().catch(() => null), api.getSeasons().catch(() => [] as SeasonDTO[])])
-      .then(([settingsResult, seasonList]) => {
+    Promise.all([
+      api.getSettings().catch(() => null),
+      api.getSeasons().catch(() => [] as SeasonDTO[]),
+      api.getBackups().catch(() => [] as BackupSummaryDTO[]),
+    ])
+      .then(([settingsResult, seasonList, backupList]) => {
         if (settingsResult) {
           setSettings(settingsResult);
           setSchoolForm(toSchoolForm(settingsResult));
         }
         setSeasons(seasonList);
+        setBackups(backupList);
       })
       .catch((err: unknown) =>
         setError(err instanceof Error ? err.message : t('sportDay.loadFailed'))
@@ -714,6 +725,39 @@ export default function AdminSportDayPage() {
                 })}
               </tbody>
             </table>
+          </div>
+        )}
+      </div>
+
+      <div className="card mt-2">
+        <div className="flex justify-between items-center">
+          <h2>{t('backups.title')}</h2>
+          <Link href="/admin/backups" className="btn btn-sm btn-secondary">
+            {t('backups.openBackups')}
+          </Link>
+        </div>
+        <p className="muted">{t('backups.subtitle')}</p>
+        {backups.length === 0 ? (
+          <div className="empty mt-2">
+            <p>{t('backups.none')}</p>
+          </div>
+        ) : (
+          <div className="event-meta mt-2">
+            <div>
+              <strong>{t('backups.latest')}:</strong> {backups[0].name}
+            </div>
+            <div>
+              <strong>{t('backups.taken')}:</strong> {formatDateTime(backups[0].writtenAt)}
+            </div>
+            <div>
+              <strong>{t('backups.contents')}:</strong>{' '}
+              {t('backups.contentsLine', {
+                enrollments: backups[0].counts?.enrollments ?? 0,
+                groups: backups[0].counts?.groups ?? 0,
+                results: backups[0].counts?.results ?? 0,
+                records: backups[0].counts?.records ?? 0,
+              })}
+            </div>
           </div>
         )}
       </div>

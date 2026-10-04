@@ -4,7 +4,12 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api';
  * Shared literals
  * ------------------------------------------------------------------ */
 
-export type Role = 'ADMIN' | 'MANAGER' | 'USER' | 'STUDENT';
+/**
+ * The account roles. `TEACHER` is the staff account that carries a set of
+ * classes: it may enter or withdraw a student in one of those classes and
+ * nothing else — no register upload, no locking, no credentials sheet.
+ */
+export type Role = 'ADMIN' | 'MANAGER' | 'USER' | 'STUDENT' | 'TEACHER';
 export type EventCategory = 'TRACK' | 'FIELD';
 export type EventSex = 'MALE' | 'FEMALE';
 export type SheetSize = 'A5' | 'A4';
@@ -108,6 +113,36 @@ export const FINAL_EVENT_TYPES: ReadonlyArray<string> = [
 export function mayHaveFinalForType(type: string): boolean {
   return FINAL_EVENT_TYPES.includes(type);
 }
+
+/**
+ * How a relay event's teams are divided.
+ *
+ * - `FORM` — one team per form of the event's own grade and division, so `1A`,
+ *   `1B` and `1C` all run for `Form 1`;
+ * - `HOUSE` — one team per house within that grade, so the A grade 4x100M has a
+ *   Red, a Blue and a Green team.
+ *
+ * An event with no kind at all is **undivided**: it has no teams, and nothing
+ * invents any. That is how every relay in the programme behaves until an
+ * administrator divides one.
+ */
+export type RelayTeamKind = 'FORM' | 'HOUSE';
+
+/** Whether an event type is a relay, i.e. whether it has relay teams at all. */
+export function isRelayEventType(type: string | null | undefined): boolean {
+  return !!type && type.startsWith('RELAY_');
+}
+
+/**
+ * The relay team kinds, as the event form offers them. `''` is Undivided — the
+ * value that clears a kind on an update, which is why it is spelled out here
+ * rather than left as a `null` the server would read as "leave it alone".
+ */
+export const RELAY_TEAM_KIND_OPTIONS = [
+  { value: 'FORM', labelKey: 'relay.kindForm' },
+  { value: 'HOUSE', labelKey: 'relay.kindHouse' },
+  { value: '', labelKey: 'relay.kindUndivided' },
+] as const;
 
 /** Suggested group size / sheet size / sprint flag for a given event type. */
 export function sheetDefaultsForType(type: string): {
@@ -233,6 +268,33 @@ export interface EventDTO {
    * every event, and always rendered through `label('unit', …)`.
    */
   defaultUnit?: string;
+  /**
+   * True when this event is a relay — one of the two `RELAY_4X100M` /
+   * `RELAY_4X400M` types. Only a relay has relay teams and a relay team kind.
+   */
+  relay?: boolean;
+  /**
+   * How the relay's teams are divided, or absent/`null` when the relay is
+   * **undivided** — which is how every relay in the programme started, and which
+   * means it has no teams at all rather than an empty board.
+   *
+   * On the way *out* the server sends `FORM`, `HOUSE` or nothing at all. In a
+   * request `''` is the one extra value that matters: it is what **clears** a
+   * kind, because omitting the field means "leave it alone" and `null` cannot be
+   * told from omission once it has been through JSON.
+   */
+  relayTeamKind?: RelayTeamKind | '' | null;
+  /** e.g. `Form`. The server's own English label for `relayTeamKind`. */
+  relayTeamKindLabel?: string;
+  /** Legs in a team — four for a 4x100M. */
+  relayTeamSize?: number;
+  /** True when a team may also name reserves past its legs. */
+  relayReservesAllowed?: boolean;
+  /**
+   * How many runners one team may hold in total: the legs, doubled when reserves
+   * are allowed. Null/absent on an event that is not a relay.
+   */
+  relayMemberCap?: number;
   enabled: boolean;
   createdAt: string;
   enrolledCount: number;
@@ -814,6 +876,288 @@ export interface RecomputeGradesResultDTO {
 }
 
 /* ------------------------------------------------------------------ *
+ * Admin: teachers
+ * ------------------------------------------------------------------ */
+
+/**
+ * One teacher account as `GET /admin/teachers` lists it.
+ *
+ * That response carries the account and **not** the classes — the only response
+ * that spells a teacher's classes out is the credentials sheet, which
+ * `getTeacherClassMap()` reads. `classes` is therefore optional here: it is
+ * populated only when a caller has merged the sheet in.
+ */
+export interface TeacherDTO {
+  username: string;
+  name: string;
+  /** Omitted from the JSON altogether when the account has no email. */
+  email?: string;
+  enabled: boolean;
+  role: Role;
+  /** The classes this teacher may help in, when the caller has them to hand. */
+  classes?: string[];
+}
+
+/** The reply of `PUT /admin/teachers/{username}/classes`. */
+export interface TeacherClassesDTO {
+  username: string;
+  /** The classes that now stand, sorted. */
+  classes: string[];
+}
+
+/** One teacher's login details, handed back by an upload that created or re-keyed them. */
+export interface TeacherCredentialDTO {
+  username: string;
+  name: string;
+  email?: string;
+  /** The classes the teacher was given, in the upload's own order. */
+  classes: string[];
+  password: string;
+  /** True when the password came from the file rather than being generated. */
+  supplied: boolean;
+}
+
+export interface TeacherUploadErrorDTO {
+  rowNumber: number;
+  /** The username the row carried, when it had one. */
+  username?: string;
+  message: string;
+}
+
+/**
+ * The outcome of `POST /admin/teachers/upload`.
+ *
+ * A bad row is reported and skipped rather than failing the whole file, so an
+ * administrator can fix a handful of rows and re-upload. On a rehearsal
+ * (`dryRun`) every count says what *would* happen, and `credentials` is always
+ * empty — a rehearsal generates nothing.
+ */
+export interface TeacherUploadResultDTO {
+  /** Identifier for this run, stamped onto every teacher it touched. */
+  batch: string;
+  fileName: string;
+  totalRows: number;
+  created: number;
+  updated: number;
+  failed: number;
+  /** True when this was a rehearsal: nothing was written. */
+  dryRun: boolean;
+  /** Teachers whose class list this upload replaced (created and updated alike). */
+  classesAssigned: number;
+  /** How the generated passwords are derived, so the rule is not a secret. */
+  passwordRule: string;
+  /** One row per teacher created, and per teacher whose password the file set. */
+  credentials: TeacherCredentialDTO[];
+  errors: TeacherUploadErrorDTO[];
+}
+
+/* ------------------------------------------------------------------ *
+ * Teacher: helping a student
+ * ------------------------------------------------------------------ */
+
+/**
+ * `GET /teacher/me` — the signed-in teacher's own account and the classes they
+ * may help in. An administrator gets every class on the register, because they
+ * may help anybody.
+ *
+ * `classes` is the whole authority a teacher holds: a teacher with none is
+ * refused everybody by the server, so a screen must say that plainly rather
+ * than render an empty list as though it were a result.
+ */
+export interface TeacherMeDTO {
+  profile: UserDTO;
+  role: Role;
+  classes: string[];
+  /** The server's own wording of the rule behind `classes`. */
+  note: string;
+}
+
+/* ------------------------------------------------------------------ *
+ * Relay teams
+ * ------------------------------------------------------------------ */
+
+/**
+ * One runner in a relay team: who they are, and which leg they run.
+ *
+ * The class, house and grade are read from the register when the team is read
+ * rather than stored on the leg, so the board always shows where the runner is
+ * *now* — which is also what the eligibility rules were judged on.
+ */
+export interface RelayTeamMemberDTO {
+  id: number;
+  teamId?: number;
+  /** The login account — what entries, results and records are held against. */
+  userId?: number;
+  /** The student id string, e.g. `S0440`. */
+  studentId?: string;
+  name?: string;
+  className?: string;
+  /** e.g. `5D 8`. */
+  classLabel?: string;
+  house?: string;
+  grade?: string;
+  /** 1-based leg; leg 1 runs first. */
+  leg?: number;
+  /** True when this runner is past the race's own legs — a reserve. */
+  reserve?: boolean;
+}
+
+/**
+ * One relay team: whether it is a form or a house team, and the runners down
+ * for its legs. `complete` is true once every leg has a runner; reserves are
+ * not required to complete it.
+ */
+export interface RelayTeamDTO {
+  id: number;
+  eventId?: number;
+  eventName?: string;
+  /** `FORM` or `HOUSE`. */
+  kind?: RelayTeamKind;
+  /** e.g. `Form`. */
+  kindLabel?: string;
+  /** The form number (`"5"`) or the house name (`Red`). */
+  teamKey?: string;
+  /** What the team is shown as: `Form 5`, or `Red` for a house team. */
+  label?: string;
+  /** Legs in this team's race — four for a 4x100M. */
+  legCount?: number;
+  /** How many runners the team may hold in total, reserves included. */
+  memberCap?: number;
+  reservesAllowed?: boolean;
+  memberCount?: number;
+  complete?: boolean;
+  /** The runners, leg 1 first, any reserves last. */
+  members: RelayTeamMemberDTO[];
+}
+
+/**
+ * `GET /admin/events/{eventId}/relay-teams` — the relay board of one event.
+ *
+ * A relay with no `relayTeamKind` is undivided and reports no teams at all:
+ * that is a normal answer rather than a refusal, and a screen must say so
+ * instead of showing an empty board that looks broken. An event that is not a
+ * relay at all is refused by the server with a 400.
+ */
+export interface RelayEventTeamsDTO {
+  eventId: number;
+  eventName?: string;
+  /** Enum name, e.g. `RELAY_4X100M`. */
+  eventType?: string;
+  eventTypeLabel?: string;
+  /** The division the teams are drawn from: `MALE` or `FEMALE`. */
+  sex?: string;
+  /** The grade the teams are drawn from: `A`, `B` or `C`. */
+  grade?: string;
+  relayTeamKind?: RelayTeamKind | null;
+  relayTeamKindLabel?: string;
+  /** True when the event is a relay at all. */
+  relay?: boolean;
+  /** Legs in a team — four for a 4x100M. */
+  legsPerTeam?: number;
+  reservesAllowed?: boolean;
+  /** How many runners one team may hold in total. */
+  memberCap?: number;
+  teamCount?: number;
+  runnerCount?: number;
+  teams: RelayTeamDTO[];
+}
+
+/**
+ * What deriving an event's relay teams did. Deriving is **additive**: it creates
+ * the teams the roster calls for and refreshes their labels, and never removes a
+ * team somebody has put runners into. An empty team the roster no longer calls
+ * for is only dropped when the caller asks to prune.
+ */
+export interface RelayTeamDerivationDTO {
+  eventId: number;
+  eventName?: string;
+  /** The kind the teams were derived for: `FORM` or `HOUSE`. */
+  kind: RelayTeamKind;
+  /** Teams created by this call. */
+  created: number;
+  /** Teams that were already there and kept, labels refreshed. */
+  kept: number;
+  /** Teams dropped because they are no longer on the roster and are empty. */
+  pruned: number;
+  /** Teams kept only because somebody runs in them. */
+  keptWithRunners: number;
+  /** How many students the teams were derived from — the event's grade + division. */
+  eligibleStudents: number;
+  board: RelayEventTeamsDTO;
+}
+
+/** `DELETE /admin/events/{eventId}/relay-teams` — every team of an event removed. */
+export interface RelayTeamRemovalDTO {
+  eventId: number;
+  teamsRemoved: number;
+}
+
+/* ------------------------------------------------------------------ *
+ * Backups
+ * ------------------------------------------------------------------ */
+
+/**
+ * One backup file on disk, as `GET /admin/backups` describes it: what it is
+ * called, how big it is, when it was written, and the row counts out of its
+ * header. `problem` is set when the file could not be read, so a listing can
+ * say which file is suspect rather than hiding it.
+ */
+export interface BackupSummaryDTO {
+  name: string;
+  bytes: number;
+  /** e.g. `2026-10-04 18:04`, formatted by the server. */
+  writtenAt?: string;
+  /** `{ enrollments, finalEntries, groups, results, records }`. */
+  counts?: Record<string, number>;
+  /** Set when the file could not be read as a season backup. */
+  problem?: string;
+}
+
+/**
+ * `POST /admin/season/reset` — the reset's own summary.
+ *
+ * The reset writes a restorable backup **first** and refuses to run without one,
+ * so the backup's name and size are always here: that is how the office can see
+ * a reset was backed up. The counts are what the reset removed.
+ */
+export interface SeasonResetResultDTO {
+  /** The file the backup was written to. */
+  backupFile: string;
+  backupBytes: number;
+  backupWrittenAt?: string;
+  enrollmentsRemoved: number;
+  finalPlacesRemoved: number;
+  groupsRemoved: number;
+  resultsRemoved: number;
+  /** The school records kept: a typed-in mark survives a reset. */
+  recordsKept: number;
+  /** Events put back to a straight final, because nobody is entered any more. */
+  eventsReformatted: number;
+  studentsKept?: string;
+  eventsKept?: string;
+}
+
+/**
+ * `POST /admin/backups/{name}/restore` — **destructive**. Every entry, heat,
+ * final place, recorded mark and record baseline is replaced with the file's
+ * contents. Students, events, school years and settings are not touched; a row
+ * whose student or event no longer exists is skipped and counted.
+ */
+export interface SeasonRestoreResultDTO {
+  restoredFrom: string;
+  groupsRestored: number;
+  enrollmentsRestored: number;
+  finalEntriesRestored: number;
+  resultsRestored: number;
+  recordsRestored: number;
+  recordsRecomputed: number;
+  eventsReformatted: number;
+  restoredAt: string;
+  /** Rows the file held that could not be put back, by kind. */
+  skipped?: Record<string, number>;
+}
+
+/* ------------------------------------------------------------------ *
  * Scoring settings
  * ------------------------------------------------------------------ */
 
@@ -1067,6 +1411,61 @@ function saveBlob(blob: Blob, filename: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+/**
+ * Splits a CSV document into rows of cells.
+ *
+ * The server quotes a cell only when it holds a comma, a quote or a newline
+ * (see `TeacherService.escape`), so this handles those three cases and the
+ * leading byte-order mark, and treats CRLF and LF alike. It is deliberately
+ * small: the only sheet read back is the teachers' credentials sheet.
+ */
+function parseCsv(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = '';
+  let quoted = false;
+
+  // The sheet starts with a UTF-8 BOM, which is not part of the first header.
+  const body = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+
+  for (let index = 0; index < body.length; index += 1) {
+    const char = body[index];
+    if (quoted) {
+      if (char === '"') {
+        if (body[index + 1] === '"') {
+          cell += '"';
+          index += 1;
+        } else {
+          quoted = false;
+        }
+      } else {
+        cell += char;
+      }
+      continue;
+    }
+    if (char === '"') {
+      quoted = true;
+    } else if (char === ',') {
+      row.push(cell);
+      cell = '';
+    } else if (char === '\n' || char === '\r') {
+      // Swallow the LF of a CRLF pair rather than opening an empty row.
+      if (char === '\r' && body[index + 1] === '\n') index += 1;
+      row.push(cell);
+      rows.push(row);
+      row = [];
+      cell = '';
+    } else {
+      cell += char;
+    }
+  }
+  if (cell !== '' || row.length > 0) {
+    row.push(cell);
+    rows.push(row);
+  }
+  return rows;
+}
+
 /* ------------------------------------------------------------------ *
  * Client
  * ------------------------------------------------------------------ */
@@ -1137,6 +1536,25 @@ class ApiClient {
       filenameFromDisposition(response.headers.get('Content-Disposition')) || fallbackFilename;
     saveBlob(blob, filename);
     return filename;
+  }
+
+  /**
+   * Fetches a text response (a CSV) with the bearer token attached, without
+   * saving it. Used to read a sheet back rather than hand it to the user.
+   */
+  private async requestText(url: string): Promise<string> {
+    const response = await fetch(`${API_BASE}${url}`, {
+      headers: this.getHeaders(false),
+    });
+
+    if (!response.ok) {
+      const error = await response
+        .json()
+        .catch(() => ({ message: `Request failed (HTTP ${response.status})` }));
+      throw new Error(error.message || `HTTP ${response.status}`);
+    }
+
+    return response.text();
   }
 
   /* ---------------- Auth ---------------- */
@@ -1495,9 +1913,249 @@ class ApiClient {
     );
   }
 
-  /** Clears entries, heats and results only — leaves events and students alone. */
-  async resetSeason(): Promise<void> {
+  /**
+   * Clears entries, heats, finals, results and the school records — leaves
+   * students, events and the typed-in record baselines alone.
+   *
+   * It writes a restorable backup of everything it destroys **first** and refuses
+   * to run at all if that file cannot be written, so the answer always names the
+   * file and its size. That is what a screen shows to prove a reset was backed
+   * up — see `SeasonResetResultDTO`.
+   */
+  async resetSeason(): Promise<SeasonResetResultDTO> {
     return this.request('/admin/season/reset', { method: 'POST' });
+  }
+
+  /* ---------------- Admin: teachers ---------------- */
+
+  /**
+   * Every TEACHER account. The response deliberately carries no classes — see
+   * `getTeacherClassMap()` for those.
+   */
+  async getTeachers(): Promise<TeacherDTO[]> {
+    return this.request('/admin/teachers');
+  }
+
+  /**
+   * Upload the staff list, one row per teacher: `username`, `name` and
+   * `classes` are required, `email` and `password` optional. `classes` is one
+   * cell holding one or more class names separated by `;`, `,`, `|` or `、`,
+   * e.g. `1A;3B`.
+   *
+   * `dryRun` rehearses the whole file and writes nothing, classifying every row
+   * as created / updated / failed — so a rehearsal is always safe to run first
+   * and is what the screen shows before it applies the same file for real. An
+   * existing username is updated and its class list replaced, so re-uploading
+   * is idempotent.
+   */
+  async uploadTeachers(file: File, dryRun: boolean): Promise<TeacherUploadResultDTO> {
+    const form = new FormData();
+    form.append('file', file);
+    return this.request(`/admin/teachers/upload${buildQuery({ dryRun })}`, {
+      method: 'POST',
+      body: form,
+    });
+  }
+
+  async downloadTeacherTemplate(): Promise<string> {
+    return this.downloadFile('/admin/teachers/template.csv', 'teacher-upload-template.csv');
+  }
+
+  /**
+   * Replaces one teacher's class list without re-uploading the whole staff file
+   * — for a mistyped class, or a teacher who has changed year group. The list is
+   * one cell of class names separated by `;`, `,`, `|` or `、`, e.g. `1A;3B`, and
+   * replaces whatever was there. The server refuses an empty list with a message
+   * worth showing, because a teacher with no classes can help nobody.
+   */
+  async updateTeacherClasses(username: string, classes: string): Promise<TeacherClassesDTO> {
+    return this.request(
+      `/admin/teachers/${encodeURIComponent(username)}/classes${buildQuery({ classes })}`,
+      { method: 'PUT' }
+    );
+  }
+
+  async downloadTeacherCredentials(): Promise<string> {
+    return this.downloadFile('/admin/teachers/credentials.csv', 'teacher-credentials.csv');
+  }
+
+  /**
+   * The classes each teacher may help in, keyed by username.
+   *
+   * `GET /admin/teachers` does not carry a teacher's classes, and the only
+   * response that spells them out per teacher is the credentials sheet, so that
+   * sheet is read back here and reduced to `username -> classes`. Nothing else
+   * on it is kept or shown: the passwords in it are never touched by this
+   * method.
+   */
+  async getTeacherClassMap(): Promise<Record<string, string[]>> {
+    const csv = await this.requestText('/admin/teachers/credentials.csv');
+    const map: Record<string, string[]> = {};
+    parseCsv(csv).forEach(cells => {
+      const username = (cells[0] ?? '').trim();
+      // The header row, and any blank line the sheet ends on.
+      if (!username || username.toLowerCase() === 'username') return;
+      map[username] = (cells[3] ?? '')
+        .split(/[;|、,]/)
+        .map(className => className.trim())
+        .filter(Boolean);
+    });
+    return map;
+  }
+
+  /* ---------------- Teacher: helping a student ---------------- */
+
+  /**
+   * The signed-in teacher's own account, the classes they may help in and the
+   * server's wording of that rule. An administrator gets every class on the
+   * register.
+   */
+  async getTeacherMe(): Promise<TeacherMeDTO> {
+    return this.request('/teacher/me');
+  }
+
+  /**
+   * The students of the caller's own classes, optionally narrowed to one of
+   * them. A teacher with no classes gets an empty list — never the whole
+   * school — so the caller must tell that case apart from "no students here".
+   */
+  async getTeacherStudents(className?: string): Promise<StudentDTO[]> {
+    return this.request(`/teacher/students${buildQuery({ className })}`);
+  }
+
+  /**
+   * A student's entries — withdrawn ones included — with the track / field
+   * quota that still applies to them. The same shape as the administrator's
+   * `getStudentEnrollments`, held to the teacher's class rule instead.
+   */
+  async getTeacherStudentEnrollments(studentId: string): Promise<StudentEnrollmentsDTO> {
+    return this.request(`/teacher/students/${encodeURIComponent(studentId)}/enrollments`);
+  }
+
+  /**
+   * Enters the student in an event on their behalf. An entry they had withdrawn
+   * from is revived rather than refused, and the event's own grade and division
+   * plus the student's quota all still apply.
+   */
+  async enrollTeacherStudent(studentId: string, eventId: number): Promise<EnrollmentDTO> {
+    return this.request(
+      `/teacher/students/${encodeURIComponent(studentId)}/enrollments/${eventId}`,
+      { method: 'POST' }
+    );
+  }
+
+  /** Withdraws the student's entry, freeing the place in their quota. */
+  async cancelTeacherStudentEnrollment(studentId: string, eventId: number): Promise<void> {
+    return this.request(
+      `/teacher/students/${encodeURIComponent(studentId)}/enrollments/${eventId}`,
+      { method: 'DELETE' }
+    );
+  }
+
+  /* ---------------- Admin: relay teams ---------------- */
+
+  /**
+   * An event's relay board: what kind of relay it is, how big a team is, and
+   * every team with its runners. A relay with no kind is undivided and reports
+   * no teams at all. An event that is not a relay is refused with a 400.
+   */
+  async getRelayTeams(eventId: number): Promise<RelayEventTeamsDTO> {
+    return this.request(`/admin/events/${eventId}/relay-teams`);
+  }
+
+  /**
+   * Creates the teams the roster calls for — one per form, or one per house, of
+   * the event's own grade and division — and refreshes their labels.
+   *
+   * Additive on purpose: a team somebody has already put runners into is never
+   * removed, because those selections are not the roster's to throw away. An
+   * *empty* team the roster no longer calls for is only dropped when `prune` is
+   * set. A relay that has not been divided yet is refused with a 409 telling the
+   * administrator to set its kind first.
+   */
+  async deriveRelayTeams(eventId: number, prune = false): Promise<RelayTeamDerivationDTO> {
+    return this.request(
+      `/admin/events/${eventId}/relay-teams/derive${buildQuery({ prune })}`,
+      { method: 'POST' }
+    );
+  }
+
+  /**
+   * Removes every team of the event, with its runners. This is what frees a relay
+   * to change kind, and what starts a selection again; it leaves the event
+   * otherwise untouched.
+   */
+  async removeRelayTeams(eventId: number): Promise<RelayTeamRemovalDTO> {
+    return this.request(`/admin/events/${eventId}/relay-teams`, { method: 'DELETE' });
+  }
+
+  /**
+   * Names a runner for a leg (1-based; omit `leg` for the next free one).
+   *
+   * Every eligibility rule is enforced by the server — the event's division and
+   * grade, the team's own form or house, one leg per athlete per event, and the
+   * team's size — and an ineligible pick is refused with a 409 whose message
+   * names the athlete and the reason, which is worth showing as it stands.
+   */
+  async addRelayRunner(
+    teamId: number,
+    userId: number,
+    leg?: number | null
+  ): Promise<RelayTeamDTO> {
+    return this.request(`/admin/relay-teams/${teamId}/runners`, {
+      method: 'POST',
+      body: JSON.stringify(leg ? { userId, leg } : { userId }),
+    });
+  }
+
+  /** Takes the athlete out of the team; the legs close up behind them. */
+  async removeRelayRunner(teamId: number, userId: number): Promise<RelayTeamDTO> {
+    return this.request(`/admin/relay-teams/${teamId}/runners/${userId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  /**
+   * Sets the running order, leg 1 first. The list must name exactly the runners
+   * the team already has — the server refuses anything else rather than guessing.
+   */
+  async setRelayLegs(teamId: number, userIds: number[]): Promise<RelayTeamDTO> {
+    return this.request(`/admin/relay-teams/${teamId}/legs`, {
+      method: 'PUT',
+      body: JSON.stringify({ userIds }),
+    });
+  }
+
+  /* ---------------- Admin: backups ---------------- */
+
+  /**
+   * Every season backup, newest first, with its size, the moment it was taken and
+   * the row counts out of its header — so the right one can be picked without
+   * downloading it. A file that cannot be read is still listed, with `problem`
+   * saying so.
+   */
+  async getBackups(): Promise<BackupSummaryDTO[]> {
+    return this.request('/admin/backups');
+  }
+
+  /** One backup file, saved to disk exactly as it was written. */
+  async downloadBackup(name: string, fallbackFilename: string): Promise<string> {
+    return this.downloadFile(
+      `/admin/backups/${encodeURIComponent(name)}`,
+      fallbackFilename
+    );
+  }
+
+  /**
+   * **DESTRUCTIVE.** Replaces the current entries, heats, final places, marks and
+   * school-record baselines with the contents of the named file. Students,
+   * events, school years and settings are not touched; a row whose student or
+   * event no longer exists is skipped and counted rather than invented.
+   */
+  async restoreBackup(name: string): Promise<SeasonRestoreResultDTO> {
+    return this.request(`/admin/backups/${encodeURIComponent(name)}/restore`, {
+      method: 'POST',
+    });
   }
 
   /* ---------------- Results ---------------- */

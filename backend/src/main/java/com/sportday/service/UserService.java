@@ -109,7 +109,8 @@ public class UserService {
 
     /** The roles an administrator is allowed to hand out. */
     public List<String> assignableRoles() {
-        return List.of(User.Role.ADMIN.name(), User.Role.MANAGER.name(), User.Role.USER.name());
+        return List.of(User.Role.ADMIN.name(), User.Role.MANAGER.name(),
+                User.Role.TEACHER.name(), User.Role.USER.name());
     }
 
     public UserDTO getCurrentUserProfile(String username) {

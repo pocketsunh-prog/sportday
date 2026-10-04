@@ -65,6 +65,13 @@ public class SecurityConfig {
                 .requestMatchers("/api/groups/*/sheet.pdf", "/api/events/*/sheets.pdf", "/api/sheets.pdf")
                     .hasAnyRole("ADMIN", "MANAGER")
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                // Helping a student enter or withdraw is what a TEACHER is for. The
+                // endpoints are a separate family from the ADMIN-only
+                // /api/admin/students/** ones on purpose, so a teacher is given the
+                // entry paths — and only those — rather than the whole student
+                // register API. The class rule itself is enforced in the service
+                // (TeacherClassService), not here.
+                .requestMatchers("/api/teacher/**").hasAnyRole("ADMIN", "TEACHER")
                 .requestMatchers("/api/users/**").authenticated()
                 .requestMatchers("/api/enrollments/**").authenticated()
                 .requestMatchers("/api/groups/**").authenticated()

@@ -37,6 +37,11 @@ app:
     # Age is measured on this date. Leave blank to use today, set it to the
     # sport day (e.g. 2026-11-06) so grades are frozen for the whole season.
     reference-date: ""
+  backup:
+    # Where a season reset's restorable backup is written, relative to the working
+    # directory unless absolute. Created if it is missing. The files hold register
+    # data, so the directory is ignored by git, like db-backup/.
+    dir: "backups/"
   pdf:
     # Optional explicit path to a Unicode .ttf used on the marking sheets.
     # When blank the system searches the usual Windows/Linux/macOS font folders.

@@ -5,8 +5,8 @@ import com.sportday.dto.StudentDTO;
 import com.sportday.dto.StudentUploadResultDTO;
 import com.sportday.entity.Grade;
 import com.sportday.entity.Sex;
-import com.sportday.service.EnrollmentService;
 import com.sportday.service.StudentService;
+import com.sportday.service.TeacherHelpService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -45,7 +45,7 @@ import java.util.Map;
 public class AdminStudentController {
 
     private final StudentService studentService;
-    private final EnrollmentService enrollmentService;
+    private final TeacherHelpService teacherHelpService;
 
     @Operation(summary = "Upload a student register",
             description = "Accepts .csv or .xlsx with columns: studentId, name, dob, sex, className, "
@@ -242,16 +242,12 @@ public class AdminStudentController {
 
     @Operation(summary = "A student's event entries",
             description = "The entries an administrator manages on the student's behalf, with the "
-                    + "track/field quota that still applies to the student.")
+                    + "track/field quota that still applies to the student. A teacher has the same "
+                    + "view on /api/teacher/students/{studentId}/enrollments, limited to their own "
+                    + "classes.")
     @GetMapping("/{studentId}/enrollments")
     public ResponseEntity<Map<String, Object>> getStudentEnrollments(@PathVariable String studentId) {
-        Long userId = requireUserId(studentId);
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("studentId", studentId);
-        body.put("userId", userId);
-        body.put("quota", enrollmentService.getQuota(userId));
-        body.put("enrollments", enrollmentService.getAllUserEnrollments(userId));
-        return ResponseEntity.ok(body);
+        return ResponseEntity.ok(teacherHelpService.entriesFor(studentId));
     }
 
     @Operation(summary = "Enter a student into an event",
@@ -259,12 +255,12 @@ public class AdminStudentController {
                     + "An entry they had withdrawn from is revived rather than refused, and entering "
                     + "somebody who is already in is a no-op. The quota is enforced against the student, so "
                     + "an administrator cannot exceed it either; the refusal explains which category is "
-                    + "full.")
+                    + "full. An administrator is never refused by the teacher class rule, which the same "
+                    + "service applies for a teacher.")
     @PostMapping("/{studentId}/enrollments/{eventId}")
     public ResponseEntity<EnrollmentDTO> enrollForStudent(@PathVariable String studentId,
                                                           @PathVariable Long eventId) {
-        return ResponseEntity.ok(
-                enrollmentService.enrollOnBehalf(requireUserId(studentId), eventId));
+        return ResponseEntity.ok(teacherHelpService.enroll(studentId, eventId));
     }
 
     @Operation(summary = "Remove a student's entry to an event",
@@ -273,18 +269,8 @@ public class AdminStudentController {
     @DeleteMapping("/{studentId}/enrollments/{eventId}")
     public ResponseEntity<Void> cancelForStudent(@PathVariable String studentId,
                                                  @PathVariable Long eventId) {
-        enrollmentService.cancelEnrollment(requireUserId(studentId), eventId);
+        teacherHelpService.withdraw(studentId, eventId);
         return ResponseEntity.noContent().build();
-    }
-
-    /** The login account behind a student id — entries belong to the account. */
-    private Long requireUserId(String studentId) {
-        StudentDTO student = studentService.getByStudentId(studentId);
-        if (student.getUserId() == null) {
-            throw new IllegalStateException("Student " + studentId
-                    + " has no login account, so they cannot be entered in an event.");
-        }
-        return student.getUserId();
     }
 
     private ResponseEntity<byte[]> csvResponse(byte[] body, String filename) {

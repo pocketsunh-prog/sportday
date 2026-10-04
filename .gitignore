@@ -16,6 +16,14 @@ __pycache__/
 /artifacts/
 /backend/app-run.log
 
+# Season backups written by a season reset before it deletes anything.
+# Contains a copy of the entries, marks and school records, so it is
+# deliberately not committed. The application is started from backend/, so its
+# default `backups/` lands there rather than at the repository root — both paths
+# are listed, because an anchored pattern only matches the depth it names.
+/backups/
+/backend/backups/
+
 # Local database dump taken before the revamp migration.
 # Contains a copy of real register data, so it is deliberately not committed.
 /db-backup/

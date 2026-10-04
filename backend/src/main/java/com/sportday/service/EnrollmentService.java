@@ -123,8 +123,14 @@ public class EnrollmentService {
     }
 
     /**
-     * Enters a student on an administrator's behalf, reviving an entry they
-     * withdrew from if there is one.
+     * Enters a student on an administrator's or a teacher's behalf, reviving an
+     * entry they withdrew from if there is one.
+     *
+     * <p>Whether the caller is allowed to act for this student at all — the class
+     * rule — is decided by {@link TeacherHelpService}, which is what the
+     * administrator's and the teacher's controllers call. This method is the entry
+     * itself: the event's own division and grade, the student's quota, and
+     * reviving a withdrawn entry are enforced here whatever the caller was.</p>
      *
      * <p>An administrator cannot use the student's own "enter" endpoint: that
      * refuses any second entry outright, which would leave a student who withdrew
@@ -176,6 +182,21 @@ public class EnrollmentService {
         // Reviving an entry may take the event back over a group's worth.
         finalQualificationService.syncFinalFormat(event);
         return EnrollmentDTO.from(saved, roster);
+    }
+
+    /**
+     * The login account behind a student id. Entries belong to the account, so a
+     * student record with no account cannot be entered by anybody.
+     */
+    @Transactional(readOnly = true)
+    public Long requireUserIdFor(String studentId) {
+        Student student = studentRepository.findByStudentId(studentId)
+                .orElseThrow(() -> new ResourceNotFoundException("Student not found: " + studentId));
+        if (student.getUser() == null || student.getUser().getId() == null) {
+            throw new IllegalStateException("Student " + studentId
+                    + " has no login account, so they cannot be entered in an event.");
+        }
+        return student.getUser().getId();
     }
 
     @Transactional(readOnly = true)

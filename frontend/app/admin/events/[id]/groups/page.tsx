@@ -9,6 +9,7 @@ import {
   EventDTO,
   EventGroupDTO,
   FinalSummaryDTO,
+  isRelayEventType,
 } from '@/lib/api';
 import { formatDate } from '@/lib/format';
 import { useI18n } from '@/lib/i18n';
@@ -457,6 +458,13 @@ export default function EventGroupsPage() {
               ? t('common.downloading')
               : t('groups.downloadAllSheets', { sheet: label('sheet', event.sheetSize) })}
           </button>
+          {/* A relay also has teams, which are nothing to do with heats: the
+              board lives on its own page alongside this one. */}
+          {isRelayEventType(event.type) && (
+            <Link href={`/admin/events/${eventId}/relay`} className="btn btn-sm btn-secondary">
+              {t('relay.openBoard')}
+            </Link>
+          )}
         </div>
       </div>
 

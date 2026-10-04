@@ -2406,6 +2406,200 @@ def main() -> int:
     check(status in (404, 409), "asking for an event that does not exist is refused",
           f"status={status} body={no_results}")
 
+    # ---------------- 21. teacher accounts, relay teams, backups
+    section("21. Teacher accounts, relay teams and backups")
+
+    # ---- a teacher register uploads, and a teacher is scoped to their classes
+    teacher_csv = (b"username,name,email,classes\r\n"
+                   b"SMOKETCH1,Smoke Teacher One,smoke1@school.edu.hk,1A;1B\r\n"
+                   b"SMOKETCH2,Smoke Teacher Two,,9Z\r\n")
+
+    status, rehearsal = api.upload_bytes("/admin/teachers/upload?dryRun=true",
+                                         "teachers.csv", teacher_csv, token=admin_token)
+    check(status == 200 and isinstance(rehearsal, dict) and rehearsal.get("failed") == 0,
+          "a teacher register rehearses without writing", f"status={status} {rehearsal}")
+
+    status, applied = api.upload_bytes("/admin/teachers/upload?dryRun=false",
+                                       "teachers.csv", teacher_csv, token=admin_token)
+    touched = 0
+    if isinstance(applied, dict):
+        touched = applied.get("created", 0) + applied.get("updated", 0)
+    check(status == 200 and touched >= 2, "and applies, creating or updating both teachers",
+          f"status={status} {applied}")
+
+    status, teachers = api.request("GET", "/admin/teachers", token=admin_token)
+    by_name = {t.get("username"): t for t in teachers} if isinstance(teachers, list) else {}
+    check(by_name.get("SMOKETCH1", {}).get("classes") == ["1A", "1B"],
+          "the list carries each teacher's classes, sorted",
+          f"got {by_name.get('SMOKETCH1', {}).get('classes')}")
+    check(by_name.get("SMOKETCH1", {}).get("role") == "TEACHER",
+          "as TEACHER accounts", f"got {by_name.get('SMOKETCH1', {}).get('role')}")
+
+    status, sheet = api.request("GET", "/admin/teachers/credentials.csv", token=admin_token,
+                                raw=True)
+    passwords = {}
+    if isinstance(sheet, bytes):
+        for line in sheet.decode("utf-8-sig").splitlines():
+            cells = line.split(",")
+            if cells and cells[0].startswith("SMOKETCH"):
+                passwords[cells[0]] = cells[-1].strip()
+    check(len(passwords) == 2, "the credentials sheet carries a password for each",
+          f"got {list(passwords)}")
+
+    teacher_token = None
+    if passwords.get("SMOKETCH1"):
+        status, session = api.request("POST", "/auth/login",
+                                      {"username": "SMOKETCH1",
+                                       "password": passwords["SMOKETCH1"]})
+        teacher_token = session.get("token") if isinstance(session, dict) else None
+        check(status == 200 and bool(teacher_token), "and the teacher can sign in",
+              f"status={status} {session}")
+
+    if teacher_token:
+        status, me = api.request("GET", "/teacher/me", token=teacher_token)
+        check(status == 200 and me.get("classes") == ["1A", "1B"],
+              "the teacher sees exactly their own classes",
+              f"got {me.get('classes') if isinstance(me, dict) else me}")
+
+        status, mine = api.request("GET", "/teacher/students", token=teacher_token)
+        check(status == 200 and isinstance(mine, list)
+              and all(s.get("className") in ("1A", "1B") for s in mine),
+              "and only the students in them",
+              f"got {sorted({s.get('className') for s in mine}) if isinstance(mine, list) else mine}")
+        check(bool(mine), "with somebody to help", f"got {len(mine) if isinstance(mine, list) else mine}")
+
+        outside = api.request("GET", "/teacher/students?className=9Z", token=teacher_token)
+        check(outside[0] == 403, "while another class is refused", f"status={outside[0]}")
+        check(api.request("GET", "/admin/teachers", token=teacher_token)[0] == 403,
+              "and the admin teacher list is closed to them",
+              f"status={api.request('GET', '/admin/teachers', token=teacher_token)[0]}")
+
+        # Helping a student, inside and outside their classes.
+        if isinstance(mine, list) and mine:
+            subject = mine[0]
+            status, entries = api.request(
+                "GET", f"/teacher/students/{subject['studentId']}/enrollments",
+                token=teacher_token)
+            check(status == 200 and isinstance(entries, dict),
+                  "a teacher can read a student's entries and quota",
+                  f"status={status} {str(entries)[:120]}")
+
+    # a teacher whose classes hold nobody can help nobody, and is told so
+    if passwords.get("SMOKETCH2"):
+        status, session2 = api.request("POST", "/auth/login",
+                                       {"username": "SMOKETCH2",
+                                        "password": passwords["SMOKETCH2"]})
+        token2 = session2.get("token") if isinstance(session2, dict) else None
+        if token2:
+            status, none = api.request("GET", "/teacher/students", token=token2)
+            check(status == 200 and none == [],
+                  "a teacher whose classes hold nobody gets an empty list, not an error",
+                  f"status={status} {none}")
+
+    # ---- relay teams: undivided, then form teams derived from the roster
+    status, catalogue_now = api.request("GET", "/events", token=admin_token)
+    # Teams are derived from the register, not from who has entered, so this needs no
+    # athletes — which matters here, because the season was reset at the very start.
+    relay_event = next((e for e in catalogue_now if e["type"] == "RELAY_4X100M"), None)
+    check(relay_event is not None, "the programme has a 4x100M relay")
+    if relay_event:
+        check(relay_event.get("relay") is True, "flagged as a relay",
+              f"got {relay_event.get('relay')}")
+        check(relay_event.get("relayTeamKind") in (None, ""),
+              "and undivided until the school says otherwise",
+              f"got {relay_event.get('relayTeamKind')}")
+
+        status, board = api.request("GET", f"/admin/events/{relay_event['id']}/relay-teams",
+                                    token=admin_token)
+        check(status == 200 and board.get("relay") is True, "the relay board loads",
+              f"status={status}")
+        check(board.get("legsPerTeam") == 4, "with four legs a team",
+              f"got {board.get('legsPerTeam')}")
+
+        status, refused = api.request(
+            "POST", f"/admin/events/{relay_event['id']}/relay-teams/derive", token=admin_token)
+        check(status == 409, "deriving an undivided relay is refused with the reason",
+              f"status={status} {refused}")
+
+        status, updated = api.request("PUT", f"/events/{relay_event['id']}",
+                                      {"relayTeamKind": "FORM"}, token=admin_token)
+        check(status == 200 and updated.get("relayTeamKind") == "FORM",
+              "setting it to a form relay", f"status={status}")
+
+        status, derived = api.request(
+            "POST", f"/admin/events/{relay_event['id']}/relay-teams/derive", token=admin_token)
+        check(status == 200, "derives the teams from the roster", f"status={status}")
+
+        status, board2 = api.request("GET", f"/admin/events/{relay_event['id']}/relay-teams",
+                                     token=admin_token)
+        teams = board2.get("teams", []) if isinstance(board2, dict) else []
+        check(bool(teams), "and there is a team per form", f"got {len(teams)}")
+        check(all(t.get("label", "").startswith("Form") for t in teams),
+              "each labelled by form", f"got {[t.get('label') for t in teams][:4]}")
+
+        if teams:
+            team = teams[0]
+            status, roster_now = api.request("GET", "/admin/students", token=admin_token)
+            pool = [s for s in roster_now
+                    if s.get("grade") == relay_event["grade"]
+                    and s.get("sex") == relay_event["sex"]]
+            if pool:
+                runner = pool[0]["userId"]
+                status, added = api.request(
+                    "POST", f"/admin/relay-teams/{team['id']}/runners",
+                    {"userId": runner, "leg": 1}, token=admin_token)
+                check(status == 200, "a runner can be given a leg", f"status={status} {added}")
+                status, twice = api.request(
+                    "POST", f"/admin/relay-teams/{team['id']}/runners",
+                    {"userId": runner, "leg": 2}, token=admin_token)
+                check(status in (400, 409), "and cannot hold two legs of one team",
+                      f"status={status} {twice}")
+
+                # outside the team's own form
+                other = next((s for s in pool
+                              if s.get("className") != pool[0].get("className")), None)
+                if other:
+                    status, wrong = api.request(
+                        "POST", f"/admin/relay-teams/{team['id']}/runners",
+                        {"userId": other["userId"], "leg": 2}, token=admin_token)
+                    check(status in (400, 409) or team["teamKey"] in str(
+                        (other.get("className") or "")[:1]),
+                          "and a runner from another form is refused",
+                          f"status={status} {str(wrong)[:140]}")
+
+                api.request("DELETE",
+                            f"/admin/relay-teams/{team['id']}/runners/{runner}", token=admin_token)
+
+        # leave the event exactly as it was found
+        api.request("DELETE", f"/admin/events/{relay_event['id']}/relay-teams", token=admin_token)
+        api.request("PUT", f"/events/{relay_event['id']}", {"relayTeamKind": ""}, token=admin_token)
+        status, after = api.request("GET", f"/admin/events/{relay_event['id']}/relay-teams",
+                                    token=admin_token)
+        check(after.get("teamCount") in (0, None) and not after.get("relayTeamKind"),
+              "and the relay is left undivided, as it was",
+              f"got kind={after.get('relayTeamKind')} teams={after.get('teamCount')}")
+
+    # ---- backups
+    status, backups = api.request("GET", "/admin/backups", token=admin_token)
+    check(status == 200, "the backup list loads", f"status={status}")
+    status, traversal = api.request("GET", "/admin/backups/..%2F..%2Fapplication.yml",
+                                    token=admin_token)
+    check(status in (400, 404), "and a path traversal out of the backup directory is refused",
+          f"status={status}")
+
+    if teacher_token:
+        plain_teacher = api.request("GET", "/admin/backups", token=teacher_token)[0]
+        check(plain_teacher == 403, "backups are for administrators only",
+              f"status={plain_teacher}")
+
+    # ---- tidy up the teachers this section created
+    for username in ("SMOKETCH1", "SMOKETCH2"):
+        api.request("DELETE", f"/admin/teachers/{username}", token=admin_token)
+    status, left = api.request("GET", "/admin/teachers", token=admin_token)
+    remaining = {t.get("username") for t in left} if isinstance(left, list) else set()
+    check(not ({"SMOKETCH1", "SMOKETCH2"} & remaining),
+          "and the smoke teachers are removed", f"still there: {remaining}")
+
     # ------------------------------------------------------------------ summary
     section("Summary")
     print(f"  checks run : {CHECKS}")

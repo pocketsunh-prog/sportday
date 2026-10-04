@@ -6,6 +6,7 @@ import com.sportday.entity.Event;
 import com.sportday.entity.EventCategory;
 import com.sportday.entity.EventGroup;
 import com.sportday.entity.Grade;
+import com.sportday.entity.RelayTeamKind;
 import com.sportday.entity.Sex;
 import com.sportday.exception.ResourceNotFoundException;
 import com.sportday.repository.EnrollmentRepository;
@@ -35,6 +36,7 @@ public class EventService {
     private final RecordService recordService;
     private final SeasonService seasonService;
     private final FinalQualificationService finalQualificationService;
+    private final RelayTeamService relayTeamService;
 
     /**
      * Brings every event's format back in step with how many are entered.
@@ -164,6 +166,10 @@ public class EventService {
         Event.EventType type = parseType(eventDTO.getType());
         Sex sex = resolveSex(eventDTO.getSex());
         Grade grade = requireGradeFor(type, parseGrade(eventDTO.getGrade()));
+        // FORM or HOUSE — only a relay may be divided into teams, and leaving it out
+        // is normal: an undivided relay is how the relay events already behave.
+        RelayTeamKind relayTeamKind = parseRelayTeamKind(eventDTO.getRelayTeamKind());
+        requireRelayKindAllowed(type, relayTeamKind);
 
         Event event = Event.builder()
                 .name(resolveName(eventDTO, type, sex, grade))
@@ -179,6 +185,14 @@ public class EventService {
                 .groupSize(eventDTO.getGroupSize() != null && eventDTO.getGroupSize() > 0
                         ? eventDTO.getGroupSize() : type.getDefaultGroupSize())
                 .enabled(eventDTO.getEnabled() == null || eventDTO.getEnabled())
+                // The relay team kind, the race's size and whether reserves are
+                // allowed. All three are the event's business; the last two are only
+                // ever set on a relay.
+                .relayTeamKind(relayTeamKind)
+                .relayTeamSize(type.isRelay()
+                        ? resolveRelayTeamSize(eventDTO.getRelayTeamSize(), type) : null)
+                .relayReservesAllowed(type.isRelay()
+                        && Boolean.TRUE.equals(eventDTO.getRelayReservesAllowed()))
                 // Direct to a final unless the school asks otherwise, and only an
                 // event that may have a final can be asked to.
                 .directToFinal(!requestedFinal(eventDTO, type))
@@ -257,6 +271,7 @@ public class EventService {
             // The school has spoken, so the automatic switch must not undo it.
             event.setDirectToFinalAuto(false);
         }
+        applyRelayTeamSettings(event, eventDTO, id);
         // Moving an event to another type or grade renames it only while it still
         // carries its own default name; a title the school chose is left alone.
         if (previousDefaultName != null && previousDefaultName.equals(event.getName())) {
@@ -265,6 +280,75 @@ public class EventService {
 
         event.applyTypeDefaults();
         return describe(eventRepository.save(event));
+    }
+
+    /**
+     * Applies the relay team settings — what kind of relay this is, how many legs a
+     * team runs and whether reserves are allowed.
+     *
+     * <p>Three rules, all judged on the event the update will leave behind:</p>
+     * <ul>
+     *   <li>a <strong>non-relay</strong> may not have a relay team kind. A create
+     *       that asks for one is refused outright; an update that would leave one on
+     *       is refused too, with the way out named, because {@code null} in a request
+     *       means "leave it alone" — an empty string is how a caller clears it;</li>
+     *   <li>what kind of relay an event is is only changed while it has no teams.
+     *       Changing or clearing it under existing teams would leave a board of form
+     *       teams hanging off a house relay, so the change is refused until the
+     *       administrator has removed them;</li>
+     *   <li>the leg count and the reserve switch are only meaningful on a relay, and
+     *       are reset when an event stops being one.</li>
+     * </ul>
+     */
+    private void applyRelayTeamSettings(Event event, EventDTO eventDTO, Long id) {
+        // 1. Ask for a different kind of relay (an empty string clears it outright).
+        if (eventDTO.getRelayTeamKind() != null) {
+            RelayTeamKind requested = parseRelayTeamKind(eventDTO.getRelayTeamKind());
+            if (requested != event.getRelayTeamKind()) {
+                requireNoTeamsToReKind(id, event);
+                event.setRelayTeamKind(requested);
+            }
+        }
+
+        // 2. The type may have just changed, so judge the combination the event will
+        //    have rather than the one it came in with.
+        if (!event.isRelay()) {
+            if (event.getRelayTeamKind() != null) {
+                requireNoTeamsToReKind(id, event);
+                throw new IllegalArgumentException(event.getType() == null
+                        ? "This event is not a relay, so it cannot have a relay team kind. "
+                                + "Clear it by sending relayTeamKind as an empty string."
+                        : event.getType().getDisplayName() + " is not a relay, so it cannot have a "
+                                + "relay team kind. Clear it by sending relayTeamKind as an empty "
+                                + "string, then change the type.");
+            }
+            event.setRelayTeamSize(null);
+            event.setRelayReservesAllowed(false);
+            return;
+        }
+        if (eventDTO.getRelayTeamSize() != null) {
+            event.setRelayTeamSize(resolveRelayTeamSize(eventDTO.getRelayTeamSize(), event.getType()));
+        }
+        if (eventDTO.getRelayReservesAllowed() != null) {
+            event.setRelayReservesAllowed(eventDTO.getRelayReservesAllowed());
+        }
+    }
+
+    /**
+     * Refuses a change to what kind of relay an event is while it already has teams.
+     *
+     * <p>Those teams hold real selections — somebody decided which students run — so
+     * they are not silently thrown away to make room for a different division. The
+     * administrator clears them first ({@code DELETE /api/admin/events/{id}/relay-teams}),
+     * which is one deliberate step.</p>
+     */
+    private void requireNoTeamsToReKind(Long eventId, Event event) {
+        long teams = relayTeamService.countTeamsForEvent(eventId);
+        if (teams > 0) {
+            throw new IllegalStateException(event.getName() + " already has " + teams
+                    + " relay team(s) with their runners. Remove them before changing what kind "
+                    + "of relay it is.");
+        }
     }
 
     /**
@@ -303,10 +387,13 @@ public class EventService {
             eventGroupRepository.deleteAll(groups);
         }
         eventResultRepository.deleteByEventId(id);
+        // Relay teams point at the event and at the athletes, so they go with it —
+        // the runners themselves are left alone, as they are for entries and results.
+        int relayTeams = relayTeamService.removeTeamsForEvent(id);
         eventRepository.delete(event);
         recordService.recomputeAll();
-        log.info("Deleted event {} ('{}') with {} entries and {} groups",
-                id, event.getName(), enrollments.size(), groups.size());
+        log.info("Deleted event {} ('{}') with {} entries, {} groups and {} relay team(s)",
+                id, event.getName(), enrollments.size(), groups.size(), relayTeams);
     }
 
     /**
@@ -515,5 +602,60 @@ public class EventService {
         } catch (IllegalArgumentException ex) {
             throw new IllegalArgumentException("Unknown event type: " + raw);
         }
+    }
+
+    /**
+     * Reads a relay team kind from a request.
+     *
+     * <p>{@code null} means "not supplied" and is handed straight back, because on an
+     * update it means <em>leave the event's kind alone</em>. A blank string is the
+     * way a caller clears it, so that reads as null as well. Anything else must name
+     * a kind: {@code FORM} (or {@code CLASS}) or {@code HOUSE}.</p>
+     *
+     * @throws IllegalArgumentException when a value was sent that is not a kind
+     */
+    private static RelayTeamKind parseRelayTeamKind(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        RelayTeamKind kind = RelayTeamKind.fromCode(raw);
+        if (kind == null && !raw.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Unknown relay team kind: " + raw + " — use FORM or HOUSE.");
+        }
+        return kind;
+    }
+
+    /**
+     * Only a relay may be divided into form or house teams. A sprint, a field event
+     * or a hurdles race with a relay team kind would advertise teams nothing could
+     * ever fill, so asking for one is refused rather than stored and ignored.
+     */
+    private static void requireRelayKindAllowed(Event.EventType type, RelayTeamKind kind) {
+        if (kind == null || (type != null && type.isRelay())) {
+            return;
+        }
+        throw new IllegalArgumentException((type == null ? "This event" : type.getDisplayName())
+                + " is not a relay, so it cannot have a relay team kind. Only the 4x100M and the "
+                + "4x400M are divided into form or house teams.");
+    }
+
+    /**
+     * The legs a team of this relay runs. The race's own size is the default — four —
+     * and a school that runs a longer squad says so on the event rather than in the
+     * code.
+     *
+     * @throws IllegalArgumentException when the size names no sensibly sized team
+     */
+    private static int resolveRelayTeamSize(Integer requested, Event.EventType type) {
+        if (requested == null || requested <= 0) {
+            return type == null ? 0 : type.getDefaultRelayLegs();
+        }
+        if (requested > Event.MAX_RELAY_LEGS) {
+            throw new IllegalArgumentException("A relay team may have at most "
+                    + Event.MAX_RELAY_LEGS + " legs, so " + requested + " is not a team size. "
+                    + "A 4x100M or a 4x400M runs four.");
+        }
+        return requested;
     }
 }

@@ -120,6 +120,43 @@ public class Event {
     private Boolean directToFinalAuto;
 
     /**
+     * How a relay event's teams are divided — one team per form, or one per house
+     * within the event's grade. <strong>Nullable and optional</strong>: a relay with
+     * no kind is simply undivided, which is how the relay events already in the
+     * programme behave, so this feature adds a choice without taking one away. A
+     * non-relay event must not have one at all, and {@code EventService} refuses a
+     * create or an update that would give it one.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "relay_team_kind", length = 10)
+    private RelayTeamKind relayTeamKind;
+
+    /**
+     * How many legs a team in this relay has — four for a 4x100M or a 4x400M.
+     *
+     * <p>Only meaningful for a relay, and nullable so an existing row (or a relay
+     * created without a kind) reads as the type's own default of four legs through
+     * {@link #getEffectiveRelayTeamSize()}.
+     * A school that runs the relay as a longer squad raises it here rather than in
+     * the code, because the size of the race is the event's business.</p>
+     */
+    @Column(name = "relay_team_size")
+    private Integer relayTeamSize;
+
+    /**
+     * True when a team in this relay may also name <strong>reserves</strong> — the
+     * option to put more athletes down than the race has legs. Off unless the school
+     * explicitly asks for it, so going past the four legs of a 4x100M is refused
+     * with a reason rather than quietly accepted.
+     *
+     * <p>Nullable on purpose, exactly like {@link #directToFinal}: a null reads as
+     * false through {@link #isRelayReservesAllowed()}, so a row written before the
+     * column existed cannot hand out reserves nobody asked for.</p>
+     */
+    @Column(name = "relay_reserves_allowed")
+    private Boolean relayReservesAllowed;
+
+    /**
      * The school year this event belongs to. Null on events created before
      * seasons existed; the bootstrap assigns them to the year their date falls in.
      */
@@ -136,6 +173,22 @@ public class Event {
 
     /** Default cap applied when the client does not supply {@code maxParticipants}. */
     public static final int DEFAULT_MAX_PARTICIPANTS = 512;
+
+    /**
+     * How many reserves a team may name when the event allows them, as a multiple of
+     * the race's own legs: a 4x100M that allows reserves may put down eight runners
+     * — four legs and four reserves — and no more. Generous on purpose, because it
+     * is a ceiling rather than a requirement: a school that wants two reserves names
+     * six and simply stops there.
+     */
+    public static final int RESERVE_ALLOWANCE_MULTIPLIER = 2;
+
+    /**
+     * The largest team a relay may be given. Four is the race, and the reserve
+     * allowance doubles it; this is only a sanity bound so a typo — {@code 400} legs —
+     * is refused rather than stored.
+     */
+    public static final int MAX_RELAY_LEGS = 16;
 
     @PrePersist
     protected void onCreate() {
@@ -208,6 +261,49 @@ public class Event {
         return type != null && type.usesMinutesAndSeconds();
     }
 
+    /** True when this event is one of the relays — 4x100M or 4x400M. */
+    @Transient
+    public boolean isRelay() {
+        return type != null && type.isRelay();
+    }
+
+    /**
+     * How many legs a team of this event has, falling back to the type's own size
+     * when nothing has been set on the event. Zero for anything that is not a relay,
+     * so a caller can use it without asking about the type first.
+     */
+    @Transient
+    public int getEffectiveRelayTeamSize() {
+        if (type == null || !type.isRelay()) {
+            return 0;
+        }
+        return relayTeamSize != null && relayTeamSize > 0
+                ? relayTeamSize
+                : type.getDefaultRelayLegs();
+    }
+
+    /**
+     * How many runners one team of this event may hold: the race's legs, plus the
+     * same number again of reserves when the school has allowed them.
+     */
+    @Transient
+    public int getRelayMemberCap() {
+        int legs = getEffectiveRelayTeamSize();
+        if (legs <= 0) {
+            return 0;
+        }
+        return isRelayReservesAllowed() ? legs * RESERVE_ALLOWANCE_MULTIPLIER : legs;
+    }
+
+    /**
+     * True when this relay may also name reserves. Null — a row from before the flag
+     * existed — reads as false, so reserves are opt-in rather than inherited.
+     */
+    @Transient
+    public boolean isRelayReservesAllowed() {
+        return Boolean.TRUE.equals(relayReservesAllowed);
+    }
+
     @Transient
     public EventCategory getCategoryOrDefault() {
         if (category != null) {
@@ -256,6 +352,13 @@ public class Event {
 
         /** How many attempts a field athlete gets; the best one is their result. */
         public static final int FIELD_ATTEMPTS = 3;
+
+        /**
+         * Legs in a relay team. Both relays the programme runs are 4x — the 4x100M
+         * and the 4x400M — so four is the sensible default; an event that runs a
+         * longer squad sets its own {@link Event#getRelayTeamSize()}.
+         */
+        public static final int RELAY_LEGS = 4;
 
         /**
          * Every spelling of a length or a time a caller might send, so it can be
@@ -350,6 +453,14 @@ public class Event {
          */
         public boolean isRelay() {
             return this == RELAY_4X100M || this == RELAY_4X400M;
+        }
+
+        /**
+         * Legs in a team of this event type: four ({@link #RELAY_LEGS}) for a relay,
+         * zero for everything else — a sprint has no legs to fill.
+         */
+        public int getDefaultRelayLegs() {
+            return isRelay() ? RELAY_LEGS : 0;
         }
 
         /**

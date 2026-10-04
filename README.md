@@ -39,6 +39,10 @@ Spring Boot 4.1 (Java 25) backend, Next.js 16 web app, MySQL 8.
 | 25 | Mark entry lists only events with **more than one athlete** entered | `app/admin/marks` |
 | 26 | A **100M hurdles** for the C grade, with the 110M hurdles for A and B | `EventType.HURDLES_100M`, `EventGradeRule` |
 | 27 | A result reads the way the sport writes it — **14.123s, 1.04.123s, 18.12M** — and prints to PDF | `MarkFormatter`, `PdfResultService` |
+| 28 | A season reset **writes a restorable backup first**, and refuses to reset if the backup fails; backups can be listed, downloaded and restored | `SeasonBackupService`, `BackupStore`, `POST /api/admin/season/reset` |
+| 29 | An admin **uploads teacher accounts**, each carrying the classes they look after | `TeacherService`, `POST /api/admin/teachers/upload` |
+| 30 | A teacher may **enter, withdraw and look up a student's events — but only in their own classes** | `TeacherClassService`, `TeacherHelpService`, `/api/teacher/**` |
+| 31 | **Relay teams**: one team per form, and one per house within a grade, with the runners and their legs chosen for each | `RelayTeam`, `RelayTeamService` |
 
 Events are also split by **sex division** (Boys / Girls), so each event is
 contested in exactly one division.
@@ -437,6 +441,83 @@ nothing to show is refused with the reason.
 The C grade — fourteen or under — hurdles over the shorter distance, so the programme
 carries **100M hurdles** for all three grades and **110M hurdles** for the A and B
 grades only. Both are 24 to a group and print on A4.
+
+### Teacher accounts
+
+A teacher is an account (`TEACHER`) plus the set of classes they look after. The
+office uploads them in bulk, the same way as the student register:
+
+```
+POST /api/admin/teachers/upload?dryRun=true     # rehearse the whole file first
+GET  /api/admin/teachers                        # each teacher and their classes
+GET  /api/admin/teachers/credentials.csv        # username, name, email, classes, password
+GET  /api/admin/teachers/template.csv
+PUT  /api/admin/teachers/{username}/classes?classes=1A;3B
+DELETE /api/admin/teachers/{username}
+```
+
+Columns are `username`, `name`, `classes` (required), and `email` and `password`
+(optional). `classes` is one cell with one or more class names separated by `;`, `,`,
+`|` or `、`. Re-uploading **updates** a teacher and **replaces** their class list
+rather than duplicating either, so the staff file can be run as often as the office
+likes. A password that is not supplied is derived from the username (not the student
+date-of-birth rule) and returned in the response so it can be handed over; the
+credentials sheet always prints the derived one, because a supplied password is never
+stored in clear text.
+
+Only a TEACHER can be removed through this path — an administrator or a manager is
+refused, so a staff-maintenance call cannot lock the school out of its own system.
+
+### A teacher helping a student
+
+A teacher signs in and gets their own pages; the Navbar shows them no admin links,
+because none of them would work.
+
+```
+GET    /api/teacher/me                                            # own account + classes
+GET    /api/teacher/students[?className=]                         # students in those classes
+GET    /api/teacher/students/{studentId}/enrollments              # entries + quota
+POST   /api/teacher/students/{studentId}/enrollments/{eventId}    # enter them
+DELETE /api/teacher/students/{studentId}/enrollments/{eventId}    # withdraw them
+```
+
+**The rule is one implementation**, in `TeacherClassService`, applied by
+`TeacherHelpService` before anything is read or written — so entering, withdrawing and
+looking somebody up all share it, and it cannot be bypassed by choosing a different
+endpoint. An administrator is let through by the rule itself rather than by an
+exception at each endpoint. A teacher with **no** classes assigned may help nobody,
+which is a refusal and not a silent allow. Every existing rule still applies to the
+student: the event's division and grade, and the 2-track/1-field quota.
+
+### Relay teams
+
+A relay event can be divided two ways, chosen on the event itself:
+
+- a **form relay** — one team per form (中一 to 中六), built from every class in that
+  form;
+- a **house relay** — one team per house within the event's grade, since the event
+  already belongs to one grade.
+
+```
+GET    /api/admin/events/{eventId}/relay-teams
+POST   /api/admin/events/{eventId}/relay-teams/derive?prune=
+POST   /api/admin/relay-teams/{teamId}/runners      { userId, leg }
+DELETE /api/admin/relay-teams/{teamId}/runners/{userId}
+PUT    /api/admin/relay-teams/{teamId}/legs         { userIds: [...] }
+DELETE /api/admin/events/{eventId}/relay-teams
+```
+
+The teams are **derived from the register**, so a form relay offers exactly the forms
+that have athletes in that grade and division. A relay with no kind is *undivided* —
+which is how every existing relay event stays, untouched, until the school divides it,
+and deriving one is refused with the reason rather than inventing teams.
+
+A runner must be in the event's division and grade, and in the team's own form or
+house. One athlete may hold a leg in a form relay **and** in a house relay, because
+those are different events, but never two legs of the **same** event. A 4x100M has four
+legs; reserves are opt-in and the ceiling then doubles, so a school that wants spares
+can name eight. Every rule is enforced in one place, and a teacher may only pick
+runners from their own classes — the same rule as helping a student.
 
 ### School records
 
@@ -860,9 +941,145 @@ reported in `errors` while the good rows are still stored.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/admin/season/reset` | Clear entries, heats, the final and results; keeps students, events and hand-entered records |
+| POST | `/api/admin/season/reset` | Clear entries, heats, the final and results; keeps students, events and hand-entered records. Writes a restorable backup file first, and refuses to run at all if it cannot |
+| GET | `/api/admin/backups` | Every season backup on disk, newest first, with its size, when it was taken and the counts out of its header |
+| GET | `/api/admin/backups/{name}` | Download one backup file. A name that would resolve outside the backup directory is refused with 400 |
+| POST | `/api/admin/backups/{name}/restore` | **Destructive** — overwrite the current entries, heats, final places, marks and record baselines with the file's |
 | POST | `/api/admin/managers` | Create a manager account |
 | GET | `/api/users`, `PATCH /api/users/{id}/enable`, `DELETE /api/users/{id}` | Staff account management |
+
+---
+
+## Backing up before a reset
+
+A season reset is one-way: it deletes every entry, heat, final place and recorded
+mark the school has. So it writes a **restorable backup first**, and if that file
+cannot be written — the directory missing and uncreatable, a disk error, a value
+that will not serialise — the reset **does not run** and says why. Nothing is
+deleted on a failed backup; there is no catch-and-continue on that path.
+
+The response names the file and its size, so the administrator can put it
+somewhere safe straight away:
+
+```jsonc
+// POST /api/admin/season/reset
+{
+  "backupFile": "sportday-season-20261004-162135.json",
+  "backupBytes": 1843221,
+  "backupWrittenAt": "2026-10-04 16:21:35",
+  "enrollmentsRemoved": 1038,
+  "finalPlacesRemoved": 96,
+  "groupsRemoved": 158,
+  "resultsRemoved": 1206,
+  "recordsKept": 112,
+  "eventsReformatted": 24,
+  "studentsKept": "unchanged",
+  "eventsKept": "unchanged"
+}
+```
+
+Set `app.backup.dir` to put the files somewhere else:
+
+```yaml
+app:
+  backup:
+    dir: "backups/"   # relative to the working directory unless absolute
+```
+
+Files go to that directory — **`backups/`** by default — which is created if it is
+missing. It holds register data and is ignored by git, exactly like `db-backup/`. A
+file is named `sportday-season-yyyyMMdd-HHmmss.json`, so a listing sorts
+chronologically as plain text and a backup identifies itself by name.
+
+Each file is one JSON document: a small **header** — the app, the format version,
+when it was taken and the row counts — followed by the season itself, so a file can
+be identified and believed before the body is read:
+
+```jsonc
+{
+  "app" : "SportDay",
+  "version" : 1,
+  "header" : {
+    "app" : "SportDay",
+    "version" : 1,
+    "writtenAt" : "2026-10-04T16:21:35",
+    "counts" : {
+      "enrollments" : 1038,
+      "finalEntries" : 96,
+      "groups" : 158,
+      "results" : 1206,
+      "records" : 112
+    },
+    "note" : "Entries, heats, final places, marks and school records as they stood before a season reset. Students, events and settings are not included."
+  },
+  "groups" : [ {
+    "id" : 7, "eventId" : 2, "groupNumber" : 1, "stage" : "HEAT",
+    "capacity" : 8, "athleteCount" : 8, "createdAt" : "2026-10-01T08:30:00"
+  } ],
+  "enrollments" : [ {
+    "id" : 91, "userId" : 12, "eventId" : 2, "status" : "CONFIRMED",
+    "groupId" : 7, "lane" : 3, "enrolledAt" : "2026-09-20T09:00:00"
+  } ],
+  "finalEntries" : [ {
+    "id" : 4, "groupId" : 8, "userId" : 12, "lane" : 1, "seed" : 1,
+    "seedMark" : 11.204, "seedUnit" : "s", "createdAt" : "2026-10-01T11:00:00"
+  } ],
+  "results" : [ {
+    "id" : 33, "userId" : 12, "eventId" : 2, "stage" : "HEAT",
+    "mark" : 11.204, "unit" : "s", "attempt1" : 11.204, "notes" : "PB",
+    "outcome" : "RESULT", "recordedAt" : "2026-10-01T09:15:00"
+  } ],
+  "records" : [ {
+    "id" : 5, "eventType" : "RUN_100M", "sex" : "MALE", "grade" : "B",
+    "manualMark" : 11.500, "manualUnit" : "s", "manualHolderName" : "Chan Tai Man",
+    "manualAchievedOn" : "2018-05-01", "mark" : 11.204, "unit" : "s",
+    "source" : "RESULT", "holderName" : "Athlete 12", "holderUserId" : 12,
+    "achievedOn" : "2026-10-01", "resultId" : 33, "eventId" : 2,
+    "previousMark" : 11.500, "previousHolderName" : "Chan Tai Man",
+    "previousAchievedOn" : "2018-05-01"
+  } ]
+}
+```
+
+Timestamps are ISO-8601 text, so the file reads as well as it parses, and an absent
+value is simply left out.
+
+It covers **what the reset destroys** — entries, groups, results and the final's
+field — **and the school records**, which a reset keeps: a record whose mark came
+from a result falls back to its typed-in baseline, and a school that wants that
+undone needs the records in the file too. The students, the event catalogue, the
+school years and the settings are deliberately **not** in it: a reset leaves those
+alone, so a backup of one season's competition data has no business restoring them.
+
+### Putting one back
+
+`POST /api/admin/backups/{name}/restore` **overwrites current data**. It clears the
+entries, heats, final places and marks, and the parts of the school records a
+result holds, then writes the file's rows back in an order that keeps every foreign
+key satisfied:
+
+1. the records let go of their results and events, which are about to be deleted;
+2. the final places and the entries go — both point at a group;
+3. the groups go;
+4. only then the results, which nothing points at;
+5. inserts run the other way round: **groups first**, so their generated ids are
+   known, then the entries and final places pointing at them, then the results;
+6. the records' typed-in **baselines** are put back, and every record is recomputed
+   from the restored results — which is also what re-points a record at the result
+   that holds it now, because a restored result has a new id.
+
+A row whose student or event is no longer in the system is **skipped and counted**
+rather than invented, and the response says how many of each:
+
+```jsonc
+{
+  "restoredFrom": "sportday-season-20261004-162135.json",
+  "groupsRestored": 158, "enrollmentsRestored": 1038, "finalEntriesRestored": 96,
+  "resultsRestored": 1206, "recordsRestored": 112,
+  "skipped": { "enrollments": 0, "finalEntries": 0, "results": 0 },
+  "recordsRecomputed": 112, "eventsReformatted": 24, "restoredAt": "2026-10-04T17:02:11"
+}
+```
 
 ---
 
@@ -876,7 +1093,7 @@ mvn clean compile     # wipe and build main sources
 mvn test              # run the tests against what was just built
 ```
 
-299 tests covering the grade bands and their boundaries, the password rule, the
+471 tests covering the grade bands and their boundaries, the password rule, the
 group sizes, sheet sizes and default units for every event type, the register
 reader (headings, encodings, date spellings, BOM, quoted fields, bad rows), the
 sample generator's invariants, the marking-sheet PDFs — page size, page count, the
@@ -932,7 +1149,7 @@ rules and the data disagree, not that the script took a shortcut. Unlike the smo
 it leaves the data in place, so the school ends up with a populated system. Last run:
 112 events, 1005 entries, 1005 marks, 24 finals, 0 failures.
 
-422 checks over real HTTP: admin login, season reset, the event catalogue and its
+453 checks over real HTTP: admin login, season reset, the event catalogue and its
 group/sheet sizes, the event filters, the 600-student import, student login with
 the derived password, the 2-track/1-field quota including the refusals, heat
 allocation at 8 and 24 per group, CSV **and** XLSX register upload with row-level

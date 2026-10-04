@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import {
   api,
   EventCategory,
+  EventDTO,
   EventSex,
   EVENT_TYPE_OPTIONS,
   eventTypeCategory,
@@ -12,7 +13,10 @@ import {
   Grade,
   GRADES,
   gradesForEventType,
+  isRelayEventType,
   mayHaveFinalForType,
+  RELAY_TEAM_KIND_OPTIONS,
+  RelayTeamKind,
   SheetSize,
   sheetDefaultsForType,
 } from '@/lib/api';
@@ -41,11 +45,25 @@ export default function NewEventPage() {
     // Every new event runs straight to a final; only the short sprints may be
     // split into heats and a final.
     directToFinal: true,
+    /*
+     * The relay team kind. `''` is Undivided — the value that clears a kind on an
+     * update — and it is what a new relay starts as, which is how every relay in
+     * the programme already behaves. Neither field is sent for a non-relay: the
+     * server refuses a relay team kind on a sprint or a field event.
+     */
+    relayTeamKind: '' as RelayTeamKind | '',
+    relayReservesAllowed: false,
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   const mayHaveFinal = mayHaveFinalForType(form.type);
+  /**
+   * Only the two relays may be divided into form or house teams, so the relay
+   * section is shown for them and for nothing else — and its two fields are only
+   * ever sent for them.
+   */
+  const relayEvent = isRelayEventType(form.type);
   /**
    * The 5000M is A grade only, and the 1500M and 110M hurdles have no C grade.
    * The server refuses such an event with a 400, so the form refuses it too —
@@ -89,7 +107,13 @@ export default function NewEventPage() {
     }
     setLoading(true);
     try {
-      await api.createEvent(form);
+      // The relay team kind and the reserve switch belong to a relay alone, so
+      // they are left off the request entirely for anything else.
+      const { relayTeamKind, relayReservesAllowed, ...rest } = form;
+      const payload: Partial<EventDTO> = relayEvent
+        ? { ...rest, relayTeamKind, relayReservesAllowed }
+        : { ...rest };
+      await api.createEvent(payload);
       router.push('/admin/events');
     } catch (err: any) {
       setError(err.message || t('adminEvents.createFailed'));
@@ -251,6 +275,40 @@ export default function NewEventPage() {
             <p className="muted">{t('events.directToFinalHint')}</p>
             {!mayHaveFinal && <p className="muted">{t('events.directToFinalForced')}</p>}
           </div>
+          {/* A relay may be divided into form or house teams. Undivided is the
+              default and is a real choice: such a relay simply has no teams. */}
+          {relayEvent && (
+            <div className="form-group">
+              <label>{t('relay.kind')}</label>
+              <select
+                value={form.relayTeamKind}
+                onChange={e =>
+                  setForm(prev => ({
+                    ...prev,
+                    relayTeamKind: e.target.value as RelayTeamKind | '',
+                  }))
+                }
+              >
+                {RELAY_TEAM_KIND_OPTIONS.map(option => (
+                  <option key={option.value} value={option.value}>
+                    {t(option.labelKey)}
+                  </option>
+                ))}
+              </select>
+              <p className="muted">{t('relay.kindHint')}</p>
+              <label className="checkbox-line">
+                <input
+                  type="checkbox"
+                  checked={form.relayReservesAllowed}
+                  onChange={e =>
+                    setForm(prev => ({ ...prev, relayReservesAllowed: e.target.checked }))
+                  }
+                />
+                {t('relay.reservesAllowed')}
+              </label>
+              <p className="muted">{t('relay.reservesHint')}</p>
+            </div>
+          )}
           <div className="flex gap-2 mt-2">
             <button type="submit" className="btn btn-primary" disabled={loading || gradeMismatch}>
               {loading ? t('common.creating') : t('adminEvents.create')}

@@ -19,6 +19,14 @@ export function Navbar() {
   const isStaff = user?.role === 'ADMIN' || user?.role === 'MANAGER';
   const isAdmin = user?.role === 'ADMIN';
   const isStudent = user?.role === 'STUDENT';
+  /*
+   * A teacher holds no administrative power at all: they may enter or withdraw
+   * a student in one of their own classes and nothing else. So the teacher pages
+   * are shown to ADMIN and TEACHER alike — both may use them — while every
+   * `/admin/**` link stays behind `isAdmin`.
+   */
+  const isTeacher = user?.role === 'TEACHER';
+  const canHelpStudents = isAdmin || isTeacher;
 
   return (
     <nav className="navbar">
@@ -44,6 +52,9 @@ export function Navbar() {
                   <Link href="/results">{t('nav.results')}</Link>
                   <Link href="/records">{t('nav.records')}</Link>
                   <Link href="/championships">{t('nav.championships')}</Link>
+                  {canHelpStudents && (
+                    <Link href="/teacher">{t('nav.helpStudents')}</Link>
+                  )}
                   {isStaff && (
                     <>
                       <Link href="/admin">{t('nav.admin')}</Link>
@@ -54,6 +65,8 @@ export function Navbar() {
                   {isAdmin && (
                     <>
                       <Link href="/admin/sport-day">{t('nav.sportDay')}</Link>
+                      <Link href="/admin/teachers">{t('nav.teachers')}</Link>
+                      <Link href="/admin/backups">{t('nav.backups')}</Link>
                       <Link href="/admin/settings">{t('nav.settings')}</Link>
                       <Link href="/admin/users">{t('nav.users')}</Link>
                     </>

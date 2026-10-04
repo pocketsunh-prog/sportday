@@ -79,6 +79,34 @@ public class EventDTO {
      */
     private Boolean timeInMinutes;
 
+    /** True when this event is a relay — 4x100M or 4x400M. */
+    private Boolean relay;
+
+    /**
+     * {@code FORM} or {@code HOUSE} — how this relay's teams are divided into one
+     * team per form, or one per house within the event's grade. <strong>Null is
+     * meaningful and normal</strong>: a relay with no kind is simply undivided,
+     * which is how the relay events already in the programme behave. Only a relay
+     * may carry one; an empty string on an update clears it.
+     */
+    private String relayTeamKind;
+
+    /** Printable kind, {@code Form} or {@code House}. */
+    private String relayTeamKindLabel;
+
+    /**
+     * Legs in a team — four for a 4x100M or a 4x400M. Only meaningful for a relay,
+     * where it is the race's own size rather than a constant, so a school running a
+     * longer squad changes the event rather than the code.
+     */
+    private Integer relayTeamSize;
+
+    /** True when a team may also name reserves past the race's own legs. */
+    private Boolean relayReservesAllowed;
+
+    /** How many runners one team may hold in total, reserves included. */
+    private Integer relayMemberCap;
+
     private Boolean enabled;
     private LocalDateTime createdAt;
     private Integer enrolledCount;
@@ -126,6 +154,13 @@ public class EventDTO {
                 .directToFinal(event.isDirectToFinal())
                 .directToFinalAutomatic(Boolean.TRUE.equals(event.getDirectToFinalAuto()))
                 .timeInMinutes(event.usesMinutesAndSeconds())                .mayHaveFinal(event.mayHaveFinal())
+                .relay(event.isRelay())
+                .relayTeamKind(event.getRelayTeamKind() == null ? null : event.getRelayTeamKind().name())
+                .relayTeamKindLabel(event.getRelayTeamKind() == null
+                        ? null : event.getRelayTeamKind().getLabel())
+                .relayTeamSize(event.getEffectiveRelayTeamSize())
+                .relayReservesAllowed(event.isRelayReservesAllowed())
+                .relayMemberCap(event.getRelayMemberCap())
                 .enabled(event.getEnabled())
                 .createdAt(event.getCreatedAt())
                 .seasonId(event.getSeason() == null ? null : event.getSeason().getId())

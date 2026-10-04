@@ -13,7 +13,10 @@ import {
   Grade,
   GRADES,
   gradesForEventType,
+  isRelayEventType,
   mayHaveFinalForType,
+  RELAY_TEAM_KIND_OPTIONS,
+  RelayTeamKind,
   SheetSize,
   sheetDefaultsForType,
 } from '@/lib/api';
@@ -41,6 +44,13 @@ export default function EditEventPage() {
     maxEntriesPerStudent: 1,
     enabled: true,
     directToFinal: true,
+    /**
+     * The relay team kind, and whether reserves are allowed past the legs. `''`
+     * is Undivided and is what clears a kind; both fields are only ever sent for
+     * a relay, because the server refuses a relay team kind on anything else.
+     */
+    relayTeamKind: '' as RelayTeamKind | '',
+    relayReservesAllowed: false,
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -66,6 +76,19 @@ export default function EditEventPage() {
    * locks itself the moment the type is changed to one that cannot have a final.
    */
   const mayHaveFinal = mayHaveFinalForType(form.type);
+
+  /**
+   * Whether the event on the form is a relay. The relay section is shown for the
+   * two relays alone, and its fields are only sent for them.
+   */
+  const relayEvent = isRelayEventType(form.type);
+  /**
+   * The kind the event was loaded with. Changing it is refused by the server
+   * while the event still has teams, so the note that says so is only shown once
+   * the school has actually moved the choice.
+   */
+  const [loadedRelayKind, setLoadedRelayKind] = useState<RelayTeamKind | ''>('');
+  const relayKindChanged = relayEvent && form.relayTeamKind !== loadedRelayKind;
 
   /**
    * The 5000M is A grade only, and the 1500M and 110M hurdles have no C grade,
@@ -99,7 +122,10 @@ export default function EditEventPage() {
           maxEntriesPerStudent: event.maxEntriesPerStudent,
           enabled: event.enabled,
           directToFinal: event.directToFinal !== false,
+          relayTeamKind: event.relayTeamKind ?? '',
+          relayReservesAllowed: event.relayReservesAllowed === true,
         });
+        setLoadedRelayKind(event.relayTeamKind ?? '');
         // `groupCount` counts the heats and, where one was drawn, the final.
         setHasDrawings((event.groupCount || 0) > 0);
         // Absent, like every optional field this API omits when it has nothing
@@ -147,9 +173,18 @@ export default function EditEventPage() {
     }
     setSaving(true);
     try {
-      await api.updateEvent(eventId, form);
+      // The relay team kind and the reserve switch belong to a relay alone; for
+      // anything else they are left off the request, so the update cannot clear a
+      // setting that does not apply to it.
+      const { relayTeamKind, relayReservesAllowed, ...rest } = form;
+      const payload: Partial<EventDTO> = relayEvent
+        ? { ...rest, relayTeamKind, relayReservesAllowed }
+        : { ...rest };
+      await api.updateEvent(eventId, payload);
       router.push('/admin/events');
     } catch (err: any) {
+      // Changing the kind under existing teams is refused with a 409 whose message
+      // names the count and the way out — show it as it stands.
       setError(err.message || t('adminEvents.updateFailed'));
     } finally {
       setSaving(false);
@@ -358,6 +393,52 @@ export default function EditEventPage() {
               <span className="badge badge-warning">{t('events.heatsAndFinal')}</span>{' '}
               {t('adminEvents.directToFinalWarning')}
             </p>
+          )}
+          {/* A relay may be divided into form or house teams, or left undivided.
+              The server refuses a change of kind while teams exist, so the note
+              saying so appears as soon as the choice is moved. */}
+          {relayEvent && (
+            <div className="form-group">
+              <label>{t('relay.kind')}</label>
+              <select
+                value={form.relayTeamKind}
+                onChange={e =>
+                  setForm(prev => ({
+                    ...prev,
+                    relayTeamKind: e.target.value as RelayTeamKind | '',
+                  }))
+                }
+              >
+                {RELAY_TEAM_KIND_OPTIONS.map(option => (
+                  <option key={option.value} value={option.value}>
+                    {t(option.labelKey)}
+                  </option>
+                ))}
+              </select>
+              <p className="muted">{t('relay.kindHint')}</p>
+              {relayKindChanged && (
+                <p className="muted">
+                  <span className="badge badge-warning">{t('events.format')}</span>{' '}
+                  {t('relay.kindLockedHint')}
+                </p>
+              )}
+              <label className="checkbox-line">
+                <input
+                  type="checkbox"
+                  checked={form.relayReservesAllowed}
+                  onChange={e =>
+                    setForm(prev => ({ ...prev, relayReservesAllowed: e.target.checked }))
+                  }
+                />
+                {t('relay.reservesAllowed')}
+              </label>
+              <p className="muted">{t('relay.reservesHint')}</p>
+              <div className="pill-actions mt-2">
+                <Link href={`/admin/events/${eventId}/relay`} className="btn btn-sm btn-secondary">
+                  {t('relay.openBoard')}
+                </Link>
+              </div>
+            </div>
           )}
           <div className="flex gap-2 mt-2">
             <button type="submit" className="btn btn-primary" disabled={saving || gradeMismatch}>
