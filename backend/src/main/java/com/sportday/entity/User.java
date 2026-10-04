@@ -74,6 +74,14 @@ public class User {
          * their own profile. Nothing else: no mark entry, no settings, no uploads,
          * no user management.
          */
-        TEACHER
+        TEACHER,
+        /**
+         * An input helper — a volunteer on the day. They key in marks and print
+         * marking sheets, and that is the whole of it: no event management, no
+         * settings, no register, no uploads, no user management. The narrowest
+         * staff role there is, because a helper is handed a tablet and a stack of
+         * blank sheets, not the programme.
+         */
+        HELPER
     }
 }

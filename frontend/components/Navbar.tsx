@@ -27,6 +27,12 @@ export function Navbar() {
    */
   const isTeacher = user?.role === 'TEACHER';
   const canHelpStudents = isAdmin || isTeacher;
+  /*
+   * An input helper is the narrowest staff role: they key in marks and print
+   * marking sheets, and the server refuses them everything else. They are
+   * deliberately not `isStaff`, so no other `/admin` link is shown to them.
+   */
+  const isHelper = user?.role === 'HELPER';
 
   return (
     <nav className="navbar">
@@ -55,9 +61,13 @@ export function Navbar() {
                   {canHelpStudents && (
                     <Link href="/teacher">{t('nav.helpStudents')}</Link>
                   )}
-                  {isStaff && (
+                  {/* An input helper keys in marks and prints sheets. They are not
+                      staff in the administrative sense, so they get those two links
+                      and none of the rest — every other /admin page would refuse
+                      them anyway. */}
+                  {(isStaff || isHelper) && (
                     <>
-                      <Link href="/admin">{t('nav.admin')}</Link>
+                      {!isHelper && <Link href="/admin">{t('nav.admin')}</Link>}
                       <Link href="/admin/marks">{t('nav.marks')}</Link>
                       <Link href="/admin/print">{t('nav.print')}</Link>
                     </>

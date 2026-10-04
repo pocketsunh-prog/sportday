@@ -9,8 +9,13 @@ import { useI18n } from '@/lib/i18n';
 
 type EnabledFilter = '' | 'true' | 'false';
 
-/** Used until `GET /admin/users/roles` answers, so the form is never empty. */
-const FALLBACK_ROLES: string[] = ['ADMIN', 'MANAGER', 'USER'];
+/**
+ * Used until `GET /admin/users/roles` answers, so the form is never empty.
+ * `HELPER` is the input helper: they record marks and print marking sheets and
+ * nothing else. It is an accepted value of the endpoint, which is the authority
+ * on this list — this is only the placeholder shown before it replies.
+ */
+const FALLBACK_ROLES: string[] = ['ADMIN', 'MANAGER', 'TEACHER', 'HELPER', 'USER'];
 
 export default function AdminUsersPage() {
   const { user, isLoading } = useAuth();
@@ -95,7 +100,12 @@ export default function AdminUsersPage() {
     e.preventDefault();
     setMessage('');
     setError('');
-    if (form.username.trim().length < 3 || form.password.length < 6 || !form.email.trim()) {
+    /*
+     * Only a username and a password are required: the server treats a blank
+     * email as "none" rather than refusing the account, which is what lets a
+     * HELPER be created with nothing but a username, a password and a name.
+     */
+    if (form.username.trim().length < 3 || form.password.length < 6) {
       setError(t('users.validationFull'));
       return;
     }
@@ -210,7 +220,7 @@ export default function AdminUsersPage() {
                 type="email"
                 value={form.email}
                 onChange={e => setForm(prev => ({ ...prev, email: e.target.value }))}
-                required
+                placeholder={t('users.emailOptional')}
               />
             </div>
             <div className="field">

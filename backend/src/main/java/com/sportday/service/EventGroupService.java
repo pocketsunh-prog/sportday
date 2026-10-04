@@ -28,6 +28,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Random;
 
 /**
@@ -238,6 +239,25 @@ public class EventGroupService {
     public EventGroup requireGroup(Long groupId) {
         return groupRepository.findById(groupId)
                 .orElseThrow(() -> new ResourceNotFoundException("Group not found with id: " + groupId));
+    }
+
+    /**
+     * The final of an event, if one has been drawn.
+     *
+     * <p>The final is group number 0 of the event, and it exists only once the draw
+     * has run — which is why every question of the form "may this be worked on
+     * yet?" ends up here. {@link FinalStageGuard} owns the words of the refusal;
+     * this is the lookup behind it.</p>
+     */
+    @Transactional(readOnly = true)
+    public Optional<EventGroup> finalOf(Long eventId) {
+        return groupRepository.findFirstByEventIdAndStage(eventId, EventStage.FINAL);
+    }
+
+    /** True when the event has a final drawn, so its marks and its sheet exist. */
+    @Transactional(readOnly = true)
+    public boolean finalDrawn(Long eventId) {
+        return finalOf(eventId).isPresent();
     }
 
     /**

@@ -639,6 +639,39 @@ Only an administrator creates staff accounts. **Student accounts are not created
 here** — they arrive through the register import, which also derives each
 password. Asking for the `STUDENT` role here is refused with a message saying so.
 
+### Input helpers
+
+An **input helper** (`HELPER`) is a trusted volunteer on the day: they key in the
+marks a heat or a final produced, and print the marking sheets the helpers write
+on. That is the whole of it — a helper fills the programme in and cannot change
+it. They may reach **only** these:
+
+```
+GET    /api/events/{id}/marks            # read the mark sheet (HEAT or FINAL)
+POST   /api/events/{id}/marks            # save the grid
+GET    /api/groups/{groupId}/sheet.pdf   # one marking sheet
+GET    /api/events/{id}/sheets.pdf       # every sheet of an event
+GET    /api/sheets.pdf                   # the whole-school print run
+```
+
+and everything else is refused, in particular the event CRUD, the heats and the
+draw, the settings, the student register and its upload, the users, the backups,
+the season reset, the relay teams and the recording of results. There is **no new
+URL family** for the role: the mark and sheet endpoints already exist and the
+`@PreAuthorize` on `MarkEntryController` and `EventGroupController` admits
+`HELPER` alongside `ADMIN` and `MANAGER`.
+
+Note the ordering trap on `GET /api/events/{id}/sheets.pdf`: an earlier public
+`GET /api/events/**` rule matches it first, so on the URL layer that download
+looks open. It is the controller annotation that closes it, which is why both
+layers have to name the role.
+
+`HELPER` is a value on the `users.role` **MySQL ENUM**, and `ddl-auto=update`
+never widens an existing ENUM — so on an existing database the role needs
+`backend/db/migration/helper-role-migration.sql` *and* a restart before a helper
+account can be created or sign in. Without it the insert is truncated (the
+account becomes a `USER`) or refused with *"Data truncated for column 'role'"*.
+
 ### Marking sheets
 
 One sheet per heat or final, with **student id / name / grade / record / remark**.
@@ -844,9 +877,9 @@ by an administrator; see [Accounts](#accounts).
 | GET | `/api/events/{eventId}/final?limit=` | Admin/Manager | Who would qualify for the final on the heat marks — changes nothing |
 | POST | `/api/events/{eventId}/final?limit=` | Admin/Manager | Draw or re-draw the final (the top 8 by default) |
 | DELETE | `/api/events/{eventId}/final` | Admin/Manager | Remove the final and the marks recorded in it |
-| GET | `/api/groups/{groupId}/sheet.pdf` | Admin/Manager | One marking sheet (A5 or A4), heats and final alike |
-| GET | `/api/events/{eventId}/sheets.pdf` | Admin/Manager | Every group of an event, one per page |
-| GET | `/api/sheets.pdf?sex=&category=` | Admin/Manager | Whole-school print run |
+| GET | `/api/groups/{groupId}/sheet.pdf` | Admin/Manager/Helper | One marking sheet (A5 or A4), heats and final alike — a final's sheet waits for the draw |
+| GET | `/api/events/{eventId}/sheets.pdf` | Admin/Manager/Helper | Every group of an event, one per page — held back until a final the event will run has been drawn |
+| GET | `/api/sheets.pdf?sex=&category=` | Admin/Manager/Helper | Whole-school print run |
 
 ### Mark entry
 
@@ -857,8 +890,30 @@ separate marks.
 
 | Method | Endpoint | Access | Description |
 |--------|----------|--------|-------------|
-| GET | `/api/events/{eventId}/marks?stage=&groupId=&grade=` | Admin/Manager | Grid rows plus the group and grade filter options |
-| POST | `/api/events/{eventId}/marks` | Admin/Manager | Save the grid in one request |
+| GET | `/api/events/{eventId}/marks?stage=&groupId=&grade=` | Admin/Manager/Helper | Grid rows plus the group and grade filter options |
+| POST | `/api/events/{eventId}/marks` | Admin/Manager/Helper | Save the grid in one request |
+
+#### The final waits for the heat results
+
+A final is drawn **from** the heat marks, so it cannot be worked on before it exists. Asking
+for `stage: FINAL` — reading the grid or saving it — is refused with **409** until the draw
+has run, and so is an event's print run, because a final marking sheet is the final's field
+and there is no field yet. One rule answers all three, `FinalStageGuard`, which is the same
+rule `FinalQualificationService` applies when it refuses to draw without heat results.
+
+The refusal says which of the three cases it is:
+
+| The event | `finalState` | The 409 says |
+|-----------|--------------|--------------|
+| an 800M, a hurdles race, a relay, a field event | `NONE` | *"… is run straight to a final, so there is no final to enter marks for or print a sheet from. Only 60M, 100M, 200M and 400M can be split into heats and a final."* |
+| a sprint set to run straight to a final | `DIRECT` | *"… is set to run direct to a final, so there is no final to work on. Untick \"direct to final\" on the event first."* |
+| a sprint running heats, draw not yet run | `NOT_DRAWN` | *"The final has not been drawn yet. Record the heat marks first, then draw the final."* |
+| a sprint whose final has been drawn | `DRAWN` | — the final's grid and sheet are live |
+
+`GET /api/events/{eventId}/marks` carries `finalState` (and `finalDrawn`, kept for
+compatibility) so a client can gate its own final button rather than wait for a 409 to find
+out. `finalDrawn` alone cannot tell "no final because this event has none" from "no final
+yet" — both read `false` — so read `finalState`.
 
 ```jsonc
 // POST /api/events/2/marks

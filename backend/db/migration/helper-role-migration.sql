@@ -1,0 +1,55 @@
+-- ---------------------------------------------------------------------------
+-- The input helper role
+--
+-- What the school asked for:
+--
+--   * a new role to help input marks and print the marking sheets.
+--
+-- A helper keys in the marks a heat or a final produced and prints the sheets the
+-- helpers write on, and nothing else. They are a volunteer handed a tablet on the
+-- day, so the role is deliberately narrow: no event create, update, enable or
+-- delete, no heat or final allocation, no settings, no students and no register
+-- upload, no user management, no backups, no season reset, no relay teams, no
+-- groups allocation and no results recording. A helper fills the programme in;
+-- they cannot change it.
+--
+-- This script does the one thing Hibernate cannot do for itself:
+--
+--   * it adds HELPER to the `users.role` column. That column is a MySQL ENUM, and
+--     `ddl-auto=update` never widens an existing ENUM — the same reason
+--     revamp-migration.sql rewrites `role` to add STUDENT and
+--     teacher-accounts-migration.sql rewrites it to add TEACHER. Without this,
+--     creating a helper (or signing one in) fails on an existing database: the
+--     insert is truncated, so the account silently becomes a USER — or, under
+--     MySQL's strict mode, is refused outright with
+--     "Data truncated for column 'role' at row 1".
+--
+-- HELPER is listed in the alphabetical order Hibernate emits for an @Enumerated(
+-- EnumType.STRING) enum — ADMIN, HELPER, MANAGER, STUDENT, TEACHER, USER — which
+-- is the order this schema now carries. Values are stored as names, so the order
+-- is cosmetic for reading; it is stated in full rather than appended to so the
+-- script is safe on a database whose column order differs.
+--
+-- The role needs NO new table and NO new URL family: the mark-entry and
+-- marking-sheet endpoints already exist, and HELPER is admitted to them by the
+-- @PreAuthorize on MarkEntryController and EventGroupController plus the matching
+-- request rules in SecurityConfig. So this file is a schema change and nothing
+-- more.
+--
+-- Run it once, against an existing `sportday` schema:
+--
+--   docker exec -i sportday-mysql mysql -usportday -psportday123 -D sportday \
+--     < backend/db/migration/helper-role-migration.sql
+--
+-- It is idempotent: the ENUM rewrite states the full set of values it wants, so
+-- running it twice changes nothing the second time.
+-- ---------------------------------------------------------------------------
+
+ALTER TABLE users MODIFY COLUMN role ENUM(
+    'ADMIN', 'HELPER', 'MANAGER', 'STUDENT', 'TEACHER', 'USER'
+) NOT NULL;
+
+-- (Optional, informational.) Who the input helpers are, once the office has made
+-- them. Left commented out because it is a report, not a change:
+--
+-- SELECT id, username, full_name FROM users WHERE role = 'HELPER' ORDER BY username;

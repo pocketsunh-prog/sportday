@@ -46,7 +46,8 @@ public class AdminController {
             description = "The only way an account is created now that public self-registration has been "
                     + "removed. Students are not created here — they arrive through the register import "
                     + "(ADMIN only). A TEACHER created here may sign in straight away but can help nobody "
-                    + "until the teacher upload assigns them their classes.")
+                    + "until the teacher upload assigns them their classes. A HELPER created here may key "
+                    + "in marks and print marking sheets as soon as they sign in.")
     @PostMapping("/users")
     public ResponseEntity<UserDTO> createUser(
             @RequestBody RegisterRequest request,
@@ -56,7 +57,7 @@ public class AdminController {
             parsed = User.Role.valueOf(role.trim().toUpperCase());
         } catch (IllegalArgumentException ex) {
             throw new IllegalArgumentException("Unknown role: " + role
-                    + " — use ADMIN, MANAGER, TEACHER or USER.");
+                    + " — use ADMIN, MANAGER, TEACHER, HELPER or USER.");
         }
         if (parsed == User.Role.STUDENT) {
             throw new IllegalArgumentException(

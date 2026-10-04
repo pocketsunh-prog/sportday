@@ -48,6 +48,13 @@ export default function TeacherStudentEntriesPage() {
   const [student, setStudent] = useState<StudentDTO | null>(null);
   const [enrollments, setEnrollments] = useState<StudentEnrollmentsDTO | null>(null);
   const [eligible, setEligible] = useState<EventDTO[]>([]);
+  /**
+   * The half of the programme and the event type offered for entry. Both narrow
+   * the events this page offers; the server list is already the student's own
+   * division, so the division itself is not offered again here.
+   */
+  const [category, setCategory] = useState<EventCategory | ''>('');
+  const [eventType, setEventType] = useState('');
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -208,16 +215,43 @@ export default function TeacherStudentEntriesPage() {
 
   const byCategory = useMemo(() => {
     const grouped: Record<EventCategory, EventDTO[]> = { TRACK: [], FIELD: [] };
-    eligible.forEach(event => {
-      if (grouped[event.category]) grouped[event.category].push(event);
-    });
+    eligible
+      .filter(
+        event =>
+          (category === '' || event.category === category) &&
+          (eventType === '' || event.type === eventType)
+      )
+      .forEach(event => {
+        if (grouped[event.category]) grouped[event.category].push(event);
+      });
     SECTION_ORDER.forEach(category => {
       grouped[category].sort(
         (a, b) => a.typeLabel.localeCompare(b.typeLabel) || a.name.localeCompare(b.name)
       );
     });
     return grouped;
+  }, [eligible, category, eventType]);
+
+  /**
+   * The event types this student may actually be entered in, so the picker
+   * never lists a type the student's division does not run. Ordered by label,
+   * which is how the cards below are ordered.
+   */
+  const typeOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    eligible.forEach(event => {
+      if (!seen.has(event.type)) seen.set(event.type, event.typeLabel);
+    });
+    return Array.from(seen, ([type, label]) => ({ type, label })).sort((a, b) =>
+      a.label.localeCompare(b.label)
+    );
   }, [eligible]);
+
+  /** The events the two filters let through, i.e. what the cards draw. */
+  const shownEvents = useMemo(
+    () => SECTION_ORDER.flatMap(category => byCategory[category]),
+    [byCategory]
+  );
 
   /** Why this event cannot be added for the student, or `null` when it can. */
   const blockedReason = (event: EventDTO): string | null => {
@@ -296,9 +330,9 @@ export default function TeacherStudentEntriesPage() {
     );
   }
 
-  const totalCount = eligible.length;
+  const totalCount = shownEvents.length;
   // Events that can still be added: not already entered, not full, quota left.
-  const addableCount = eligible.filter(event => blockedReason(event) === null).length;
+  const addableCount = shownEvents.filter(event => blockedReason(event) === null).length;
 
   return (
     <div>
@@ -500,8 +534,52 @@ export default function TeacherStudentEntriesPage() {
         </div>
         <p className="muted mt-2">{t('entries.addHint')}</p>
 
+        {/*
+          The events this page offers are the student's own division (the server
+          list) narrowed by the half of the programme and the event type. The
+          filters are on the events alone, so the entry rules below stay visible
+          whatever they are set to.
+        */}
+        {eligible.length > 0 && (
+          <div className="toolbar mt-2">
+            <div className="form-group">
+              <label htmlFor="entries-category">{t('eventFilters.category')}</label>
+              <select
+                id="entries-category"
+                value={category}
+                onChange={e => setCategory(e.target.value as EventCategory | '')}
+              >
+                <option value="">{t('eventFilters.allCategories')}</option>
+                {SECTION_ORDER.map(value => (
+                  <option key={value} value={value}>
+                    {label('category', value)}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="entries-type">{t('eventFilters.eventType')}</label>
+              <select
+                id="entries-type"
+                value={eventType}
+                onChange={e => setEventType(e.target.value)}
+              >
+                <option value="">{t('eventFilters.allEventTypes')}</option>
+                {typeOptions.map(option => (
+                  <option key={option.type} value={option.type}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
+
         {totalCount === 0 ? (
-          <p className="muted mt-2">{t('events.noEventsDivision')}</p>
+          <p className="muted mt-2">
+            {eligible.length > 0 ? t('entries.noMatchingEvents') : t('events.noEventsDivision')}
+          </p>
         ) : (
           <>
             {addableCount === 0 && <p className="muted mt-2">{t('entries.noEligible')}</p>}

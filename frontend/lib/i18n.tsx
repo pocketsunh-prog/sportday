@@ -65,6 +65,22 @@ const en = {
   'role.STUDENT': 'Student',
   'role.USER': 'Staff',
   'role.TEACHER': 'Teacher',
+  'role.HELPER': 'Input helper',
+
+  /*
+   * The final waits for the heat results. `finalState` is the server's own
+   * verdict on an event's final, and these are the words a screen says when it
+   * cannot offer the stage: `NOT_DRAWN` points at the heat results, while
+   * `finalNoStageHint` covers the two states that have no final at all.
+   */
+  'final.state.NONE': 'No final stage',
+  'final.state.DIRECT': 'Direct to final',
+  'final.state.NOT_DRAWN': 'Final not drawn',
+  'final.state.DRAWN': 'Final drawn',
+  'final.notDrawnHint':
+    'The heat results come first. Record the heat marks, then draw the final from them.',
+  'final.noStageHint':
+    'This event has no final stage, so heats are the only sheet to work on.',
 
   /* ---------------- domain vocabulary ---------------- */
   'category.TRACK': 'Track 徑項',
@@ -121,6 +137,16 @@ const en = {
   'my.notAllocated': 'Not allocated yet',
   'my.noEntries': 'You have not entered any events yet.',
 
+  /* ---------------- shared event filters (sex / grade / category / event) ---------------- */
+  'eventFilters.sex': 'Division',
+  'eventFilters.allSexes': 'All divisions',
+  'eventFilters.grade': 'Grade',
+  'eventFilters.allGrades': 'All grades',
+  'eventFilters.category': 'Category',
+  'eventFilters.allCategories': 'All categories',
+  'eventFilters.eventType': 'Event',
+  'eventFilters.allEventTypes': 'All events',
+
   /* ---------------- marking sheets / print ---------------- */
   'print.title': 'Print marking sheets',
   'print.subtitle':
@@ -138,6 +164,13 @@ const en = {
   'print.athletes': 'Athletes',
   'print.noHeats': 'No heats have been allocated yet.',
   'print.needHeats': 'Allocate heats first, then come back to print.',
+  /* An event whose final is still to come is held back whole: printing only the
+     heats would look like the final's sheet had gone missing. */
+  'print.finalNotDrawn': 'This event runs a final, but the final has not been drawn yet.',
+  'print.finalNotDrawnHint':
+    'The heat results come first. Record the heat marks and draw the final, then its sheet can be printed.',
+  'print.allHeldBack':
+    'The whole run is held back while any event it covers is still waiting for its final: printing only the heats would look like the final’s sheet had gone missing.',
   'print.browserPrint': 'Print in browser',
   'print.columns':
     'Each sheet has five columns: student ID, name, grade, record and remark. Record and remark are left blank for the marker.',
@@ -216,6 +249,9 @@ const en = {
   'marks.pickStage': 'Stage',
   'marks.stageHeat': 'Heats 初賽',
   'marks.stageFinal': 'Final 決賽',
+  /* The final cannot be worked on until it has been drawn, and an event that
+     has no final stage is not offered one at all. Both are said, not greyed. */
+  'marks.stageUnavailable': 'Not available yet',
   'marks.finalHint': 'The final is a single race, so the heat filter does not apply.',
   'marks.finalNotDrawn': 'The final has not been drawn yet.',
   'marks.finalNotDrawnHint':
@@ -1011,6 +1047,12 @@ const en = {
     'No class on the register has a student in it yet, so there is nobody to help.',
   'teacher.classFilter': 'Class',
   'teacher.allClasses': 'All my classes',
+  'teacher.sexFilter': 'Division',
+  'teacher.allSexes': 'All divisions',
+  'teacher.gradeFilter': 'Grade',
+  'teacher.noMatchingStudents': 'No student in your classes matches these filters.',
+  'entries.noMatchingEvents': 'No event matches these filters.',
+  'users.emailOptional': 'Optional',
   'teacher.studentsTitle': 'Students I may help',
   'teacher.studentCount': '{count} student(s)',
   'teacher.noStudents': 'No student is in the classes assigned to you.',
@@ -1190,6 +1232,14 @@ const zh: Record<keyof typeof en, string> = {
   'role.STUDENT': '學生',
   'role.USER': '教職員',
   'role.TEACHER': '教師',
+  'role.HELPER': '輸入助理',
+
+  'final.state.NONE': '沒有決賽',
+  'final.state.DIRECT': '直接決賽',
+  'final.state.NOT_DRAWN': '決賽尚未抽籤',
+  'final.state.DRAWN': '已抽決賽',
+  'final.notDrawnHint': '初賽成績為先。請先輸入初賽成績，再據此抽出決賽。',
+  'final.noStageHint': '此項目沒有決賽，只有初賽成績表可供處理。',
 
   'category.TRACK': '徑項',
   'category.FIELD': '田項',
@@ -1235,6 +1285,15 @@ const zh: Record<keyof typeof en, string> = {
   'my.notAllocated': '尚未分組',
   'my.noEntries': '你尚未報名任何項目。',
 
+  'eventFilters.sex': '組別',
+  'eventFilters.allSexes': '全部組別',
+  'eventFilters.grade': '級別',
+  'eventFilters.allGrades': '全部級別',
+  'eventFilters.category': '類別',
+  'eventFilters.allCategories': '全部類別',
+  'eventFilters.eventType': '項目',
+  'eventFilters.allEventTypes': '全部項目',
+
   'print.title': '列印記錄表',
   'print.subtitle': '每組一張記錄表，供工作人員填寫成績。短跑用 A5，其餘用 A4。',
   'print.division': '組別',
@@ -1249,6 +1308,10 @@ const zh: Record<keyof typeof en, string> = {
   'print.athletes': '人數',
   'print.noHeats': '尚未分組。',
   'print.needHeats': '請先分組，然後回來列印。',
+  'print.finalNotDrawn': '此項目設有決賽，但決賽尚未抽籤。',
+  'print.finalNotDrawnHint': '初賽成績為先。請先輸入初賽成績並抽出決賽，之後才可列印決賽記錄表。',
+  'print.allHeldBack':
+    '只要範圍內仍有項目等待決賽抽籤，整批下載便無法進行：只印初賽會令人以為決賽記錄表遺失了。',
   'print.browserPrint': '在瀏覽器列印',
   'print.columns': '每張記錄表有五欄：學號、姓名、級別、成績、備註。成績及備註留空供工作人員填寫。',
   'print.allDivisions': '全部組別',
@@ -1312,6 +1375,7 @@ const zh: Record<keyof typeof en, string> = {
   'marks.pickStage': '階段',
   'marks.stageHeat': '初賽',
   'marks.stageFinal': '決賽',
+  'marks.stageUnavailable': '尚未可以輸入',
   'marks.finalHint': '決賽只有一場，不設初賽組別篩選。',
   'marks.finalNotDrawn': '決賽尚未抽籤。',
   'marks.finalNotDrawnHint': '請先到項目的分組頁面，由初賽前 8 名抽出決賽，然後回來輸入決賽成績。',
@@ -2020,6 +2084,12 @@ const zh: Record<keyof typeof en, string> = {
   'teacher.adminNoClasses': '名冊上尚未有任何班別設有學生，因此暫無可協助的對象。',
   'teacher.classFilter': '班別',
   'teacher.allClasses': '我的全部班別',
+  'teacher.sexFilter': '組別',
+  'teacher.allSexes': '全部組別',
+  'teacher.gradeFilter': '級別',
+  'teacher.noMatchingStudents': '你的班別中沒有學生符合這些篩選條件。',
+  'entries.noMatchingEvents': '沒有項目符合這些篩選條件。',
+  'users.emailOptional': '可留空',
   'teacher.studentsTitle': '我可協助的學生',
   'teacher.studentCount': '{count} 位學生',
   'teacher.noStudents': '你所獲指派的班別中沒有學生。',

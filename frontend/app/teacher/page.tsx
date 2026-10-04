@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { api, StudentDTO, TeacherMeDTO } from '@/lib/api';
+import { api, Grade, GRADES, SexCode, StudentDTO, TeacherMeDTO } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n';
 
@@ -33,6 +33,13 @@ export default function TeacherPage() {
   const [students, setStudents] = useState<StudentDTO[]>([]);
   /** `''` is every class the caller may help in. */
   const [className, setClassName] = useState('');
+  /**
+   * The division and grade the student list is narrowed to. `className` is the
+   * only filter the server takes, so these two are applied here, to the list the
+   * server already returned for the class — no extra request is made for them.
+   */
+  const [sex, setSex] = useState<SexCode | ''>('');
+  const [grade, setGrade] = useState<Grade | ''>('');
   const [loading, setLoading] = useState(true);
   const [loadingStudents, setLoadingStudents] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -88,6 +95,24 @@ export default function TeacherPage() {
   }, [hasClasses, className, loadStudents]);
 
   const classOptions = useMemo(() => me?.classes ?? [], [me]);
+
+  /**
+   * The class filter is the server's, the division and the grade are this
+   * list's. An empty result may therefore mean either "this class has nobody
+   * matching" or "none of your classes has anybody at all", and the two are
+   * said differently below.
+   */
+  const visibleStudents = useMemo(
+    () =>
+      students.filter(
+        student =>
+          (sex === '' || student.sex === (sex === 'M' ? 'MALE' : 'FEMALE')) &&
+          (grade === '' || student.grade === grade)
+      ),
+    [students, sex, grade]
+  );
+
+  const narrowed = sex !== '' || grade !== '';
 
   if (isLoading || !user || !canHelp) {
     return <div>{t('common.loading')}</div>;
@@ -161,10 +186,15 @@ export default function TeacherPage() {
           <div className="flex justify-between items-center">
             <h2>{t('teacher.studentsTitle')}</h2>
             <span className="badge badge-info">
-              {t('teacher.studentCount', { count: students.length })}
+              {t('teacher.studentCount', { count: visibleStudents.length })}
             </span>
           </div>
 
+          {/*
+            Class is the server's own filter; division and grade narrow the list
+            it returned. All three narrow the students, never the events — an
+            event is chosen on the student's own page.
+          */}
           <div className="toolbar mt-2">
             <div className="form-group">
               <label>{t('teacher.classFilter')}</label>
@@ -177,14 +207,47 @@ export default function TeacherPage() {
                 ))}
               </select>
             </div>
+
+            <div className="form-group">
+              <label htmlFor="teacher-sex">{t('teacher.sexFilter')}</label>
+              <select
+                id="teacher-sex"
+                value={sex}
+                onChange={e => setSex(e.target.value as SexCode | '')}
+              >
+                <option value="">{t('teacher.allSexes')}</option>
+                <option value="M">{label('sex', 'MALE')}</option>
+                <option value="F">{label('sex', 'FEMALE')}</option>
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="teacher-grade">{t('teacher.gradeFilter')}</label>
+              <select
+                id="teacher-grade"
+                value={grade}
+                onChange={e => setGrade(e.target.value as Grade | '')}
+              >
+                <option value="">{t('eventFilters.allGrades')}</option>
+                {GRADES.map(value => (
+                  <option key={value} value={value}>
+                    {label('grade', value)}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <p className="muted mt-2">{t('teacher.ownClassesOnly')}</p>
 
           {loadingStudents ? (
             <p className="muted mt-2">{t('teacher.loadingStudents')}</p>
-          ) : students.length === 0 ? (
-            <p className="muted mt-2">{t('teacher.noStudents')}</p>
+          ) : visibleStudents.length === 0 ? (
+            /* "None of your classes has anyone" and "your filters exclude
+               everybody" are different answers, so they are not conflated. */
+            <p className="muted mt-2">
+              {narrowed && students.length > 0 ? t('teacher.noMatchingStudents') : t('teacher.noStudents')}
+            </p>
           ) : (
             <div className="table-wrap mt-2">
               <table>
@@ -199,7 +262,7 @@ export default function TeacherPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {students.map(student => (
+                  {visibleStudents.map(student => (
                     <tr key={student.id} className={student.enabled ? undefined : 'row-disabled'}>
                       <td>{student.studentId}</td>
                       <td>{student.name}</td>

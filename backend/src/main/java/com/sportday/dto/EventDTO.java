@@ -68,6 +68,21 @@ public class EventDTO {
     private Boolean mayHaveFinal;
 
     /**
+     * True when a final is actually in play: the event <em>may</em> have one and the
+     * school has not set it to run straight to a final.
+     *
+     * <p>{@link #directToFinal} and {@link #mayHaveFinal} already say this between
+     * them, but only to a client willing to combine them. Stated here, the three
+     * final states an event can be in read straight off the DTO:
+     * {@code mayHaveFinal=false} — no final stage at all, so there is no final to
+     * wait for; {@code runsAFinal=false} with {@code mayHaveFinal=true} — run
+     * straight to a final; {@code runsAFinal=true} — heats then a final, so the
+     * final's marks and sheet wait for the draw (see {@code MarkSheetDTO.finalState},
+     * which says whether that draw has happened).</p>
+     */
+    private Boolean runsAFinal;
+
+    /**
      * True when the system set {@link #directToFinal} because the field is no bigger
      * than a final would be, so the school can see it was not its own choice.
      */
@@ -153,7 +168,9 @@ public class EventDTO {
                 .defaultUnit(type == null ? null : type.getDefaultUnit())
                 .directToFinal(event.isDirectToFinal())
                 .directToFinalAutomatic(Boolean.TRUE.equals(event.getDirectToFinalAuto()))
-                .timeInMinutes(event.usesMinutesAndSeconds())                .mayHaveFinal(event.mayHaveFinal())
+                .timeInMinutes(event.usesMinutesAndSeconds())
+                .mayHaveFinal(event.mayHaveFinal())
+                .runsAFinal(event.runsAFinal())
                 .relay(event.isRelay())
                 .relayTeamKind(event.getRelayTeamKind() == null ? null : event.getRelayTeamKind().name())
                 .relayTeamKindLabel(event.getRelayTeamKind() == null

@@ -1,11 +1,14 @@
 package com.sportday.controller;
 
 import com.sportday.dto.EventGroupDTO;
+import com.sportday.entity.Event;
 import com.sportday.entity.EventCategory;
 import com.sportday.entity.EventGroup;
 import com.sportday.entity.Sex;
 import com.sportday.service.EventGroupService;
+import com.sportday.service.EventService;
 import com.sportday.service.FinalQualificationService;
+import com.sportday.service.FinalStageGuard;
 import com.sportday.service.PdfSheetService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -32,8 +35,10 @@ import java.util.Map;
 public class EventGroupController {
 
     private final EventGroupService eventGroupService;
+    private final EventService eventService;
     private final PdfSheetService pdfSheetService;
     private final FinalQualificationService finalQualificationService;
+    private final FinalStageGuard finalStageGuard;
 
     // --------------------------------------------------------------- groups
 
@@ -122,33 +127,47 @@ public class EventGroupController {
 
     @Operation(summary = "Download one group's marking sheet",
             description = "A5 for 60/100/200/400 (8 athletes), A4 otherwise (24 athletes). "
-                    + "Columns: student id, name, grade, record, remark.")
+                    + "Columns: student id, name, grade, record, remark. A final's sheet is refused "
+                    + "until the final has been drawn from the heat results (ADMIN, MANAGER or HELPER).")
     @GetMapping("/groups/{groupId}/sheet.pdf")
-    @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
+    @PreAuthorize("hasAnyRole('ADMIN','MANAGER','HELPER')")
     public ResponseEntity<byte[]> groupSheet(@PathVariable Long groupId) {
         EventGroup group = eventGroupService.requireGroup(groupId);
+        if (group.isFinal()) {
+            // The final's sheet is the final's field, so it cannot exist until the
+            // draw has run. The group not being found at all is a 404; being asked
+            // for before it is drawn is this, which says when to come back.
+            finalStageGuard.requireDrawnFinal(group.getEvent());
+        }
         byte[] pdf = pdfSheetService.renderGroupSheet(groupId);
         return pdfResponse(pdf, sheetFileName(group));
     }
 
     @Operation(summary = "Download every marking sheet of an event",
-            description = "One page per group, all at the event's paper size (ADMIN or MANAGER)")
+            description = "One page per group, all at the event's paper size. An event that runs "
+                    + "heats and a final refuses the whole run until the final has been drawn, so a "
+                    + "print run can never be missing its last sheet (ADMIN, MANAGER or HELPER).")
     @GetMapping("/events/{eventId}/sheets.pdf")
-    @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
+    @PreAuthorize("hasAnyRole('ADMIN','MANAGER','HELPER')")
     public ResponseEntity<byte[]> eventSheets(@PathVariable Long eventId) {
+        // Checked with the same rule the marking grid uses, and not only inside
+        // PdfSheetService: this endpoint is the whole print run, and handing back
+        // just the heats would look like the final's sheet had simply gone missing.
+        requireSheetsArePrintable(eventId);
         byte[] pdf = pdfSheetService.renderEventSheets(eventId);
         return pdfResponse(pdf, "event-" + eventId + "-marking-sheets.pdf");
     }
 
     @Operation(summary = "Download one marking sheet per group across many events",
-            description = "Convenience endpoint for the print run (ADMIN or MANAGER)")
+            description = "Convenience endpoint for the print run (ADMIN, MANAGER or HELPER)")
     @GetMapping("/sheets.pdf")
-    @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
+    @PreAuthorize("hasAnyRole('ADMIN','MANAGER','HELPER')")
     public ResponseEntity<byte[]> allSheets(
             @RequestParam(required = false) Long eventId,
             @RequestParam(required = false) String sex,
             @RequestParam(required = false) String category) {
         if (eventId != null) {
+            requireSheetsArePrintable(eventId);
             return pdfResponse(pdfSheetService.renderEventSheets(eventId),
                     "event-" + eventId + "-marking-sheets.pdf");
         }
@@ -158,7 +177,23 @@ public class EventGroupController {
         if (groups.isEmpty()) {
             throw new IllegalStateException("No groups match that filter — allocate groups first.");
         }
+        // Nothing to check per event here: the groups handed over are the ones that
+        // exist, and a final that has not been drawn has no group to be among them.
         return pdfResponse(pdfSheetService.renderSheets(groups), "sportday-marking-sheets.pdf");
+    }
+
+    /**
+     * Refuses an event's print run while a final it will run has not been drawn.
+     *
+     * <p>An event that runs straight to a final, and one that cannot be split at
+     * all, are refused nothing: every sheet they have is already in the run. Only an
+     * event whose final is still to come is held back.</p>
+     */
+    private void requireSheetsArePrintable(Long eventId) {
+        Event event = eventService.requireEvent(eventId);
+        if (event.runsAFinal()) {
+            finalStageGuard.requireDrawnFinal(event);
+        }
     }
 
     private ResponseEntity<byte[]> pdfResponse(byte[] pdf, String filename) {

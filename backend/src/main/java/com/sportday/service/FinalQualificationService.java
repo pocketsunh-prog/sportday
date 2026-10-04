@@ -57,6 +57,7 @@ public class FinalQualificationService {
     private final StudentRepository studentRepository;
     private final FinalEntryRepository finalEntryRepository;
     private final RecordService recordService;
+    private final FinalStageGuard finalStageGuard;
 
     /** One athlete in the qualification ranking. */
     public record Qualifier(
@@ -352,16 +353,14 @@ public class FinalQualificationService {
      * An event that is run straight to a final has no final to draw: everyone
      * competes once and that is the result. Only 60M/100M/200M/400M can be run as
      * heats and a final, and only once the school has asked for one.
+     *
+     * <p>The rule itself lives in {@link FinalStageGuard}, because the same rule
+     * seen from the other end stops a helper entering final marks or printing a
+     * final sheet before this draw has run. Both ends state it once, so they cannot
+     * disagree.</p>
      */
     private void requireAFinalIsPossible(Event event) {
-        if (!event.mayHaveFinal()) {
-            throw new IllegalStateException(event.getName() + " is run straight to a final. Only 60M, "
-                    + "100M, 200M and 400M can be split into heats and a final.");
-        }
-        if (event.isDirectToFinal()) {
-            throw new IllegalStateException("This event is set to run direct to a final, so there is "
-                    + "no final to draw. Untick \"direct to final\" on the event first.");
-        }
+        finalStageGuard.requireAFinalIsPossible(event);
     }
 
     private com.sportday.entity.User enrollmentUser(Long eventId, Long userId) {

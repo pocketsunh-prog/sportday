@@ -465,10 +465,19 @@ def main() -> int:
 
     status, all_pdf = api.request("GET", f"/events/{e60['id']}/sheets.pdf", token=admin_token, raw=True)
     all_path = os.path.join(output_dir, "marking-sheets-60M-all-heats.pdf")
-    with open(all_path, "wb") as handle:
-        handle.write(all_pdf)
-    pages = len(re.findall(rb"/Type\s*/Page[^s]", all_pdf))
-    check(pages == heats60, "all-heats PDF has one page per heat", f"pages={pages} expected={heats60}")
+    if status == 200:
+        with open(all_path, "wb") as handle:
+            handle.write(all_pdf)
+        pages = len(re.findall(rb"/Type\s*/Page[^s]", all_pdf))
+        check(pages == heats60, "all-heats PDF has one page per heat", f"pages={pages} expected={heats60}")
+    else:
+        # The 60M runs a final, so the combined run for the whole event is held back
+        # until that final exists — otherwise the download would silently be missing
+        # its last sheet. Individual heat sheets still print, which is the
+        # morning-of-the-event workflow, and the per-group check above covers that.
+        check(status == 409 and "final" in str(all_pdf).lower(),
+              "the all-heats run is held back until the event's final is drawn, and says so",
+              f"status={status} body={str(all_pdf)[:160]}")
 
     status, _ = api.request("GET", f"/groups/{g60_id}/sheet.pdf")
     check(status in (401, 403), "marking sheets are not public", f"status={status}")
@@ -2599,6 +2608,108 @@ def main() -> int:
     remaining = {t.get("username") for t in left} if isinstance(left, list) else set()
     check(not ({"SMOKETCH1", "SMOKETCH2"} & remaining),
           "and the smoke teachers are removed", f"still there: {remaining}")
+
+    # ---------------- 22. the input helper, and the final waiting for the heats
+    section("22. The input helper role, and the final waiting for the heats")
+
+    helper_name = "SMOKEHELPERX"
+
+    def drop_user(username):
+        """Removes an account.
+
+        The delete endpoint is keyed by id, not username, so asking by name 404s and
+        leaves the account behind to shadow the next one created with the same name.
+        """
+        status, accounts = api.request("GET", "/users", token=admin_token)
+        if isinstance(accounts, list):
+            for account in accounts:
+                if account.get("username") == username:
+                    api.request("DELETE", f"/users/{account['id']}", token=admin_token)
+
+    status, roles = api.request("GET", "/admin/users/roles", token=admin_token)
+    check(status == 200 and "HELPER" in (roles or []),
+          "an administrator can hand out the HELPER role", f"got {roles}")
+
+    drop_user(helper_name)
+    # `role` is a query parameter on this endpoint and defaults to MANAGER, so it has
+    # to be asked for by name rather than put in the body.
+    status, helper_account = api.request(
+        "POST", "/admin/users?role=HELPER",
+        {"username": helper_name, "password": "smokehelper123", "fullName": "Smoke Helper"},
+        token=admin_token)
+    check(status in (200, 201), "a helper account can be created",
+          f"status={status} {str(helper_account)[:150]}")
+
+    status, helper_session = api.request(
+        "POST", "/auth/login", {"username": helper_name, "password": "smokehelper123"})
+    helper_token = helper_session.get("token") if isinstance(helper_session, dict) else None
+    check(status == 200 and bool(helper_token), "and the helper can sign in",
+          f"status={status} {str(helper_session)[:150]}")
+
+    if helper_token:
+        status, helper_me = api.request("GET", "/users/me", token=helper_token)
+        check(status == 200 and helper_me.get("role") == "HELPER",
+              "as a HELPER", f"got {helper_me.get('role') if isinstance(helper_me, dict) else helper_me}")
+
+        status, helper_sheet = api.request(
+            "GET", f"/events/{e60['id']}/marks?stage=HEAT", token=helper_token)
+        check(status == 200, "a helper can open a mark sheet", f"status={status}")
+        check(isinstance(helper_sheet, dict) and "finalState" in helper_sheet,
+              "and the sheet tells the page what state the final is in",
+              f"keys={sorted(helper_sheet)[:8] if isinstance(helper_sheet, dict) else helper_sheet}")
+
+        status, helper_pdf = api.request(
+            "GET", f"/events/{e60['id']}/sheets.pdf", token=helper_token, raw=True)
+        check(status == 200 and isinstance(helper_pdf, bytes) and helper_pdf[:4] == b"%PDF",
+              "and print the marking sheets",
+              f"status={status} head={helper_pdf[:8] if isinstance(helper_pdf, bytes) else helper_pdf}")
+
+        for method, path, what in (
+                ("POST", "/events", "create an event"),
+                ("PUT", f"/events/{e60['id']}", "change an event"),
+                ("GET", "/admin/students", "read the register"),
+                ("GET", "/admin/backups", "see the backups"),
+                ("GET", "/admin/teachers", "manage teachers"),
+                ("POST", f"/events/{e60['id']}/groups/allocate", "allocate heats"),
+                ("POST", f"/events/{e60['id']}/final", "draw the final"),
+        ):
+            status, refused = api.request(method, path,
+                                          {} if method in ("POST", "PUT") else None,
+                                          token=helper_token)
+            check(status == 403, f"a helper cannot {what}", f"status={status} {str(refused)[:110]}")
+
+    # ---- the final waits for the heat results ----
+    status, now_events = api.request("GET", "/events", token=admin_token)
+
+    no_final_event = next((e for e in now_events if e["type"] == "RUN_800M"), None)
+    if no_final_event:
+        status, body = api.request("GET", f"/events/{no_final_event['id']}/marks?stage=FINAL",
+                                   token=admin_token)
+        check(status == 409, "an event with no final stage refuses a final grid",
+              f"status={status} {str(body)[:150]}")
+        check("straight to a final" in str(body),
+              "and says the event has no final rather than that something is missing",
+              f"got {str(body)[:150]}")
+
+    direct_event = next((e for e in now_events
+                         if e["type"] in ("RUN_100M", "RUN_200M", "RUN_400M")
+                         and e.get("directToFinal")), None)
+    if direct_event:
+        status, body = api.request(
+            "GET", f"/events/{direct_event['id']}/marks?stage=FINAL", token=admin_token)
+        check(status == 409, "a sprint set to direct-to-final refuses a final grid too",
+              f"status={status} {str(body)[:150]}")
+        check("direct to a final" in str(body) and "straight to a final" not in str(body),
+              "with its own message, not the other one", f"got {str(body)[:150]}")
+
+    check(api.request("GET", f"/events/{e60['id']}/marks?stage=HEAT", token=admin_token)[0] == 200,
+          "while the heat grid is always available")
+
+    drop_user(helper_name)
+    status, accounts = api.request("GET", "/users", token=admin_token)
+    names = {a.get("username") for a in accounts} if isinstance(accounts, list) else set()
+    check(helper_name not in names, "and the throwaway helper is removed",
+          f"still there: {helper_name in names}")
 
     # ------------------------------------------------------------------ summary
     section("Summary")

@@ -50,8 +50,9 @@ public class SecurityConfig {
                 .requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**", "/swagger-resources/**", "/webjars/**").permitAll()
                 .requestMatchers("/api/auth/**").permitAll()
                 // The mark-entry grid is staff-only and must be matched before
-                // the public GET /api/events/** rule that follows it.
-                .requestMatchers("/api/events/*/marks").hasAnyRole("ADMIN", "MANAGER")
+                // the public GET /api/events/** rule that follows it. An input
+                // helper is staff for exactly this: keying in marks is their job.
+                .requestMatchers("/api/events/*/marks").hasAnyRole("ADMIN", "MANAGER", "HELPER")
                 .requestMatchers(HttpMethod.GET, "/api/events/**").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/results/**").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/results/**").hasAnyRole("ADMIN", "MANAGER")
@@ -61,9 +62,18 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.PUT, "/api/events/**").hasAnyRole("ADMIN", "MANAGER")
                 .requestMatchers(HttpMethod.PATCH, "/api/events/**").hasAnyRole("ADMIN", "MANAGER")
                 .requestMatchers(HttpMethod.DELETE, "/api/events/**").hasAnyRole("ADMIN", "MANAGER")
-                // Marking sheets are printed by staff, not by students.
+                // Marking sheets are printed by staff, not by students — and an
+                // input helper prints them, which is the other half of the job.
+                //
+                // Note the ordering trap this rule sits inside: the public
+                // `GET /api/events/**` rule above matches
+                // `GET /api/events/{id}/sheets.pdf` first, so on the URL layer a
+                // helper's sheet download would look public. It is the
+                // @PreAuthorize on EventGroupController that closes it, and that
+                // is why the annotation there has to name HELPER as well — the
+                // two layers are a conjunction, and method security runs second.
                 .requestMatchers("/api/groups/*/sheet.pdf", "/api/events/*/sheets.pdf", "/api/sheets.pdf")
-                    .hasAnyRole("ADMIN", "MANAGER")
+                    .hasAnyRole("ADMIN", "MANAGER", "HELPER")
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
                 // Helping a student enter or withdraw is what a TEACHER is for. The
                 // endpoints are a separate family from the ADMIN-only

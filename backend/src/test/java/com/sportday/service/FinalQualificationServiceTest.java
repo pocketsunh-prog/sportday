@@ -23,7 +23,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -61,12 +60,25 @@ class FinalQualificationServiceTest {
     @Mock private FinalEntryRepository finalEntryRepository;
     @Mock private RecordService recordService;
 
-    @InjectMocks private FinalQualificationService service;
+    /**
+     * The rule the draw refuses on is {@link FinalStageGuard}'s, so the real guard
+     * over the mocked group table is wired here rather than a mock of it. If the
+     * guard were mocked, these tests would prove that this service calls something,
+     * not that the two ends of the rule agree — which is what they are for.
+     */
+    private FinalStageGuard finalStageGuard;
+
+    private FinalQualificationService service;
 
     private Event event;
 
     @BeforeEach
     void setUp() {
+        finalStageGuard = new FinalStageGuard(groupRepository);
+        service = new FinalQualificationService(eventRepository, groupRepository, resultRepository,
+                enrollmentRepository, studentRepository, finalEntryRepository, recordService,
+                finalStageGuard);
+
         event = Event.builder()
                 .id(EVENT_ID)
                 .name("Boys 60M")
@@ -331,6 +343,9 @@ class FinalQualificationServiceTest {
         IllegalStateException error = assertThrows(IllegalStateException.class,
                 () -> service.generate(EVENT_ID, null));
         assertTrue(error.getMessage().contains("direct"), error.getMessage());
+        // The wording is the shared guard's, not this service's own, so the draw and
+        // the marking grid answer with one voice about the same event.
+        assertTrue(error.getMessage().endsWith(FinalStageGuard.DIRECT_TO_FINAL), error.getMessage());
         assertThrows(IllegalStateException.class, () -> service.preview(EVENT_ID, null),
                 "a preview would suggest a final that can never be drawn");
         verify(groupRepository, never()).save(any());
@@ -347,6 +362,7 @@ class FinalQualificationServiceTest {
         IllegalStateException error = assertThrows(IllegalStateException.class,
                 () -> service.generate(EVENT_ID, null));
         assertTrue(error.getMessage().contains("straight to a final"), error.getMessage());
+        assertTrue(error.getMessage().endsWith(FinalStageGuard.NO_FINAL_STAGE), error.getMessage());
     }
 
     @Test

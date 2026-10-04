@@ -84,6 +84,7 @@ public class MarkEntryService {
         if (groupId != null) {
             effectiveStage = eventGroupService.requireGroup(groupId).getStageOrDefault();
         }
+        requireFinalIsReady(event, effectiveStage);
 
         // Who is competing: the named group, or everyone in the stage.
         List<MarkSheetDTO.GroupOption> groupOptions = new ArrayList<>();
@@ -190,7 +191,8 @@ public class MarkEntryService {
         rows.sort(ROW_ORDER);
         int marked = (int) rows.stream().filter(row -> row.getMark() != null).count();
 
-        boolean finalDrawn = groupRepository.findFirstByEventIdAndStage(eventId, EventStage.FINAL).isPresent();
+        boolean finalDrawn = eventGroupService.finalDrawn(eventId);
+        FinalStageGuard.FinalState finalState = FinalStageGuard.state(event, finalDrawn);
         Event.EventType type = event.getType();
         boolean field = event.getCategoryOrDefault() == EventCategory.FIELD;
         return MarkSheetDTO.builder()
@@ -214,6 +216,10 @@ public class MarkEntryService {
                 .stage(effectiveStage.name())
                 .stageLabel(effectiveStage.getLabelEn() + " " + effectiveStage.getLabelZh())
                 .finalDrawn(finalDrawn)
+                // finalDrawn cannot tell "this event has no final" from "not drawn
+                // yet"; the state can, so a client can gate the final grid on it.
+                .finalState(finalState.name())
+                .finalStateLabel(finalStateLabelOf(finalState))
                 .finalSize(event.getGroupSize())
                 .defaultUnit(type == null ? null : type.getDefaultUnit())
                 .groups(groupOptions)
@@ -222,6 +228,16 @@ public class MarkEntryService {
                 .markedCount(marked)
                 .rows(rows)
                 .build();
+    }
+
+    /** The final state as the grid shows it, in the product's English/Chinese style. */
+    private static String finalStateLabelOf(FinalStageGuard.FinalState state) {
+        return switch (state) {
+            case NONE -> "No final 不設決賽";
+            case DIRECT -> "Direct to final 直接決賽";
+            case NOT_DRAWN -> "Final not drawn yet 決賽未抽籤";
+            case DRAWN -> "Final drawn 已抽決賽";
+        };
     }
 
     /** Which group an athlete competes in at a stage. */
@@ -262,6 +278,7 @@ public class MarkEntryService {
             throw new IllegalArgumentException("Unknown stage: " + request.getStage()
                     + " — use HEAT or FINAL.");
         }
+        requireFinalIsReady(event, stage);
 
         String defaultUnit = event.getType() == null ? null : event.getType().getDefaultUnit();
         Set<Long> allowed = stage == EventStage.FINAL ? finalists(eventId) : entered(eventId);
@@ -548,6 +565,29 @@ public class MarkEntryService {
     /** The seconds left over after the whole minutes. */
     static BigDecimal secondsOf(BigDecimal mark) {
         return mark == null ? null : mark.remainder(BigDecimal.valueOf(60));
+    }
+
+    /**
+     * A final cannot be worked on until it exists.
+     *
+     * <p>The final is drawn <em>from</em> the heat results, so until the heats are in
+     * and the draw has been run there is nothing to record in the final grid. Refusing
+     * here rather than letting the screen show an empty final is the difference
+     * between "not yet" and "nothing to do", and it is the same rule
+     * {@link FinalQualificationService} applies when it refuses to draw without heat
+     * marks — both ends ask {@link FinalStageGuard}, so neither can drift from the
+     * other.</p>
+     *
+     * <p>The three refusals are distinct and deliberate: an event that cannot be split
+     * has no final stage at all, an event set to run straight to a final has one it is
+     * not using, and an event running heats simply has not drawn it yet.</p>
+     *
+     * @throws IllegalStateException with the reason, which becomes a 409
+     */
+    private void requireFinalIsReady(Event event, EventStage stage) {
+        if (stage == EventStage.FINAL) {
+            FinalStageGuard.requireDrawnFinal(event, eventGroupService.finalDrawn(event.getId()));
+        }
     }
 
     private Event requireEvent(Long eventId) {

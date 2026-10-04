@@ -398,6 +398,50 @@ class TeacherSecurityWiringTest {
         return ENDPOINTS.stream().filter(endpoint -> endpoint.path().startsWith("/api/teacher")).toList();
     }
 
+    /** The mark-entry grid: read the sheet, save the marks. */
+    private static List<Endpoint> markEntryEndpoints() {
+        return ENDPOINTS.stream().filter(endpoint -> endpoint.path().endsWith("/marks")).toList();
+    }
+
+    /**
+     * The marking-sheet PDFs, by exactly the three patterns SecurityConfig guards
+     * them with. Kept as patterns rather than a list of paths so a new sheet
+     * endpoint is picked up rather than missed.
+     */
+    private static boolean isMarkingSheet(String path) {
+        return PATHS.match("/api/groups/*/sheet.pdf", path)
+                || PATHS.match("/api/events/*/sheets.pdf", path)
+                || PATHS.match("/api/sheets.pdf", path);
+    }
+
+    private static List<Endpoint> markingSheetEndpoints() {
+        return ENDPOINTS.stream().filter(endpoint -> isMarkingSheet(endpoint.path())).toList();
+    }
+
+    /**
+     * The families that change the programme or run the competition: the event
+     * CRUD, the heat and final allocation, the draw, the register and the whole of
+     * {@code /api/admin/**}, the records and their baselines, the settings write,
+     * user management, the season, the backups, the relay teams and the teacher
+     * entry family. A helper may reach none of them.
+     */
+    private static boolean isAdministrative(String path, boolean write) {
+        return path.startsWith("/api/admin")
+                || path.startsWith("/api/teacher")
+                // The programme: creating, editing, enabling, deleting an event, and
+                // drawing, allocating or clearing heats and the final. Reading the
+                // programme is not on this list — a helper has to read it — and
+                // neither is the mark-entry grid, which is the one write a helper is
+                // for.
+                || (write && !path.endsWith("/marks")
+                    && (PATHS.match("/api/events/**", path) || PATHS.match("/api/groups/**", path)))
+                // Results recording, the records, the placings and the championships.
+                || (write && PATHS.match("/api/results/**", path))
+                || (write && path.startsWith("/api/records"))
+                || (write && path.contains("settings"))
+                || (path.startsWith("/api/users") && !"/api/users/me".equals(path));
+    }
+
     // ------------------------------------------------- what a teacher may reach
 
     @Test
@@ -595,5 +639,244 @@ class TeacherSecurityWiringTest {
         assertTrue(permitted("GET", "/api/users", "MANAGER"));
         assertFalse(permitted("GET", "/api/users", "STUDENT"),
                 "the user list is not for a student's own login");
+    }
+
+    // ------------------------------------------------ what a HELPER may reach
+    //
+    // An input helper is a volunteer on the day: they key in marks and print the
+    // marking sheets, and nothing else. These tests are the other half of the same
+    // mechanism the teacher tests above use — the controllers' own
+    // @PreAuthorize text and SecurityConfig's own request rules, read off the
+    // product — rather than a second way of deciding the same question.
+    //
+    // The trap they exist for: SecurityConfig's public `GET /api/events/**` rule
+    // matches `GET /api/events/{id}/sheets.pdf` before the sheet rule reaches it,
+    // so on the URL layer that download looks open to the world. Method security
+    // runs second and is what actually closes it, which is why both layers have to
+    // name HELPER for a helper to get the sheets at all.
+
+    @Test
+    @DisplayName("a helper may read a mark sheet and save the marks")
+    void aHelperMayEnterMarks() {
+        List<Endpoint> marks = markEntryEndpoints();
+        assertFalse(marks.isEmpty(), "the mark-entry endpoints must exist to be proved open");
+        for (Endpoint endpoint : marks) {
+            assertTrue(endpoint.namesRole("HELPER"),
+                    "mark entry is what a helper is for, so it names HELPER: " + endpoint);
+            assertTrue(permitted(endpoint.httpMethod(), endpoint.path(), "HELPER"),
+                    "a HELPER reaches " + endpoint);
+        }
+        assertTrue(permitted("GET", "/api/events/2/marks", "HELPER"), "a helper reads the mark sheet");
+        assertTrue(permitted("POST", "/api/events/2/marks", "HELPER"), "and saves the marks");
+        // The stage is a query parameter on the same mapping, so the final's grid is
+        // reached through the path already asserted above; that a final cannot be
+        // worked on before it is drawn is the service's rule, tested in
+        // MarkEntryFinalStageTest.
+    }
+
+    @Test
+    @DisplayName("a helper may print the marking sheets, every one of the three endpoints")
+    void aHelperMayPrintTheSheets() {
+        List<Endpoint> sheets = markingSheetEndpoints();
+        assertFalse(sheets.isEmpty(), "the sheet endpoints must exist to be proved open");
+        for (Endpoint endpoint : sheets) {
+            assertTrue(endpoint.namesRole("HELPER"),
+                    "printing the sheets is what a helper is for: " + endpoint);
+            assertTrue(permitted(endpoint.httpMethod(), endpoint.path(), "HELPER"),
+                    "a HELPER reaches " + endpoint);
+        }
+        assertTrue(permitted("GET", "/api/groups/1/sheet.pdf", "HELPER"), "one group's sheet");
+        assertTrue(permitted("GET", "/api/events/2/sheets.pdf", "HELPER"), "all of an event's sheets");
+        assertTrue(permitted("GET", "/api/sheets.pdf", "HELPER"), "and the whole-school print run");
+    }
+
+    @Test
+    @DisplayName("a helper may read the programme and the settings, which the sheets and the grid need")
+    void aHelperMayReadWhatTheJobNeeds() {
+        // None of these carries a role of its own; they are opened to a signed-in
+        // caller by the request rules, which is what admits a helper.
+        for (String path : List.of("/api/events", "/api/events/2", "/api/events/2/groups",
+                "/api/groups/1", "/api/settings", "/api/users/me")) {
+            assertTrue(permitted("GET", path, "HELPER"), "a helper may read " + path);
+        }
+    }
+
+    @Test
+    @DisplayName("the sheet and mark families are the only two a helper's role appears in")
+    void aHelperIsAdmittedToTwoFamiliesAndNoMore() {
+        // Asserted over every controller endpoint there is, so a new @PreAuthorize
+        // that quietly names HELPER — or a new endpoint dropped inside one of the
+        // two families — is caught rather than assumed harmless.
+        for (Endpoint endpoint : ENDPOINTS) {
+            if (!endpoint.namesRole("HELPER")) {
+                continue;
+            }
+            boolean markEntry = endpoint.path().endsWith("/marks");
+            boolean sheet = isMarkingSheet(endpoint.path());
+            assertTrue(markEntry || sheet,
+                    "HELPER may only be named on mark entry and the marking sheets, "
+                            + "but this endpoint names it too: " + endpoint);
+        }
+        long named = ENDPOINTS.stream().filter(endpoint -> endpoint.namesRole("HELPER")).count();
+        assertTrue(named >= 5, "the HELPER role must appear on the mark and sheet families: " + named);
+    }
+
+    // ------------------------------------------- what a helper may NOT reach
+
+    @Test
+    @DisplayName("a helper cannot change the programme, draw the final or record results")
+    void aHelperCannotChangeTheProgramme() {
+        for (Endpoint endpoint : ENDPOINTS) {
+            if (!isAdministrative(endpoint.path(), endpoint.isWrite())) {
+                continue;
+            }
+            assertFalse(endpoint.namesRole("HELPER"),
+                    "a helper fills the programme in, they do not change it: " + endpoint);
+            assertFalse(permitted(endpoint.httpMethod(), endpoint.path(), "HELPER"),
+                    "a HELPER does not reach " + endpoint);
+        }
+        assertFalse(permitted("POST", "/api/events", "HELPER"), "no creating an event");
+        assertFalse(permitted("PUT", "/api/events/2", "HELPER"), "no editing one");
+        assertFalse(permitted("PATCH", "/api/events/2/enable", "HELPER"), "no enabling or disabling one");
+        assertFalse(permitted("DELETE", "/api/events/2", "HELPER"), "no deleting one");
+        assertFalse(permitted("POST", "/api/events/defaults", "HELPER"), "and no reseeding the catalogue");
+        assertFalse(permitted("POST", "/api/events/2/groups/allocate", "HELPER"), "no allocating heats");
+        assertFalse(permitted("DELETE", "/api/events/2/groups", "HELPER"), "no clearing them");
+        assertFalse(permitted("POST", "/api/events/2/final", "HELPER"), "no drawing the final");
+        assertFalse(permitted("DELETE", "/api/events/2/final", "HELPER"), "and no removing it");
+        assertFalse(permitted("POST", "/api/results", "HELPER"), "no recording results");
+        assertFalse(permitted("DELETE", "/api/results/3", "HELPER"), "and no removing one");
+        // The placings are not closed to a helper — and cannot be, since the
+        // public `GET /api/events/**` rule opens /api/events/{id}/standings to
+        // everyone. That is reading a result, not recording one: the endpoint that
+        // does record them is the POST above, which a helper is refused. Asserted
+        // the way round it really is, rather than quietly left out.
+        assertTrue(permitted("GET", "/api/events/2/standings", "HELPER"),
+                "the placings are public, so a helper can read them like anybody else");
+    }
+
+    @Test
+    @DisplayName("a helper cannot reach the register, the upload, settings, users, backups or a reset")
+    void aHelperCannotReachAdministration() {
+        for (Endpoint endpoint : ENDPOINTS) {
+            if (!endpoint.path().startsWith("/api/admin")) {
+                continue;
+            }
+            assertFalse(endpoint.namesRole("HELPER"),
+                    "administration does not name HELPER: " + endpoint);
+            assertFalse(permitted(endpoint.httpMethod(), endpoint.path(), "HELPER"),
+                    "a HELPER does not reach " + endpoint);
+        }
+        assertFalse(permitted("POST", "/api/admin/students/upload", "HELPER"), "no register upload");
+        assertFalse(permitted("POST", "/api/admin/students/upload/roster", "HELPER"), "not even a rehearsal");
+        assertFalse(permitted("GET", "/api/admin/students", "HELPER"), "no student list");
+        assertFalse(permitted("GET", "/api/admin/students/credentials.csv", "HELPER"), "no credentials");
+        assertFalse(permitted("POST", "/api/admin/students/S0001/enrollments/2", "HELPER"),
+                "no entering a student for them");
+        assertFalse(permitted("POST", "/api/admin/teachers/upload", "HELPER"), "no teacher upload");
+        assertFalse(permitted("GET", "/api/admin/teachers", "HELPER"));
+        assertFalse(permitted("POST", "/api/admin/users", "HELPER"), "no creating staff accounts");
+        assertFalse(permitted("GET", "/api/admin/users/roles", "HELPER"));
+        assertFalse(permitted("PUT", "/api/admin/settings", "HELPER"), "no settings");
+        assertFalse(permitted("POST", "/api/admin/settings/reset", "HELPER"));
+        assertFalse(permitted("POST", "/api/admin/season/reset", "HELPER"), "no season reset");
+        assertFalse(permitted("GET", "/api/admin/backups", "HELPER"), "no backups");
+        assertFalse(permitted("POST", "/api/admin/backups/x.json/restore", "HELPER"), "no restoring one");
+        assertFalse(permitted("POST", "/api/admin/events/2/relay-teams/derive", "HELPER"), "no relay teams");
+        assertFalse(permitted("POST", "/api/admin/records/seed", "HELPER"), "no school records");
+        assertFalse(permitted("GET", "/api/users", "HELPER"), "no staff account management");
+        assertFalse(permitted("DELETE", "/api/users/3", "HELPER"));
+    }
+
+    @Test
+    @DisplayName("a helper cannot reach the teacher family, and a teacher cannot reach the mark family")
+    void aHelperIsNotATeacher() {
+        for (Endpoint endpoint : teacherEndpoints()) {
+            assertFalse(endpoint.namesRole("HELPER"),
+                    "helping a student is a teacher's job, not a helper's: " + endpoint);
+            assertFalse(permitted(endpoint.httpMethod(), endpoint.path(), "HELPER"),
+                    "a HELPER does not reach " + endpoint);
+        }
+        assertFalse(permitted("GET", "/api/teacher/students", "HELPER"));
+        assertFalse(permitted("POST", "/api/teacher/students/S0001/enrollments/2", "HELPER"));
+        // And the other way round, so the two roles share no endpoint family.
+        for (Endpoint endpoint : markEntryEndpoints()) {
+            assertFalse(endpoint.namesRole("TEACHER"),
+                    "a teacher may not key in marks: " + endpoint);
+        }
+    }
+
+    @Test
+    @DisplayName("a helper is not a manager or an administrator either")
+    void aHelperIsNotAManager() {
+        for (Endpoint endpoint : markingSheetEndpoints()) {
+            assertTrue(endpoint.namesRole("MANAGER") && endpoint.namesRole("ADMIN"),
+                    "a helper is added to the sheet family, it does not replace anybody: " + endpoint);
+        }
+        for (Endpoint endpoint : markEntryEndpoints()) {
+            assertTrue(endpoint.namesRole("MANAGER") && endpoint.namesRole("ADMIN"),
+                    "and the same on the mark-entry family: " + endpoint);
+        }
+        assertTrue(permitted("GET", "/api/events/2/marks", "MANAGER"), "managers still enter marks");
+        assertTrue(permitted("GET", "/api/events/2/marks", "ADMIN"));
+        assertTrue(permitted("GET", "/api/groups/1/sheet.pdf", "MANAGER"), "and still print the sheets");
+        assertTrue(permitted("GET", "/api/sheets.pdf", "ADMIN"));
+    }
+
+    // ---------------------------------------- the public rule and its trap
+
+    @Test
+    @DisplayName("no permitAll rule lets a helper's own endpoints through unauthenticated")
+    void noPublicRuleCoversTheMarkAndSheetEndpoints() {
+        // This is the trap a previous reader of this file found: an earlier
+        // `GET /api/events/**` permitAll rule DOES match `GET /api/events/{id}/sheets.pdf`
+        // and `GET /api/events/{id}/marks` on the URL layer, so the guard is the
+        // controller annotation and not the request rule. Both layers are asserted
+        // here so neither can be dropped on its own.
+        RequestRule eventSheetsRule = firstMatchingRule("GET", "/api/events/2/sheets.pdf");
+        assertNotNull(eventSheetsRule, "SecurityConfig must have a rule covering the sheet path");
+        assertEquals("permitAll", eventSheetsRule.access(),
+                "the URL layer really is open here — the controller annotation is what closes it: "
+                        + eventSheetsRule);
+        Endpoint eventSheets = matchingEndpoints("GET", "/api/events/2/sheets.pdf").get(0);
+        assertTrue(eventSheets.namesRole("HELPER"),
+                "so the annotation has to name HELPER, or a helper is refused: " + eventSheets);
+        assertFalse(permitted("GET", "/api/events/2/sheets.pdf", null),
+                "and a signed-out caller is still refused, by the annotation");
+
+        // The mark family is guarded twice over — a rule of its own before the
+        // public one, and the class-level annotation.
+        RequestRule marksRule = firstMatchingRule("GET", "/api/events/2/marks");
+        assertNotNull(marksRule);
+        assertEquals("hasAnyRole", marksRule.access(), "mark entry is not a public path: " + marksRule);
+        assertEquals(Set.of("ADMIN", "MANAGER", "HELPER"), marksRule.roles(),
+                "and the rule names the three roles that may key in marks: " + marksRule);
+        assertFalse(permitted("GET", "/api/events/2/marks", null), "a signed-out caller cannot");
+
+        // Nothing in either family is public, and none of it is open to a
+        // signed-in student either.
+        for (Endpoint endpoint : markEntryEndpoints()) {
+            assertFalse(endpoint.isPublic(), "a mark-entry endpoint is not permitAll: " + endpoint);
+            assertFalse(permitted(endpoint.httpMethod(), endpoint.path(), null));
+            assertFalse(permitted(endpoint.httpMethod(), endpoint.path(), "STUDENT"),
+                    "a student's own login does not enter marks: " + endpoint);
+        }
+        for (Endpoint endpoint : markingSheetEndpoints()) {
+            assertFalse(endpoint.isPublic(), "a sheet endpoint is not permitAll: " + endpoint);
+            assertFalse(permitted(endpoint.httpMethod(), endpoint.path(), null));
+            assertFalse(permitted(endpoint.httpMethod(), endpoint.path(), "STUDENT"),
+                    "and a student cannot print the sheets: " + endpoint);
+        }
+    }
+
+    @Test
+    @DisplayName("the sheet family's request rule names an administrator, a manager and a helper")
+    void theSheetRuleNamesTheRightThree() {
+        RequestRule sheetRule = firstMatchingRule("GET", "/api/groups/1/sheet.pdf");
+        assertNotNull(sheetRule, "SecurityConfig must have a rule covering the sheet family");
+        assertEquals(Set.of("ADMIN", "MANAGER", "HELPER"), sheetRule.roles(),
+                "the sheets are printed by an administrator, a manager or an input helper: " + sheetRule);
+        assertFalse(sheetRule.roles().contains("TEACHER"), "not by a teacher");
+        assertFalse(sheetRule.roles().contains("STUDENT"), "and not by a student");
     }
 }

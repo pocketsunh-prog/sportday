@@ -9,7 +9,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api';
  * classes: it may enter or withdraw a student in one of those classes and
  * nothing else — no register upload, no locking, no credentials sheet.
  */
-export type Role = 'ADMIN' | 'MANAGER' | 'USER' | 'STUDENT' | 'TEACHER';
+export type Role = 'ADMIN' | 'MANAGER' | 'USER' | 'STUDENT' | 'TEACHER' | 'HELPER';
 export type EventCategory = 'TRACK' | 'FIELD';
 export type EventSex = 'MALE' | 'FEMALE';
 export type SheetSize = 'A5' | 'A4';
@@ -112,6 +112,80 @@ export const FINAL_EVENT_TYPES: ReadonlyArray<string> = [
 /** Whether `type` may be run as heats and a final (`EventDTO.mayHaveFinal`). */
 export function mayHaveFinalForType(type: string): boolean {
   return FINAL_EVENT_TYPES.includes(type);
+}
+
+/* ------------------------------------------------------------------ *
+ * The final waits for the heat results
+ * ------------------------------------------------------------------ */
+
+/**
+ * The state of an event's final, as the server reports it on
+ * `MarkSheetDTO.finalState` — the one field a screen gates its final controls
+ * on, because it is the precise answer where `runsAFinal` is only a proxy.
+ *
+ * - `NONE` — the event has no final stage at all: an 800M, a hurdles race, a
+ *   relay or any field event. There is no final to offer.
+ * - `DIRECT` — the event could be split and the school runs it straight to a
+ *   final instead. Again there is no final to offer.
+ * - `NOT_DRAWN` — heats are in play and the draw has not run. The final exists
+ *   in principle but cannot be worked on: the heat results come first.
+ * - `DRAWN` — the final exists; its marks and its sheet are live.
+ */
+export type FinalState = 'NONE' | 'DIRECT' | 'NOT_DRAWN' | 'DRAWN';
+
+const FINAL_STATES: ReadonlyArray<FinalState> = ['NONE', 'DIRECT', 'NOT_DRAWN', 'DRAWN'];
+
+/** Reads a `finalState` off the wire, or `null` when it is absent or unrecognised. */
+export function asFinalState(value: string | null | undefined): FinalState | null {
+  return value && (FINAL_STATES as ReadonlyArray<string>).includes(value)
+    ? (value as FinalState)
+    : null;
+}
+
+/**
+ * Whether the final stage may be offered for an event in this state.
+ *
+ * Only `DRAWN` qualifies — the server refuses a final mark grid and a final
+ * sheet with a 409 in every other state, so offering the stage would only lead
+ * a helper into a control that cannot be worked on.
+ */
+export function canWorkFinal(state: FinalState | null | undefined): boolean {
+  return state === 'DRAWN';
+}
+
+/**
+ * Whether the final belongs in the stage picker at all.
+ *
+ * `NONE` and `DIRECT` have no final stage, so the option is left out entirely
+ * rather than shown greyed; `NOT_DRAWN` has one that is simply not ready yet,
+ * so it is shown disabled with the reason beside it.
+ */
+export function shouldOfferFinal(state: FinalState | null | undefined): boolean {
+  return state === 'DRAWN' || state === 'NOT_DRAWN';
+}
+
+/**
+ * The state of an event's final worked out from the event itself, for the
+ * moment before a sheet has been loaded and its own `finalState` is to hand.
+ *
+ * `source` is the precise server value when one is available. `finalDrawn` is
+ * what the caller already knows from a group list; when it is omitted the type
+ * alone is used, which yields `NOT_DRAWN` for a sprint that is not already
+ * known to have run its final. That is the safe direction: it withholds the
+ * final until the draw is confirmed rather than offering a stage the server
+ * would refuse.
+ */
+export function finalStateForEvent(
+  event: Pick<EventDTO, 'type' | 'directToFinal'> | null | undefined,
+  options: { source?: FinalState | null; finalDrawn?: boolean | null | undefined } = {}
+): FinalState | null {
+  if (options.source) return options.source;
+  if (!event) return null;
+  if (!mayHaveFinalForType(event.type)) return 'NONE';
+  if (event.directToFinal) return 'DIRECT';
+  if (options.finalDrawn === true) return 'DRAWN';
+  if (options.finalDrawn === false) return 'NOT_DRAWN';
+  return null;
 }
 
 /**
@@ -639,6 +713,15 @@ export interface MarkSheetDTO {
   stageLabel: string;
   /** Whether a final has been drawn for this event. */
   finalDrawn: boolean;
+  /**
+   * The precise state of this event's final — see `FinalState`. This is what a
+   * screen gates its final controls on: `DRAWN` is the only value the final
+   * stage may be offered in, `NOT_DRAWN` means the heat results come first, and
+   * `NONE` / `DIRECT` mean there is no final stage at all.
+   */
+  finalState?: FinalState;
+  /** The server's own bilingual wording of `finalState`, ready to display. */
+  finalStateLabel?: string;
   /** How many athletes go through, e.g. 8. */
   finalSize: number;
   /** `M` in the field, `s` on the track. */

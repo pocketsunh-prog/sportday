@@ -6,22 +6,33 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   api,
+  asFinalState,
   BulkMarkResultDTO,
+  EventCategory,
   EventDTO,
+  EventSex,
+  FinalState,
+  finalStateForEvent,
   formatAttempts,
   Grade,
-  GRADES,
   MarkEntryInput,
   MarkOutcome,
   MarkRowDTO,
   MarkSheetDTO,
   MarkStage,
+  SexCode,
+  shouldOfferFinal,
 } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+import { EventFilters } from '@/components/EventFilters';
+import type { EventFilterControl } from '@/components/EventFilters';
 import { useI18n } from '@/lib/i18n';
 
 /** The two sheets a short sprint has: the numbered heats and the final. */
 const STAGE_OPTIONS: MarkStage[] = ['HEAT', 'FINAL'];
+
+/** Short division code the filter control works in, from the event's own sex. */
+const SEX_CODE: Record<EventSex, SexCode> = { MALE: 'M', FEMALE: 'F' };
 
 /**
  * What the number box can be replaced by: `''` leaves the row a number — which
@@ -194,10 +205,17 @@ function bestOf(attempts: string[]): string {
   return best === null ? '' : String(best);
 }
 
-type GroupedEvents = { key: string; category: string; sex: string; events: EventDTO[] }[];
+type GroupedEvents = {
+  key: string;
+  /** The heading drawn over the group, e.g. `徑項 Track · 男 Boys`. */
+  label: string;
+  category: string;
+  sex: string;
+  events: EventDTO[];
+}[];
 
 /** Groups the event list by category + division so the selector stays readable. */
-function groupEvents(events: EventDTO[]): GroupedEvents {
+function groupEvents(events: EventDTO[], heading: (event: EventDTO) => string): GroupedEvents {
   const sorted = [...events].sort(
     (a, b) =>
       a.category.localeCompare(b.category) || a.sex.localeCompare(b.sex) || a.id - b.id
@@ -207,7 +225,14 @@ function groupEvents(events: EventDTO[]): GroupedEvents {
     const key = `${event.category}-${event.sex}`;
     const last = grouped[grouped.length - 1];
     if (last && last.key === key) last.events.push(event);
-    else grouped.push({ key, category: event.category, sex: event.sex, events: [event] });
+    else
+      grouped.push({
+        key,
+        label: heading(event),
+        category: event.category,
+        sex: event.sex,
+        events: [event],
+      });
   });
   return grouped;
 }
@@ -225,12 +250,22 @@ export default function MarkEntryPage() {
    * picker. It filters the list only — the sheet on screen is untouched.
    */
   const [eventGrade, setEventGrade] = useState<Grade | ''>('');
+  /** The division the event list is narrowed to (`M` / `F`), list only. */
+  const [eventSex, setEventSex] = useState<SexCode | ''>('');
+  /** The half of the programme the event list is narrowed to, list only. */
+  const [eventCategory, setEventCategory] = useState<EventCategory | ''>('');
   /** `HEAT` is the numbered heats, `FINAL` the drawn final. */
   const [stage, setStage] = useState<MarkStage>('HEAT');
   /** 0 is "All heats". Not used on the final sheet, which is a single group. */
   const [groupId, setGroupId] = useState(0);
   /** `''` is "All grades". */
   const [grade, setGrade] = useState('');
+  /**
+   * The state of each event's final, remembered from the sheet that was loaded
+   * for it. The sheet is the precise source (`finalState`), and it is kept so
+   * the picker still knows the answer after the user switches to another event.
+   */
+  const [finalStates, setFinalStates] = useState<Record<number, FinalState>>({});
 
   const [sheet, setSheet] = useState<MarkSheetDTO | null>(null);
   const [drafts, setDrafts] = useState<Record<number, MarkDraft>>({});
@@ -251,7 +286,10 @@ export default function MarkEntryPage() {
     tRef.current = t;
   }, [t]);
 
-  const isStaff = user?.role === 'ADMIN' || user?.role === 'MANAGER';
+  // Mark entry is the input helper's whole job, so they are staff here even though
+  // they are nothing else anywhere else.
+  const isStaff = user?.role === 'ADMIN' || user?.role === 'MANAGER'
+    || user?.role === 'HELPER';
 
   useEffect(() => {
     if (authLoading) return;
@@ -262,8 +300,10 @@ export default function MarkEntryPage() {
   useEffect(() => {
     if (!isStaff) return;
     let cancelled = false;
+    // Every event, enabled or not: an event closed to new entries may still
+    // have marks to take, and the four filters are the only narrowing here.
     api
-      .getEvents({ onlyEnabled: true })
+      .getEvents()
       .then(list => {
         if (!cancelled) setEvents(list);
       })
@@ -292,6 +332,11 @@ export default function MarkEntryPage() {
       .then(data => {
         if (requestRef.current !== requestId) return;
         setSheet(data);
+        // The sheet's own verdict on this event's final, kept so the stage
+        // picker stays right after the user moves to another event. The heats
+        // and the final answer alike: the state is a property of the event.
+        const state = asFinalState(data.finalState);
+        if (state) setFinalStates(prev => ({ ...prev, [eventId]: state }));
         // Drafts are rebuilt from the server's copy: this only runs on an
         // explicit filter change or after a save.
         setDrafts({});
@@ -430,23 +475,48 @@ export default function MarkEntryPage() {
   );
 
   /**
-   * Changing a filter re-reads the grid from the server, so the controlled
-   * selector is put back by hand when the user cancels the warning.
+   * A change to one of the four event controls.
+   *
+   * The event picker reloads the grid, so it also drops the group, the row
+   * grade and the stage back to their defaults — the new event's heats have
+   * their own. The division, grade and category filters narrow the *list*
+   * only and leave the sheet on screen alone.
+   *
+   * `control` is the `<select>` the change came from, and is put back by hand
+   * when the user cancels the unsaved-changes warning, because the displayed
+   * value is driven by the state this handler declined to change.
    */
-  const handleEventChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    const next = Number(event.target.value);
-    if (next === eventId) return;
+  const handleEventFilterChange = (
+    control: EventFilterControl,
+    value: string,
+    select: HTMLSelectElement
+  ) => {
     if (!confirmDiscard()) {
-      event.target.value = String(eventId);
+      select.value =
+        control === 'sex'
+          ? eventSex
+          : control === 'grade'
+            ? eventGrade
+            : control === 'category'
+              ? eventCategory
+              : String(eventId);
       return;
     }
-    setEventId(next);
-    setStage('HEAT');
-    setGroupId(0);
-    setGrade('');
-    setDrafts({});
-    setResult(null);
-    setNotice(null);
+    if (control === 'event') {
+      const next = Number(value);
+      if (next === eventId) return;
+      setEventId(next);
+      setStage('HEAT');
+      setGroupId(0);
+      setGrade('');
+      setDrafts({});
+      setResult(null);
+      setNotice(null);
+      return;
+    }
+    if (control === 'sex') setEventSex(value as SexCode | '');
+    else if (control === 'grade') setEventGrade(value as Grade | '');
+    else setEventCategory(value as EventCategory | '');
   };
 
   /**
@@ -685,16 +755,24 @@ export default function MarkEntryPage() {
   };
 
   /**
-   * The events the grade filter lets through. The event already open stays on
-   * the list whatever its grade, so the picker never points away from the grid
-   * on screen.
+   * The events the four filters let through: sex, grade and category each
+   * narrow the list, and the event control then picks one of them. The event
+   * already open stays on the list whatever the filters say, so the picker
+   * never points away from the grid on screen.
+   *
+   * There is deliberately no date, school-year or "only enabled" filter here:
+   * a marking grid is worked from the programme in front of the helper, and a
+   * disabled event may still have marks to take.
    */
-  const eventsForGrade = useMemo(
+  const filteredEvents = useMemo(
     () =>
-      eventGrade === ''
-        ? events
-        : events.filter(event => event.grade === eventGrade || event.id === eventId),
-    [events, eventGrade, eventId]
+      events.filter(
+        event =>
+          (eventGrade === '' || event.grade === eventGrade || event.id === eventId) &&
+          (eventSex === '' || SEX_CODE[event.sex] === eventSex || event.id === eventId) &&
+          (eventCategory === '' || event.category === eventCategory || event.id === eventId)
+      ),
+    [events, eventGrade, eventSex, eventCategory, eventId]
   );
 
   /**
@@ -708,19 +786,26 @@ export default function MarkEntryPage() {
    */
   const markableEvents = useMemo(
     () =>
-      eventsForGrade.filter(
+      filteredEvents.filter(
         event => (event.enrolledCount ?? 0) > 1 || (eventId > 0 && event.id === eventId)
       ),
-    [eventsForGrade, eventId]
+    [filteredEvents, eventId]
   );
 
   /** The markable events, grouped so the selector stays readable. */
-  const groupedEvents = useMemo(() => groupEvents(markableEvents), [markableEvents]);
+  const groupedEvents = useMemo(
+    () =>
+      groupEvents(
+        markableEvents,
+        event => `${label('category', event.category)} · ${label('sex', event.sex)}`
+      ),
+    [markableEvents, label]
+  );
 
   /** Events that have too few entered to be marked, i.e. the ones left out. */
   const thinEvents = useMemo(
-    () => eventsForGrade.filter(event => (event.enrolledCount ?? 0) <= 1),
-    [eventsForGrade]
+    () => filteredEvents.filter(event => (event.enrolledCount ?? 0) <= 1),
+    [filteredEvents]
   );
 
   /** The event whose sheet is open, so its grade can be shown beside the name. */
@@ -739,10 +824,57 @@ export default function MarkEntryPage() {
   const isFinal = stage === 'FINAL';
 
   /**
-   * The final sheet exists but has not been drawn: there are no athletes to
-   * enter, so the grid is replaced by a pointer to the groups page.
+   * This event's final, and whether it can be worked on at all.
+   *
+   * `finalState` is the server's own verdict and the precise one, so it is used
+   * whenever a sheet has already been read. Failing that the event is asked
+   * directly: its type says whether a final stage exists, and the sheet's own
+   * `finalDrawn` (or the remembered state of a previous load) says whether the
+   * draw has run. That answer is deliberately conservative — a sprint not known
+   * to have run its final counts as `NOT_DRAWN`, so the final is withheld
+   * rather than offered and then refused with a 409.
    */
-  const finalNotDrawn = isFinal && !!sheet && !sheet.finalDrawn;
+  const finalState = useMemo(() => {
+    // A sheet already loaded for this event is the precise answer.
+    if (sheet && sheet.eventId === eventId) {
+      const live = asFinalState(sheet.finalState);
+      if (live) return live;
+      return finalStateForEvent(selectedEvent, { finalDrawn: sheet.finalDrawn });
+    }
+    // Otherwise the state remembered from the last time a sheet was read for
+    // it, which is what keeps the picker right after switching events.
+    const remembered = finalStates[eventId];
+    if (remembered) return remembered;
+    return finalStateForEvent(selectedEvent, { finalDrawn: undefined });
+  }, [selectedEvent, sheet, eventId, finalStates]);
+
+  /**
+   * Only a drawn final is workable, so `Final` is only *enabled* then. The
+   * option itself is left out for an event that never has one, and shown greyed
+   * while the draw is still to come. With no event chosen the state is unknown,
+   * so both labels stay listed and the disabled control says nothing has been
+   * picked yet; the option is what carries the gating.
+   */
+  const offerFinal = finalState === null || shouldOfferFinal(finalState);
+  const finalReady = finalState === 'DRAWN';
+  const stageOptions = offerFinal ? STAGE_OPTIONS : STAGE_OPTIONS.slice(0, 1);
+
+  /**
+   * The final is offered but not yet workable: heats are in play and the draw
+   * has not run. The grid is replaced by a pointer to the draw, saying that the
+   * heat results come first rather than leaving a disabled control unexplained.
+   */
+  const finalNotDrawn = stage === 'FINAL' && finalState === 'NOT_DRAWN';
+
+  /** The state's own label, in the user's language, for the note beside the stage. */
+  const finalStateText = useMemo(() => {
+    if (!finalState) return '';
+    const fromServer =
+      sheet && sheet.eventId === eventId && asFinalState(sheet.finalState) === finalState
+        ? sheet.finalStateLabel
+        : null;
+    return fromServer || t(`final.state.${finalState}` as 'final.state.DRAWN');
+  }, [finalState, sheet, eventId, t]);
 
   const stageText = (value: MarkStage) =>
     value === 'HEAT' ? t('marks.stageHeat') : t('marks.stageFinal');
@@ -800,63 +932,35 @@ export default function MarkEntryPage() {
       {notice && <div className="alert alert-success">{notice}</div>}
 
       <div className="card">
+        {/*
+          Sex, grade, category and event, and nothing else: the event control
+          picks the sheet, the other three narrow the list it offers. The
+          division, grade and category changes go through the unsaved-changes
+          guard because they can change which event is on screen.
+        */}
         <div className="grid-toolbar">
-          <div className="field">
-            <label htmlFor="marks-event-grade">{t('marks.eventGrade')}</label>
-            <select
-              id="marks-event-grade"
-              value={eventGrade}
-              onChange={e => setEventGrade(e.target.value as Grade | '')}
-            >
-              <option value="">{t('marks.allGrades')}</option>
-              {GRADES.map(value => (
-                <option key={value} value={value}>
-                  {label('grade', value)}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="field">
-            <label htmlFor="marks-event">{t('marks.pickEvent')}</label>
-            <select
-              id="marks-event"
-              value={eventId}
-              onChange={handleEventChange}
-            >
-              <option value={0}>{t('results.chooseEvent')}</option>
-              {groupedEvents.map(group => (
-                <optgroup
-                  key={group.key}
-                  label={`${label('category', group.category)} · ${label('sex', group.sex)}`}
-                >
-                  {group.events.map(event => (
-                    <option
-                      key={event.id}
-                      value={event.id}
-                      /* Fewer than two entered: nothing worth marking, and not
-                         selectable. The event already open stays selectable so
-                         the picker never points away from the grid on screen. */
-                      disabled={(event.enrolledCount ?? 0) <= 1 && event.id !== eventId}
-                    >
-                      {event.name}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
-            {/* Never a blank select: one line says whether the programme has no
-                event to mark at all, or only events with too few entered. */}
-            {markableEvents.length === 0 ? (
-              <p className="muted">{t('marks.noMarkableEvents')}</p>
-            ) : (
-              thinEvents.length > 0 && (
-                <p className="muted">
-                  {t('marks.thinEventsHidden', { count: thinEvents.length })}
-                </p>
-              )
-            )}
-          </div>
+          <EventFilters
+            idPrefix="marks"
+            value={{ sex: eventSex, grade: eventGrade, category: eventCategory, event: '' }}
+            onChange={handleEventFilterChange}
+            events={filteredEvents}
+            selectable={{
+              eventId,
+              noneLabel: t('results.chooseEvent'),
+              isDisabled: event => (event.enrolledCount ?? 0) <= 1 && event.id !== eventId,
+              groups: groupedEvents,
+              note:
+                markableEvents.length === 0 ? (
+                  <p className="muted">{t('marks.noMarkableEvents')}</p>
+                ) : (
+                  thinEvents.length > 0 && (
+                    <p className="muted">
+                      {t('marks.thinEventsHidden', { count: thinEvents.length })}
+                    </p>
+                  )
+                ),
+            }}
+          />
 
           <div className="field">
             <label htmlFor="marks-stage">{t('marks.pickStage')}</label>
@@ -866,12 +970,25 @@ export default function MarkEntryPage() {
               disabled={!eventId}
               onChange={handleStageChange}
             >
-              {STAGE_OPTIONS.map(value => (
-                <option key={value} value={value}>
+              {/* The final is offered only while it can actually be worked on.
+                  An event that never has one is not offered it at all; one whose
+                  final is still to be drawn shows it greyed with the reason
+                  beside the control, so nothing is disabled without a why. */}
+              {stageOptions.map(value => (
+                <option key={value} value={value} disabled={value === 'FINAL' && !finalReady}>
                   {stageText(value)}
+                  {value === 'FINAL' && !finalReady ? ` — ${t('marks.stageUnavailable')}` : ''}
                 </option>
               ))}
             </select>
+            {eventId > 0 && finalState && finalState !== 'DRAWN' && (
+              <p className="muted">
+                {finalStateText}
+                {finalState === 'NOT_DRAWN'
+                  ? ` — ${t('final.notDrawnHint')}`
+                  : ` — ${t('final.noStageHint')}`}
+              </p>
+            )}
           </div>
 
           {/* The final is a single group, so the heat filter does not apply. */}

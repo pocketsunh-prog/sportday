@@ -9,11 +9,13 @@ import {
   EventDTO,
   EventGroupDTO,
   EventSex,
+  FinalState,
+  finalStateForEvent,
   Grade,
-  GRADES,
   SexCode,
 } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+import { EventFilters } from '@/components/EventFilters';
 import { useI18n } from '@/lib/i18n';
 
 /** Same fallback as `lib/api.ts`; the constant itself is not exported. */
@@ -21,8 +23,6 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api';
 
 /** Short division code the `?sex=` query parameter expects. */
 const SEX_CODE: Record<EventSex, SexCode> = { MALE: 'M', FEMALE: 'F' };
-const DIVISIONS: SexCode[] = ['M', 'F'];
-const CATEGORIES: EventCategory[] = ['TRACK', 'FIELD'];
 
 type DivisionFilter = SexCode | '';
 type CategoryFilter = EventCategory | '';
@@ -91,7 +91,19 @@ export default function PrintSheetsPage() {
    * shown and what is downloaded per event — see `print.gradeDownloadHint`.
    */
   const [grade, setGrade] = useState<Grade | ''>('');
-  const [eventId, setEventId] = useState(0);
+  /**
+   * The event type the list is narrowed to. The whole-run download takes no
+   * type either, so this narrows the list and the per-event downloads, exactly
+   * as the grade does.
+   */
+  const [eventType, setEventType] = useState('');
+  /**
+   * Whether each event's final has been drawn, worked out from its group list.
+   * An event that runs a final but has not drawn it cannot have its sheets
+   * printed yet — the server refuses the whole run with a 409, and printing
+   * only the heats would look like the final's sheet had gone missing.
+   */
+  const [finalStates, setFinalStates] = useState<Record<number, FinalState>>({});
 
   const [preview, setPreview] = useState<Preview | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
@@ -100,7 +112,10 @@ export default function PrintSheetsPage() {
   /** Events whose heat list has already been cached. */
   const cachedGroupEvents = useRef<Set<number>>(new Set());
 
-  const isStaff = user?.role === 'ADMIN' || user?.role === 'MANAGER';
+  // Printing marking sheets is the input helper's other job, so they are staff here
+  // even though they are nothing else anywhere else.
+  const isStaff = user?.role === 'ADMIN' || user?.role === 'MANAGER'
+    || user?.role === 'HELPER';
 
   // Staff-only screen: send students home and anonymous visitors to the login.
   useEffect(() => {
@@ -148,9 +163,9 @@ export default function PrintSheetsPage() {
           (!sex || SEX_CODE[event.sex] === sex) &&
           (!category || event.category === category) &&
           (!grade || event.grade === grade) &&
-          (!eventId || event.id === eventId)
+          (!eventType || event.type === eventType)
       ),
-    [events, sex, category, grade, eventId]
+    [events, sex, category, grade, eventType]
   );
 
   // Heat lists, fetched once per event and cached. `groupCount` on the event DTO
@@ -186,6 +201,24 @@ export default function PrintSheetsPage() {
         });
         return next;
       });
+      /*
+       * The group list answers the one question this page has to ask before it
+       * offers a sheet: has this event's final been drawn? A final is group
+       * number 0 with the `FINAL` stage, so its presence is the draw. An event
+       * that cannot be split, or that runs straight to a final, is settled by
+       * its own type without looking at any group.
+       */
+      setFinalStates(prev => {
+        const next = { ...prev };
+        fetched.forEach(([id, list]) => {
+          const event = matches.find(candidate => candidate.id === id);
+          if (!event) return;
+          const drawn = list.some(group => group.stage === 'FINAL');
+          const state = finalStateForEvent(event, { finalDrawn: drawn });
+          if (state) next[id] = state;
+        });
+        return next;
+      });
       setGroupsLoading(false);
     })();
 
@@ -193,6 +226,18 @@ export default function PrintSheetsPage() {
       cancelled = true;
     };
   }, [matches]);
+
+  const finalStateOf = useCallback(
+    (event: EventDTO): FinalState | null =>
+      finalStates[event.id] ?? finalStateForEvent(event, { finalDrawn: undefined }),
+    [finalStates]
+  );
+
+  /** The events whose final is still to come: their sheets cannot print yet. */
+  const awaitingFinal = useMemo(
+    () => matches.filter(event => finalStateOf(event) === 'NOT_DRAWN'),
+    [matches, finalStateOf]
+  );
 
   /**
    * Heats only — a drawn final is a seventh group with `groupNumber: 0`, so it
@@ -211,15 +256,19 @@ export default function PrintSheetsPage() {
 
   const totalHeats = matches.reduce((sum, event) => sum + heatsOf(event), 0);
 
-  /** `?sex=M&category=TRACK&eventId=2` — a parameter is dropped when it is "All". */
+  /**
+   * `?sex=M&category=TRACK` — a parameter is dropped when it is "All", and an
+   * empty query means the whole programme. `GET /sheets.pdf` narrows by
+   * division and category only; the grade and the event type are honoured by
+   * the per-event downloads instead.
+   */
   const runQuery = useMemo(() => {
     const params = new URLSearchParams();
     if (sex) params.set('sex', sex);
     if (category) params.set('category', category);
-    if (eventId) params.set('eventId', String(eventId));
     const search = params.toString();
     return search ? `?${search}` : '';
-  }, [sex, category, eventId]);
+  }, [sex, category]);
 
   const replacePreviewUrl = (url: string | null) => {
     if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
@@ -350,77 +399,32 @@ export default function PrintSheetsPage() {
       <div className="card no-print">
         <p className="muted">{t('print.subtitle')}</p>
 
+        {/*
+          Sex, grade, category and event, and nothing else. The event control
+          filters the run rather than picking one: `?sheets.pdf` narrows by
+          division, category and event, so a grade or type is honoured by the
+          per-event downloads below — see `print.gradeDownloadHint`.
+        */}
         <div className="grid-toolbar mt-2">
-          <div className="field">
-            <label htmlFor="print-division">{t('print.division')}</label>
-            <select
-              id="print-division"
-              value={sex}
-              onChange={e => setSex(e.target.value as DivisionFilter)}
-            >
-              <option value="">{t('print.allDivisions')}</option>
-              {DIVISIONS.map(code => (
-                <option key={code} value={code}>
-                  {label('sex', code === 'M' ? 'MALE' : 'FEMALE')}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="field">
-            <label htmlFor="print-category">{t('print.category')}</label>
-            <select
-              id="print-category"
-              value={category}
-              onChange={e => setCategory(e.target.value as CategoryFilter)}
-            >
-              <option value="">{t('print.allCategories')}</option>
-              {CATEGORIES.map(value => (
-                <option key={value} value={value}>
-                  {label('category', value)}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="field">
-            <label htmlFor="print-grade">{t('marks.grade')}</label>
-            <select
-              id="print-grade"
-              value={grade}
-              onChange={e => setGrade(e.target.value as Grade | '')}
-            >
-              <option value="">{t('marks.allGrades')}</option>
-              {GRADES.map(value => (
-                <option key={value} value={value}>
-                  {label('grade', value)}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="field">
-            <label htmlFor="print-event">{t('print.event')}</label>
-            <select
-              id="print-event"
-              value={eventId}
-              onChange={e => setEventId(Number(e.target.value))}
-            >
-              <option value={0}>{t('print.allEvents')}</option>
-              {events.map(event => (
-                <option key={event.id} value={event.id}>
-                  {event.name}
-                </option>
-              ))}
-            </select>
-          </div>
+          <EventFilters
+            idPrefix="print"
+            value={{ sex, grade, category, event: eventType }}
+            onChange={(control, value) => {
+              if (control === 'sex') setSex(value as DivisionFilter);
+              else if (control === 'grade') setGrade(value as Grade | '');
+              else if (control === 'category') setCategory(value as CategoryFilter);
+              else setEventType(value);
+            }}
+            events={events}
+          />
         </div>
 
         <div className="pill-actions mt-3">
           <button
             type="button"
             className="btn btn-primary"
-            disabled={busy === 'all' || totalHeats === 0 || grade !== ''}
+            disabled={busy === 'all' || totalHeats === 0 || grade !== '' || awaitingFinal.length > 0}
+            title={awaitingFinal.length > 0 ? t('print.allHeldBack') : undefined}
             onClick={handleDownloadAll}
           >
             {busy === 'all' ? t('common.downloading') : t('print.downloadAll')}
@@ -430,6 +434,10 @@ export default function PrintSheetsPage() {
           </span>
           {groupsLoading && <span className="muted">{t('common.loading')}</span>}
         </div>
+        {/* `GET /sheets.pdf` is refused whole when any event it covers is still
+            waiting for its final, so the batch is held back with the reason
+            rather than left to fail with a 409. */}
+        {awaitingFinal.length > 0 && <p className="muted mt-2">{t('print.allHeldBack')}</p>}
         {/* `GET /sheets.pdf` narrows by division, category and event only, so a
             grade filter cannot be honoured by the whole-run download. Say so
             rather than downloading more grades than the count above implies. */}
@@ -466,6 +474,26 @@ export default function PrintSheetsPage() {
         </div>
       )}
 
+      {/*
+        The final waits for the heat results. An event whose draw has not run is
+        held back whole, because the server refuses its print run with a 409 —
+        printing only the heats would look like the final's sheet had simply gone
+        missing. Its individual heat sheets are still offered.
+      */}
+      {awaitingFinal.length > 0 && (
+        <div className="alert alert-error no-print">
+          <strong>{t('print.finalNotDrawn')}</strong>
+          <div className="mt-2">{t('print.finalNotDrawnHint')}</div>
+          <ul className="mt-2">
+            {awaitingFinal.map(event => (
+              <li key={event.id}>
+                {event.name} — {t('final.state.NOT_DRAWN')}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {loading ? (
         <p className="muted">{t('common.loading')}</p>
       ) : matches.length === 0 ? (
@@ -485,6 +513,13 @@ export default function PrintSheetsPage() {
               0
             );
             const hasSheets = heatCount > 0 || finalGroup !== null;
+            /*
+             * An event that runs a final and has not drawn it yet: its whole-run
+             * sheet — and so the print run — is refused by the server with a 409,
+             * and the same rule covers its preview. Heat sheets stay available.
+             */
+            const awaitingFinalDraw = finalStateOf(event) === 'NOT_DRAWN';
+            const heldBack = awaitingFinalDraw && !finalGroup && heatCount > 0;
 
             return (
               <div key={event.id} className="print-card">
@@ -533,7 +568,8 @@ export default function PrintSheetsPage() {
                       <button
                         type="button"
                         className="btn btn-sm btn-primary"
-                        disabled={busy === `event-${event.id}`}
+                        disabled={busy === `event-${event.id}` || heldBack}
+                        title={heldBack ? t('print.finalNotDrawnHint') : undefined}
                         onClick={() => handleEventDownload(event)}
                       >
                         {busy === `event-${event.id}`
@@ -543,12 +579,25 @@ export default function PrintSheetsPage() {
                       <button
                         type="button"
                         className="btn btn-sm btn-secondary"
-                        disabled={busy === `preview-${event.id}`}
+                        disabled={busy === `preview-${event.id}` || heldBack}
+                        title={heldBack ? t('print.finalNotDrawnHint') : undefined}
                         onClick={() => handlePreview(event)}
                       >
                         {busy === `preview-${event.id}` ? t('common.loading') : t('print.preview')}
                       </button>
                     </div>
+
+                    {/*
+                      The reason, next to the controls it applies to, and not only
+                      a greyed button: the heat results come first. A run that is
+                      not held back is still covered by the server's own 409,
+                      which the error banner shows as it stands.
+                    */}
+                    {heldBack && (
+                      <p className="muted mt-2">
+                        {t('print.finalNotDrawn')} {t('print.finalNotDrawnHint')}
+                      </p>
+                    )}
 
                     {(heatList.length > 0 || finalGroup) && (
                       <div className="pill-actions mt-2 no-print">

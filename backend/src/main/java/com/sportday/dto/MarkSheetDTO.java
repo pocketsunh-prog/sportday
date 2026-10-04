@@ -56,6 +56,23 @@ public class MarkSheetDTO {
     /** True when the event has a final drawn, so the UI can offer the final grid. */
     private boolean finalDrawn;
 
+    /**
+     * Which of the four final states the event is in: {@code NONE} (not an event
+     * that has a final stage), {@code DIRECT} (it could be split and is run
+     * straight to a final), {@code NOT_DRAWN} (heats are in play, the draw has not
+     * run) or {@code DRAWN}.
+     *
+     * <p>{@link #finalDrawn} alone cannot distinguish "there is no final because
+     * this event does not have one" from "there is no final yet" — both read
+     * {@code false} — so a client that has to say which is the case, or offer the
+     * final grid, reads this instead. Asking for {@code stage=FINAL} in the first
+     * three states is refused with 409 rather than answered with an empty grid.</p>
+     */
+    private String finalState;
+
+    /** The state in words, for the grid to show: e.g. {@code Final: not drawn yet}. */
+    private String finalStateLabel;
+
     /** How many athletes the final takes (the event's group size). */
     private Integer finalSize;
 
