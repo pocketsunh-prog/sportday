@@ -181,6 +181,15 @@ def main() -> int:
     status, events = api.request("GET", "/events", token=admin_token)
     check(status == 200 and isinstance(events, list), "event list readable", f"status={status}")
     events = events if isinstance(events, list) else []
+    # One event per type × division × grade: 20 types × 2 divisions, minus the six
+    # races the lower grades do not run (the 1500M and 110M hurdles have no C grade,
+    # and only the A grade runs the 5000M).
+    check(len(events) == 112,
+          "the catalogue holds 112 events — one per type, division and grade",
+          f"got {len(events)}")
+    check(all(e.get("grade") in ("A", "B", "C") for e in events),
+          "and every event belongs to exactly one grade",
+          f"got {sorted({e.get('grade') for e in events})}")
     track = [e for e in events if e.get("category") == "TRACK"]
     field = [e for e in events if e.get("category") == "FIELD"]
     male = [e for e in events if e.get("sex") == "MALE"]
@@ -195,10 +204,25 @@ def main() -> int:
     def first(pred):
         return next((e for e in events if pred(e)), None)
 
-    e60 = first(lambda e: e["type"] == "RUN_60M" and e["sex"] == "MALE")
-    e100 = first(lambda e: e["type"] == "RUN_100M" and e["sex"] == "MALE")
-    e800 = first(lambda e: e["type"] == "RUN_800M" and e["sex"] == "MALE")
-    e_long = first(lambda e: e["type"] == "LONG_JUMP" and e["sex"] == "MALE")
+    # An event belongs to one grade now, so every lookup has to name the grade it
+    # wants or it would quietly take whichever grade sorts first. The rest of this
+    # run works inside the A grade: section 4 signs in an A-grade boy, so his own 60M
+    # is the event section 6 fills with runners and section 12 draws a final on.
+    e60 = first(lambda e: e["type"] == "RUN_60M" and e["sex"] == "MALE" and e["grade"] == "A")
+    e100 = first(lambda e: e["type"] == "RUN_100M" and e["sex"] == "MALE" and e["grade"] == "A")
+    e800 = first(lambda e: e["type"] == "RUN_800M" and e["sex"] == "MALE" and e["grade"] == "A")
+    e_long = first(lambda e: e["type"] == "LONG_JUMP" and e["sex"] == "MALE" and e["grade"] == "A")
+
+    check(all(e is not None for e in (e60, e100, e800, e_long)),
+          "the A-grade boys' events this run works with all exist",
+          f"got {[e and e['name'] for e in (e60, e100, e800, e_long)]}")
+    check(e60 is not None and e60.get("grade") == "A" and e60.get("gradeLabel") == "A Grade"
+          and e60["name"].endswith("A Grade") and "\u00b7" in e60["name"],
+          "an event carries its grade, and its name says so: Boys 60M \u00b7 A Grade",
+          f"got {e60 and (e60.get('grade'), e60.get('gradeLabel'), e60['name'])}")
+    check("allowedGrades" not in (e60 or {}),
+          "the old allowedGrades field is gone — the event's own grade is the rule",
+          f"got keys {sorted((e60 or {}).keys())}")
 
     check(e60 is not None and e60["groupSize"] == 8 and e60["sheetSize"] == "A5" and e60["shortSprint"],
           "60M is 8 per group on an A5 sheet", f"{e60 and (e60['groupSize'], e60['sheetSize'])}")
@@ -262,9 +286,17 @@ def main() -> int:
     if not roster:
         return 1
 
-    student = roster[0]
+    # A student may only enter events of their own grade, so the rest of the run
+    # works inside one grade: an A-grade boy, whose own 60M is the event the
+    # catalogue section picked out above.
+    student = next((s for s in roster if s.get("grade") == "A"), None)
+    check(student is not None, "an A grade boy is on the register",
+          f"grades present={sorted({s.get('grade') for s in roster})}")
+    if student is None:
+        return 1
+    student_grade = student["grade"]
     expected = derived_password(student)
-    print(f"  signing in as {student['studentId']} / {expected}")
+    print(f"  signing in as {student['studentId']} ({student_grade} grade) / {expected}")
     student_token, student_body = login(api, student["studentId"], expected)
     check(student_token is not None, "student signs in with dob+class+classnumber",
           f"body={student_body}")
@@ -284,9 +316,18 @@ def main() -> int:
 
     status, mine = api.request("GET", "/events?onlyEnabled=true&sex=M", token=student_token)
     mine = mine if isinstance(mine, list) else []
-    my_track = [e for e in mine if e.get("category") == "TRACK"]
-    my_field = [e for e in mine if e.get("category") == "FIELD"]
-    print(f"  student sees {len(my_track)} track and {len(my_field)} field events")
+    # The event list is every enabled boys' event, across all three grades — entering
+    # into one of another grade is refused — so the grade has to be chosen here.
+    my_events = [e for e in mine if e.get("grade") == student_grade]
+    check(len(my_events) < len(mine),
+          "the entry page lists every grade's events, so the grade has to be picked",
+          f"{len(mine)} boys' events across all grades, {len(my_events)} of his own")
+    my_track = [e for e in my_events if e.get("category") == "TRACK"]
+    my_field = [e for e in my_events if e.get("category") == "FIELD"]
+    check(len(my_track) >= 3 and len(my_field) >= 2,
+          "his own grade has enough events to test the 2 track + 1 field quota",
+          f"track={len(my_track)} field={len(my_field)}")
+    print(f"  student sees {len(my_track)} track and {len(my_field)} field events of his own grade")
 
     s1, b1 = api.request("POST", f"/enrollments/{my_track[0]['id']}", token=student_token)
     s2, b2 = api.request("POST", f"/enrollments/{my_track[1]['id']}", token=student_token)
@@ -310,17 +351,27 @@ def main() -> int:
               "quota now reads 2/2 track and 1/1 field", f"got {quota2}")
 
     status, girls = api.request("GET", "/events?onlyEnabled=true&sex=F", token=student_token)
-    girls = girls if isinstance(girls, list) else []
+    # The same grade, so that the division is the only thing that can refuse this.
+    girls = [e for e in girls if e.get("grade") == student_grade] if isinstance(girls, list) else []
     if girls:
         sdiv, bdiv = api.request("POST", f"/enrollments/{girls[0]['id']}", token=student_token)
         check(sdiv == 409, "a girls' event is refused to a boys' division student",
               f"status={sdiv} body={bdiv}")
+        check("Boys" in str(bdiv),
+              "and it is the division that refuses them, not the grade",
+              f"got {bdiv}")
 
     # --------------------------------------------------------------- 6. groups
     section("6. Group allocation")
 
-    def seed_event(event_id: int, count: int, sex_code: str) -> int:
-        _, all_students = api.request("GET", f"/admin/students?sex={sex_code}", token=admin_token)
+    def seed_event(event_id: int, count: int, sex_code: str, grade_code: str) -> int:
+        """Enters up to `count` students of one division and grade into one event.
+
+        The grade is asked for at the register too: only students of the event's own
+        grade may enter it, so offering it anybody else would just be refused.
+        """
+        _, all_students = api.request(
+            "GET", f"/admin/students?sex={sex_code}&grade={grade_code}", token=admin_token)
         enrolled = 0
         for s in all_students or []:
             if enrolled >= count:
@@ -333,8 +384,8 @@ def main() -> int:
                 enrolled += 1
         return enrolled
 
-    n60 = seed_event(e60["id"], 40, "M")
-    print(f"  enrolled {n60} students in 60M")
+    n60 = seed_event(e60["id"], 40, "M", e60["grade"])
+    print(f"  enrolled {n60} students in {e60['name']}")
     # The section-5 student is already entered here, so the real heat count comes
     # from the entry count on the event, not from the number we just seeded.
     _, ev60 = api.request("GET", f"/events/{e60['id']}", token=admin_token)
@@ -351,8 +402,8 @@ def main() -> int:
         check(max((g["athleteCount"] for g in alloc60["groups"]), default=0) <= 8,
               "no 60M heat exceeds 8 athletes")
 
-    n800 = seed_event(e800["id"], 60, "M")
-    print(f"  enrolled {n800} students in 800M")
+    n800 = seed_event(e800["id"], 60, "M", e800["grade"])
+    print(f"  enrolled {n800} students in {e800['name']}")
     _, ev800 = api.request("GET", f"/events/{e800['id']}", token=admin_token)
     entries800 = (ev800 or {}).get("enrolledCount") or n800
     heats800 = -(-entries800 // 24)
@@ -907,8 +958,8 @@ def main() -> int:
     check(bool(sixty_records), "Boys 60M has a record")
     check(all(r.get("grade") in ("A", "B", "C") for r in records),
           "every record is filed under a grade")
-    # Every event has a record for all three grades; only the grade that has run
-    # carries a mark yet.
+    # Each event has a record of its own — one per type, division and grade — and
+    # only the A-grade 60M, the one that has been run, carries a mark yet.
     marked_sixty = [r for r in sixty_records if r.get("mark") is not None]
     check(bool(marked_sixty), "the 60M heat marks have produced a record",
           f"got {[(r['grade'], r.get('mark')) for r in sixty_records]}")
@@ -1047,6 +1098,7 @@ def main() -> int:
     check(status == 200 and subject.get("userId"), f"student {subject_id} has an account",
           f"status={status}")
     subject_sex = subject.get("sex")
+    subject_grade = subject.get("grade")
 
     # Start from a clean slate so the run is repeatable.
     status, current = api.request("GET", f"/admin/students/{subject_id}/enrollments",
@@ -1059,15 +1111,19 @@ def main() -> int:
                         token=admin_token)
 
     status, catalogue = api.request("GET", "/events?onlyEnabled=true", token=admin_token)
+    # A student may only enter their own grade's events, so the events the admin
+    # enters them in have to be their own grade's too.
     open_track = [e for e in catalogue
                   if e.get("category") == "TRACK" and e.get("sex") == subject_sex
+                  and e.get("grade") == subject_grade
                   and (e.get("enrolledCount") or 0) < (e.get("maxParticipants") or 999)]
     open_field = [e for e in catalogue
                   if e.get("category") == "FIELD" and e.get("sex") == subject_sex
+                  and e.get("grade") == subject_grade
                   and (e.get("enrolledCount") or 0) < (e.get("maxParticipants") or 999)]
     check(len(open_track) >= 3 and len(open_field) >= 2,
-          "there are enough open events to test the quota",
-          f"track={len(open_track)} field={len(open_field)}")
+          "there are enough open events of the student's own grade to test the quota",
+          f"grade={subject_grade} track={len(open_track)} field={len(open_field)}")
 
     status, first = api.request("POST",
                                 f"/admin/students/{subject_id}/enrollments/{open_track[0]['id']}",
@@ -1147,14 +1203,19 @@ def main() -> int:
           f"status={status}")
     status, records = api.request("GET", "/records", token=admin_token)
     check(isinstance(records, list) and records, "the records list is populated")
-    check(len(records) % 3 == 0,
-          "there is a record for every grade of every event and division",
-          f"got {len(records)} rows, which is not a multiple of 3")
-    events_seen = {(r["eventType"], r["sex"]) for r in records}
-    check(all(len([r for r in records if (r["eventType"], r["sex"]) == key]) == 3
-              for key in events_seen),
-          "each event and division has exactly the three grades",
-          f"got {sorted((k, len([r for r in records if (r['eventType'], r['sex']) == k])) for k in list(events_seen)[:4])}")
+    # A record belongs to one event now, so there is exactly one per type, division
+    # and grade — 112 of them, one for each event, and none for a race a grade does
+    # not run.
+    check(len(records) == len(catalogue),
+          "there is one record for every event in the programme",
+          f"got {len(records)} rows for {len(catalogue)} events")
+    check(len({(r["eventType"], r["sex"], r["grade"]) for r in records}) == len(records),
+          "and no two of them cover the same type, division and grade",
+          f"got {len(records)} rows, "
+          f"{len({(r['eventType'], r['sex'], r['grade']) for r in records})} distinct")
+    check(not [r for r in records if r["eventType"] == "RUN_5000M" and r["grade"] != "A"],
+          "so a grade a race is not run by has no record of it",
+          f"got {[(r['eventType'], r['sex'], r['grade']) for r in records if r['eventType'] == 'RUN_5000M']}")
     check(any(r.get("source") == "NONE" for r in records),
           "an event nobody has competed in yet still has its record, empty")
 
@@ -1607,13 +1668,16 @@ def main() -> int:
     check(all(e.get("defaultUnit") for e in catalogue_now),
           "every event carries its unit, so the entry page can show it")
 
-    # The mark grid agrees, and tells the UI how many boxes to draw.
+    # The mark grid agrees, and tells the UI how many boxes to draw. Both events are
+    # the subject's own grade, so an athlete may actually be entered in them.
     field_event = next((e for e in catalogue_now
-                        if e["category"] == "FIELD" and e.get("sex") == subject_sex), None)
+                        if e["category"] == "FIELD" and e.get("sex") == subject_sex
+                        and e.get("grade") == subject_grade), None)
     track_event = next((e for e in catalogue_now
-                        if e["category"] == "TRACK" and e.get("sex") == subject_sex), None)
+                        if e["category"] == "TRACK" and e.get("sex") == subject_sex
+                        and e.get("grade") == subject_grade), None)
     check(field_event is not None and track_event is not None,
-          "there is a field event and a track event to compare")
+          "there is a field event and a track event of the student's own grade to compare")
 
     status, field_sheet = api.request("GET", f"/events/{field_event['id']}/marks",
                                       token=admin_token)
@@ -1797,20 +1861,26 @@ def main() -> int:
                   if e["type"] in ("RUN_800M", "RUN_1500M", "RUN_5000M", "RELAY_4X100M")),
           "nor can a distance race or a relay")
 
-    direct = [e for e in catalogue_now if e.get("directToFinal")]
-    check(len(direct) == len(catalogue_now) - 1,
-          "every event except the one already split runs straight to a final",
-          f"{len(direct)} of {len(catalogue_now)} direct")
+    # Only an event that has actually been split runs heats and a final; the rest
+    # are decided by their own run, whatever their setting says.
+    split = [e for e in catalogue_now if not e.get("directToFinal")]
+    check(all(e.get("mayHaveFinal") and (e.get("groupCount") or 0) > 0 for e in split),
+          "an event only runs heats and a final once its groups are drawn",
+          f"not direct: {[(e['name'], e.get('groupCount')) for e in split]}")
 
-    # A brand new event is direct to a final unless the school asks otherwise.
+    # A brand new event is direct to a final unless the school asks otherwise — and
+    # it has to be given a grade, since every event is run by exactly one.
     status, brand_new = api.request(
         "POST", "/events",
-        {"type": "RUN_100M", "sex": "F", "name": "Smoke Test 100M",
+        {"type": "RUN_100M", "sex": "F", "name": "Smoke Test 100M", "grade": "A",
          "eventDate": "2027-10-01", "location": "Main Sports Ground"},
         token=admin_token)
     check(status == 200 and brand_new.get("directToFinal") is True,
           "a new event defaults to running direct to a final",
           f"status={status} body={brand_new}")
+    check(brand_new.get("grade") == "A" and brand_new.get("gradeLabel") == "A Grade",
+          "and it keeps the grade it was created with",
+          f"got {brand_new.get('grade')} / {brand_new.get('gradeLabel')}")
     check(brand_new.get("mayHaveFinal") is True,
           "though a 100M may still be split if the school asks")
 
@@ -1841,17 +1911,18 @@ def main() -> int:
                                    {"directToFinal": True}, token=admin_token)
     check(reticked.get("directToFinal") is True, "and it can be set back to direct")
 
-    # An event that cannot have a final cannot be asked for one.
+    # An event that cannot have a final cannot be asked for one. Both of these carry
+    # a grade the type does run, so the refusal is about the final, not the grade.
     status, refused_ask = api.request(
         "POST", "/events",
-        {"type": "SHOT_PUT", "sex": "M", "name": "Smoke Test Shot",
+        {"type": "SHOT_PUT", "sex": "M", "name": "Smoke Test Shot", "grade": "A",
          "eventDate": "2027-10-01", "directToFinal": False},
         token=admin_token)
     check(status == 400, "a field event cannot be asked for a final",
           f"status={status} body={refused_ask}")
     status, refused_800 = api.request(
         "POST", "/events",
-        {"type": "RUN_800M", "sex": "M", "name": "Smoke Test 800M",
+        {"type": "RUN_800M", "sex": "M", "name": "Smoke Test 800M", "grade": "A",
          "eventDate": "2027-10-01", "directToFinal": False},
         token=admin_token)
     check(status == 400, "and neither can an 800M",
@@ -1876,148 +1947,180 @@ def main() -> int:
           "leaving the catalogue as it was",
           f"got {len(after_cleanup)} of {len(catalogue_now)}")
 
-    # ---------------- 18. which grades may enter which events
-    section("18. Grade eligibility: who may enter what")
+    # ---------------- 18. one grade per event
+    section("18. One grade per event: the catalogue, and who may enter what")
 
-    status, grid = api.request("GET", "/grade-events", token=admin_token)
-    check(status == 200 and isinstance(grid, dict), "the assignment page loads", f"status={status}")
-    check(grid.get("grades") == ["A", "B", "C"], "with a column per grade",
-          f"got {grid.get('grades')}")
-    check(len(grid.get("events", [])) == 19,
-          "and a row per event type", f"got {len(grid.get('events', []))}")
+    # ---- the old grade-eligibility feature is gone entirely ----
+    status, gone = api.request("GET", "/grade-events", token=admin_token)
+    check(status == 404, "the old grade-eligibility page is gone", f"status={status} body={gone}")
+    status, gone_admin = api.request("GET", "/admin/grade-events", token=admin_token)
+    check(status == 404, "and so is the page that assigned it",
+          f"status={status} body={gone_admin}")
 
-    def cell(event_type: str, grade: str) -> bool:
-        row = next(r for r in grid["events"] if r["eventType"] == event_type)
-        return bool(row["allowed"].get(grade))
-
-    check(cell("RUN_1500M", "C") is False,
-          "by default the C grade cannot enter the 1500M")
-    check(cell("RUN_1500M", "A") is True and cell("RUN_1500M", "B") is True,
-          "but the A and B grades can")
-    check(cell("RUN_5000M", "B") is False and cell("RUN_5000M", "C") is False
-          and cell("RUN_5000M", "A") is True,
-          "and only the A grade runs the 5000M")
-    check(cell("RUN_60M", "C") is True and cell("SHOT_PUT", "C") is True
-          and cell("RUN_800M", "C") is True,
-          "everything else is open to the youngest grade as well")
-
-    counts = grid.get("allowedEventCounts", {})
-    check(counts.get("A") == grid.get("totalEvents"),
-          "the A grade may enter every event in the programme",
-          f"got {counts.get('A')} of {grid.get('totalEvents')}")
-    check(counts.get("A", 0) > counts.get("B", 0) > counts.get("C", 0),
-          "and each grade below has fewer, which is what the page shows",
-          f"got {counts}")
-
-    # The events themselves say the same thing.
+    # ---- the catalogue: one event per type x division x grade ----
     status, catalogue_now = api.request("GET", "/events", token=admin_token)
-    f1500 = next(e for e in catalogue_now if e["type"] == "RUN_1500M")
-    check(f1500.get("allowedGrades") == ["A", "B"],
-          "each event carries the grades that may enter it",
-          f"got {f1500.get('allowedGrades')}")
-    f5000 = next(e for e in catalogue_now if e["type"] == "RUN_5000M")
-    check(f5000.get("allowedGrades") == ["A"], f"got {f5000.get('allowedGrades')}")
+    check(isinstance(catalogue_now, list) and len(catalogue_now) == 112,
+          "the catalogue holds 112 events",
+          f"got {len(catalogue_now) if isinstance(catalogue_now, list) else catalogue_now}")
+    catalogue_now = catalogue_now if isinstance(catalogue_now, list) else []
+    by_grade = {g: [e for e in catalogue_now if e.get("grade") == g] for g in ("A", "B", "C")}
+    check({g: len(v) for g, v in by_grade.items()} == {"A": 40, "B": 38, "C": 34},
+          "with A running 40 of them, B 38 and C 34",
+          f"got { {g: len(v) for g, v in by_grade.items()} }")
+    check(len({(e["type"], e["sex"], e["grade"]) for e in catalogue_now}) == len(catalogue_now),
+          "and no type and division run twice by the same grade",
+          f"got {len(catalogue_now)} events, "
+          f"{len({(e['type'], e['sex'], e['grade']) for e in catalogue_now})} distinct")
+    check(all(e.get("gradeLabel") == f"{e['grade']} Grade" for e in catalogue_now),
+          "every event is labelled with the grade it belongs to",
+          f"got {sorted({(e.get('grade'), e.get('gradeLabel')) for e in catalogue_now})}")
+
+    def grades_running(event_type: str):
+        """The grades that have an event of this type at all."""
+        return {e["grade"] for e in catalogue_now if e["type"] == event_type}
+
+    check(grades_running("RUN_1500M") == {"A", "B"},
+          "there is no C grade event for the 1500M — A and B run it",
+          f"got {sorted(grades_running('RUN_1500M'))}")
+    check(grades_running("RUN_5000M") == {"A"},
+          "nor for the 5000M, which only the A grade runs",
+          f"got {sorted(grades_running('RUN_5000M'))}")
+    check(grades_running("HURDLES_110M") == {"A", "B"},
+          "nor for the 110M hurdles — A and B only",
+          f"got {sorted(grades_running('HURDLES_110M'))}")
+    check(grades_running("HURDLES_100M") == {"A", "B", "C"},
+          "while the 100M hurdles is run by all three grades",
+          f"got {sorted(grades_running('HURDLES_100M'))}")
+    check(len([e for e in catalogue_now
+               if e["type"] == "HURDLES_100M" and e["grade"] == "C"]) == 2,
+          "so a C grade 100M hurdles really exists, one per division",
+          f"got {[e['name'] for e in catalogue_now if e['type'] == 'HURDLES_100M' and e['grade'] == 'C']}")
 
     # ---- the rule is enforced, for a student and for an admin acting for one ----
-    status, credentials = api.request("GET", "/admin/students/credentials.csv",
-                                      token=admin_token, raw=True)
-    grade_c = [r for r in csv.DictReader(io.StringIO(credentials.decode("utf-8-sig")))
-               if r["grade"] == "C"]
-    check(bool(grade_c), "there are C grade students on the register", f"got {len(grade_c)}")
+    status, c_roster = api.request("GET", "/admin/students?sex=M&grade=C", token=admin_token)
+    check(isinstance(c_roster, list) and c_roster, "there are C grade boys on the register",
+          f"got {len(c_roster) if isinstance(c_roster, list) else c_roster}")
+    c_roster = c_roster if isinstance(c_roster, list) else []
 
-    subject = None
-    for candidate in grade_c[:10]:
+    c_subject = None
+    c_current = None
+    for candidate in c_roster[:20]:
         status, entries = api.request(
             "GET", f"/admin/students/{candidate['studentId']}/enrollments", token=admin_token)
         quota = entries.get("quota", {}) if isinstance(entries, dict) else {}
         if quota.get("trackRemaining", 0) > 0:
-            subject = candidate
+            c_subject, c_current = candidate, entries
             break
-    check(subject is not None, "and one of them has a track entry to spare")
+    check(c_subject is not None, "and one of them has a track entry to spare")
 
-    if subject:
-        # The 1500M in the student's own division, so the grade rule is what is
-        # being tested rather than the sex division.
-        status, subject_info = api.request("GET", f"/admin/students/{subject['studentId']}",
-                                           token=admin_token)
-        subject_sex = subject_info.get("sex")
+    if c_subject:
+        # The A grade 1500M in his own division: the C grade has no 1500M at all, so
+        # the grade is the only thing that can refuse him.
         my_1500 = next(e for e in catalogue_now
-                       if e["type"] == "RUN_1500M" and e["sex"] == subject_sex)
-        check(my_1500.get("allowedGrades") == ["A", "B"],
-              f"the {my_1500['name']} is open to the A and B grades only",
-              f"got {my_1500.get('allowedGrades')}")
+                       if e["type"] == "RUN_1500M" and e["sex"] == c_subject["sex"]
+                       and e["grade"] == "A")
+        check(my_1500["name"].endswith("A Grade"),
+              "the event he is turned away from is the A grade one",
+              f"got {my_1500['name']}")
 
-        # The student's own attempt.
+        status, credentials = api.request("GET", "/admin/students/credentials.csv",
+                                          token=admin_token, raw=True)
+        c_row = next(r for r in csv.DictReader(io.StringIO(credentials.decode("utf-8-sig")))
+                     if r["studentId"] == c_subject["studentId"])
         status, session = api.request("POST", "/auth/login",
-                                      {"username": subject["studentId"],
-                                       "password": subject["password"]})
-        student_token = session.get("token") if isinstance(session, dict) else None
-        status, refused = api.request("POST", f"/enrollments/{my_1500['id']}",
-                                      token=student_token)
-        check(status == 409, "a C grade student cannot enter the 1500M",
+                                      {"username": c_subject["studentId"],
+                                       "password": c_row["password"]})
+        c_token = session.get("token") if isinstance(session, dict) else None
+        check(c_token is not None, "the C grade boy can sign in", f"status={status}")
+
+        # His own attempt at an A grade event.
+        status, refused = api.request("POST", f"/enrollments/{my_1500['id']}", token=c_token)
+        check(status == 409, "a C grade student is refused an A grade event",
               f"status={status} body={refused}")
-        check("grade" in str(refused).lower(),
-              "and it is the grade that refuses them, not the division",
-              f"got {refused}")
+        message = str(refused)
+        check("A Grade" in message and "C grade" in message,
+              "and the refusal names both grades, so the reason is obvious",
+              f"got {message}")
+        check("1500M" in message, "along with the race he tried to enter", f"got {message}")
 
-        # An administrator is bound by the same rule.
+        # An administrator is bound by exactly the same rule.
         status, refused_admin = api.request(
-            "POST", f"/admin/students/{subject['studentId']}/enrollments/{my_1500['id']}",
+            "POST", f"/admin/students/{c_subject['studentId']}/enrollments/{my_1500['id']}",
             token=admin_token)
-        check(status == 409, "and neither can an admin enter them in it",
+        check(status == 409, "and an admin cannot enter him in it on his behalf either",
               f"status={status} body={refused_admin}")
+        check("A Grade" in str(refused_admin) and "C grade" in str(refused_admin),
+              "with the same reason, naming both grades", f"got {refused_admin}")
 
-        # Opening the 1500M to the C grade lets them in.
-        status, opened = api.request(
-            "PUT", "/admin/grade-events",
-            [{"eventType": "RUN_1500M", "grade": "C", "allowed": True}], token=admin_token)
-        opened_cell = next(r for r in opened["events"] if r["eventType"] == "RUN_1500M") \
-            if isinstance(opened, dict) else {"allowed": {}}
-        check(status == 200 and opened_cell["allowed"].get("C") is True,
-              "the assignment can be changed, and the C grade is now ticked for the 1500M",
-              f"status={status} got {opened_cell['allowed']}")
-        check(opened.get("allowedEventCounts", {}).get("C", 0) > counts.get("C", 0),
-              "so the C grade's event count goes up",
-              f"{counts.get('C')} -> {opened.get('allowedEventCounts', {}).get('C')}")
+        # Nothing was written, so the refusal cost him nothing.
+        status, after_refusal = api.request(
+            "GET", f"/admin/students/{c_subject['studentId']}/enrollments", token=admin_token)
+        before_quota = after_refusal.get("quota", {}) if isinstance(after_refusal, dict) else {}
+        check(before_quota.get("trackRemaining", 0) > 0,
+              "and a refused entry leaves his allowance alone", f"got {before_quota}")
 
-        status, allowed_entry = api.request(
-            "POST", f"/admin/students/{subject['studentId']}/enrollments/{my_1500['id']}",
-            token=admin_token)
-        check(status == 200, "and the student can now be entered",
-              f"status={status} body={allowed_entry}")
-        # Put the entry and the rule back.
-        api.request("DELETE", f"/admin/students/{subject['studentId']}/enrollments/{my_1500['id']}",
-                    token=admin_token)
-        status, closed = api.request(
-            "PUT", "/admin/grade-events",
-            [{"eventType": "RUN_1500M", "grade": "C", "allowed": False}], token=admin_token)
-        closed_cell = next(r for r in closed["events"] if r["eventType"] == "RUN_1500M")
-        check(closed_cell["allowed"]["C"] is False, "and the rule is closed again",
-              f"got {closed_cell['allowed']}")
-        # The student's own attempt must be refused again too.
-        status, refused_again = api.request(
-            "POST", f"/enrollments/{my_1500['id']}", token=student_token)
-        check(status == 409, "so the student is refused once more",
-              f"status={status} body={refused_again}")
+        # A C grade event, on the other hand, does take him.
+        taken_ids = {e.get("eventId") for e in (c_current or {}).get("enrollments", [])}
+        c_event = next((e for e in catalogue_now
+                        if e["grade"] == "C" and e["sex"] == c_subject["sex"]
+                        and e["category"] == "TRACK" and e["id"] not in taken_ids
+                        and (e.get("enrolledCount") or 0) < (e.get("maxParticipants") or 999)), None)
+        check(c_event is not None, "there is a C grade track event with room for him",
+              f"looked through {len(by_grade['C'])} C grade events")
+        if c_event:
+            status, accepted = api.request("POST", f"/enrollments/{c_event['id']}", token=c_token)
+            check(status == 200,
+                  f"and a C grade student is accepted by a C grade event ({c_event['name']})",
+                  f"status={status} body={accepted}")
+            # Withdraw it again, so the data is left as it was found.
+            status, withdrawn = api.request("DELETE", f"/enrollments/{c_event['id']}",
+                                            token=c_token)
+            check(status in (200, 204), "and withdrawing it puts the data back",
+                  f"status={status} body={withdrawn}")
+            status, restored = api.request(
+                "GET", f"/admin/students/{c_subject['studentId']}/enrollments", token=admin_token)
+            restored_quota = restored.get("quota", {}) if isinstance(restored, dict) else {}
+            check(restored_quota.get("trackRemaining") == before_quota.get("trackRemaining"),
+                  "leaving his entry allowance as it was",
+                  f"got {restored_quota} against {before_quota}")
+            check(not any(e.get("eventId") == c_event["id"]
+                          and e.get("status") == "CONFIRMED"
+                          for e in (restored or {}).get("enrollments", [])),
+                  "and no live entry behind", f"got {restored}")
 
-    # ---- only an admin assigns them, and the defaults can be restored ----
-    status, refused_update = api.request(
-        "PUT", "/admin/grade-events",
-        [{"eventType": "RUN_1500M", "grade": "C", "allowed": True}], token=manager_token)
-    check(status == 403, "a manager cannot change the assignment",
-          f"status={status} body={refused_update}")
+    # ---- a grade is required, and it must be one the type is run by ----
+    status, no_grade = api.request(
+        "POST", "/events",
+        {"type": "RUN_100M", "sex": "M", "name": "Smoke No Grade 100M",
+         "eventDate": "2027-10-01"},
+        token=admin_token)
+    check(status == 400, "an event cannot be created without a grade",
+          f"status={status} body={no_grade}")
+    check("grade" in str(no_grade).lower(),
+          "and the refusal says a grade is required", f"got {no_grade}")
 
-    status, reset = api.request("POST", "/admin/grade-events/reset", token=admin_token)
-    check(status == 200 and isinstance(reset, dict), "the assignment can be reset",
-          f"status={status}")
-    status, restored_grid = api.request("GET", "/grade-events", token=admin_token)
-    restored_1500 = next(r for r in restored_grid["events"] if r["eventType"] == "RUN_1500M")
-    restored_5000 = next(r for r in restored_grid["events"] if r["eventType"] == "RUN_5000M")
-    check(restored_1500["allowed"]["C"] is False and restored_5000["allowed"]["B"] is False,
-          "and the school's starting rules come back",
-          f"1500M C={restored_1500['allowed']['C']}, 5000M B={restored_5000['allowed']['B']}")
-    check(restored_grid.get("allowedEventCounts") == counts,
-          "leaving the counts as they were", f"got {restored_grid.get('allowedEventCounts')}")
+    status, c_5000 = api.request(
+        "POST", "/events",
+        {"type": "RUN_5000M", "sex": "M", "name": "Smoke C Grade 5000M", "grade": "C",
+         "eventDate": "2027-10-01"},
+        token=admin_token)
+    check(status == 400, "a RUN_5000M cannot be created for the C grade",
+          f"status={status} body={c_5000}")
+    check("C Grade" in str(c_5000), "and the refusal says which grade does run it",
+          f"got {c_5000}")
+
+    status, c_1500 = api.request(
+        "POST", "/events",
+        {"type": "RUN_1500M", "sex": "M", "name": "Smoke C Grade 1500M", "grade": "C",
+         "eventDate": "2027-10-01"},
+        token=admin_token)
+    check(status == 400, "nor a 1500M the C grade does not run",
+          f"status={status} body={c_1500}")
+
+    status, after_attempts = api.request("GET", "/events", token=admin_token)
+    check(isinstance(after_attempts, list) and len(after_attempts) == len(catalogue_now),
+          "so the catalogue is left at 112 events",
+          f"got {len(after_attempts) if isinstance(after_attempts, list) else after_attempts}")
 
     # ---------------- 19. a small field, and races timed in minutes
     section("19. A small field, and races timed in minutes and seconds")
@@ -2097,13 +2200,15 @@ def main() -> int:
 
     # ---- a field no bigger than a final runs straight to a final
     status, roster = api.request("GET", "/admin/students", token=admin_token)
-    girls = [s for s in roster if s.get("sex") == "FEMALE"]
-    check(bool(girls), "there are girls on the register to enter", f"got {len(girls)}")
+    # A-grade girls, so they may actually enter the A-grade event created below.
+    girls = [s for s in roster
+             if s.get("sex") == "FEMALE" and s.get("grade") == "A"]
+    check(bool(girls), "there are A grade girls on the register to enter", f"got {len(girls)}")
 
     status, small = api.request(
         "POST", "/events",
         {"type": "RUN_100M", "sex": "FEMALE", "name": "Smoke Small Field 100M",
-         "eventDate": "2027-10-02", "directToFinal": False},
+         "grade": "A", "eventDate": "2027-10-02", "directToFinal": False},
         token=admin_token)
     check(status == 200 and small.get("directToFinal") is False,
           "a sprint can be set to heats and a final", f"status={status} body={small}")
@@ -2155,6 +2260,151 @@ def main() -> int:
     status, restored_catalogue = api.request("GET", "/events", token=admin_token)
     check(len(restored_catalogue) == len(catalogue_now), "leaving the catalogue as it was",
           f"got {len(restored_catalogue)} of {len(catalogue_now)}")
+
+    # ---------------- 20. the 100M hurdles, formatted results, results PDFs
+    section("20. The 100M hurdles, how a result reads, and the results PDFs")
+
+    status, catalogue_now = api.request("GET", "/events", token=admin_token)
+    hurdles_100 = [e for e in catalogue_now if e["type"] == "HURDLES_100M"]
+    check(len(hurdles_100) == 6,
+          "there is a 100M hurdles for each grade in each division",
+          f"got {[e['name'] for e in hurdles_100]}")
+    check({e["grade"] for e in hurdles_100} == {"A", "B", "C"},
+          "so the C grade has a 100M hurdles of its own to enter",
+          f"got {sorted(e['grade'] for e in hurdles_100)}")
+    hurdles_110 = [e for e in catalogue_now if e["type"] == "HURDLES_110M"]
+    check({e["grade"] for e in hurdles_110} == {"A", "B"},
+          "while the 110M hurdles exists for the A and B grades only",
+          f"got {[e['name'] for e in hurdles_110]}")
+    check(all(e.get("timeInMinutes") is False for e in hurdles_100),
+          "a 100M hurdles is timed in plain seconds",
+          f"got {[e.get('timeInMinutes') for e in hurdles_100]}")
+
+    # A C grade student is turned away from the 110M, exactly as from the 1500M.
+    status, roster_now = api.request("GET", "/admin/students", token=admin_token)
+    c_grade = [s for s in roster_now if s.get("grade") == "C"]
+    if c_grade and hurdles_110:
+        boys_110 = next((e for e in hurdles_110 if e["sex"] == "MALE" and e["grade"] == "A"), None)
+        boy = next((s for s in c_grade if s.get("sex") == "MALE"), None)
+        if boys_110 and boy:
+            status, refused = api.request(
+                "POST", f"/admin/students/{boy['studentId']}/enrollments/{boys_110['id']}",
+                token=admin_token)
+            check(status == 409, "a C grade student cannot enter the 110M hurdles",
+                  f"status={status} body={refused}")
+    # And the C grade's own 100M hurdles takes them, if they have a track entry spare.
+    if hurdles_100:
+        girls_100 = next((e for e in hurdles_100
+                          if e["sex"] == "FEMALE" and e["grade"] == "C"), None)
+        girl = next((s for s in c_grade if s.get("sex") == "FEMALE"), None)
+        if girls_100 and girl:
+            status, entries = api.request(
+                "GET", f"/admin/students/{girl['studentId']}/enrollments", token=admin_token)
+            quota = entries.get("quota", {}) if isinstance(entries, dict) else {}
+            already = {e.get("eventId") for e in (entries or {}).get("enrollments", [])} \
+                if isinstance(entries, dict) else set()
+            if quota.get("trackRemaining", 0) > 0 and girls_100["id"] not in already:
+                status, taken = api.request(
+                    "POST", f"/admin/students/{girl['studentId']}/enrollments/{girls_100['id']}",
+                    token=admin_token)
+                check(status == 200, "and a C grade student can enter the C grade 100M hurdles",
+                      f"status={status} body={taken}")
+                api.request(
+                    "DELETE",
+                    f"/admin/students/{girl['studentId']}/enrollments/{girls_100['id']}",
+                    token=admin_token)
+
+    # ---- a result carries the unit, the way the sport writes it ----
+    status, sprint_results = api.request("GET", f"/results/event/{e60['id']}", token=admin_token)
+    check(isinstance(sprint_results, list) and sprint_results,
+          "the 60M has results to read", f"got {type(sprint_results).__name__}")
+    if isinstance(sprint_results, list) and sprint_results:
+        displays = [r.get("displayMark") for r in sprint_results]
+        check(all(d and d.endswith("s") for d in displays),
+              "every 60M result carries its seconds",
+              f"got {displays[:4]}")
+        check(all(r.get("mark") is not None for r in sprint_results),
+              "while the raw mark is still there for comparing",
+              "a client that needs the number is not forced to parse the text")
+
+    status, field_results = api.request("GET", f"/results/event/{field_event['id']}",
+                                        token=admin_token)
+    if isinstance(field_results, list) and field_results:
+        displays = [r.get("displayMark") for r in field_results]
+        check(all(d and d.endswith("M") for d in displays),
+              "and a field result carries its metres", f"got {displays[:4]}")
+
+    # ---- a time past a minute gains a minutes part ----
+    status, e800_groups = api.request("GET", f"/events/{e800['id']}/groups", token=admin_token)
+    heat = next((g for g in e800_groups if g.get("stage") == "HEAT"), None) if e800_groups else None
+    if heat:
+        status, sheet = api.request(
+            "GET", f"/events/{e800['id']}/marks?groupId={heat['id']}", token=admin_token)
+        runner = next((r for r in sheet.get("rows", []) if r.get("userId")), None)
+        if runner:
+            # 2 minutes 10.5 seconds — the shape the school asked for.
+            api.request("POST", f"/events/{e800['id']}/marks",
+                        {"stage": "HEAT", "rows": [{"userId": runner["userId"],
+                                                    "minutes": 2, "seconds": 10.5}]},
+                        token=admin_token)
+            status, saved_sheet = api.request(
+                "GET", f"/events/{e800['id']}/marks?groupId={heat['id']}", token=admin_token)
+            row = next(r for r in saved_sheet["rows"] if r.get("userId") == runner["userId"])
+            check(row.get("mark") == 130.5 or float(row.get("mark") or 0) == 130.5,
+                  "an 800M time is stored as the total in seconds", f"got {row.get('mark')}")
+            status, standings = api.request("GET", f"/events/{e800['id']}/standings",
+                                            token=admin_token)
+            placing = next((p for p in standings.get("placings", [])
+                            if p.get("userId") == runner["userId"]), None) if standings else None
+            check(placing is not None and placing.get("displayMark") == "2.10.5s",
+                  "and reads back as 2.10.5s — a minutes part, seconds padded",
+                  f"got {placing.get('displayMark') if placing else None}")
+            api.request("POST", f"/events/{e800['id']}/marks",
+                        {"stage": "HEAT", "rows": [{"userId": runner["userId"], "mark": None}]},
+                        token=admin_token)
+
+    # ---- the results PDFs ----
+    status, event_pdf = api.request("GET", f"/events/{e60['id']}/results.pdf",
+                                    token=admin_token, raw=True)
+    check(status == 200 and isinstance(event_pdf, bytes) and event_pdf[:4] == b"%PDF",
+          "one event's results print as a PDF",
+          f"status={status} head={event_pdf[:8] if isinstance(event_pdf, bytes) else event_pdf}")
+    check(isinstance(event_pdf, bytes) and len(event_pdf) > 1000,
+          "and the document has content in it",
+          f"{len(event_pdf) if isinstance(event_pdf, bytes) else 0} bytes")
+
+    status, programme_pdf = api.request("GET", "/results.pdf", token=admin_token, raw=True)
+    check(status == 200 and isinstance(programme_pdf, bytes) and programme_pdf[:4] == b"%PDF",
+          "the whole programme prints as one PDF",
+          f"status={status}")
+    check(isinstance(programme_pdf, bytes) and len(programme_pdf) > len(event_pdf),
+          "and holds more than a single event's sheet",
+          f"{len(programme_pdf) if isinstance(programme_pdf, bytes) else 0} bytes "
+          f"against {len(event_pdf) if isinstance(event_pdf, bytes) else 0}")
+
+    # Narrowing to a category that has no results is refused with the reason, not an
+    # empty PDF — and one that does have results prints.
+    field_event_ids = [e["id"] for e in catalogue_now if e["category"] == "FIELD"]
+    field_has_results = False
+    for field_id in field_event_ids:
+        status, some = api.request("GET", f"/results/event/{field_id}", token=admin_token)
+        if isinstance(some, list) and some:
+            field_has_results = True
+            break
+
+    status, filtered = api.request("GET", "/results.pdf?category=FIELD", token=admin_token,
+                                   raw=True)
+    if field_has_results:
+        check(status == 200 and isinstance(filtered, bytes) and filtered[:4] == b"%PDF",
+              "and it can be narrowed to the field events", f"status={status}")
+    else:
+        check(status == 409 and "nothing to print" in str(filtered),
+              "narrowing to a category with no results is refused with the reason",
+              f"status={status} body={filtered}")
+
+    status, no_results = api.request("GET", "/events/999999/results.pdf", token=admin_token)
+    check(status in (404, 409), "asking for an event that does not exist is refused",
+          f"status={status} body={no_results}")
 
     # ------------------------------------------------------------------ summary
     section("Summary")

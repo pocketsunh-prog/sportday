@@ -149,4 +149,54 @@ class EventTypeGroupingTest {
         assertEquals("M", Sex.MALE.getCode());
         assertEquals("F", Sex.FEMALE.getCode());
     }
+
+    // ---------------------------------------------------- which grades run what
+
+    @Test
+    @DisplayName("no C grade in the 1500M or the 110M hurdles, and only the A grade in the 5000M")
+    void whichGradesRunAnEventType() {
+        assertEquals(EnumSet.of(Grade.A), Event.EventType.RUN_5000M.allowedGrades());
+        assertEquals(EnumSet.of(Grade.A, Grade.B), Event.EventType.RUN_1500M.allowedGrades());
+        assertEquals(EnumSet.of(Grade.A, Grade.B), Event.EventType.HURDLES_110M.allowedGrades());
+
+        assertFalse(Event.EventType.RUN_1500M.runsGrade(Grade.C));
+        assertFalse(Event.EventType.HURDLES_110M.runsGrade(Grade.C));
+        assertFalse(Event.EventType.RUN_5000M.runsGrade(Grade.B),
+                "the B grade does not run the 5000M either");
+        assertFalse(Event.EventType.RUN_5000M.runsGrade(Grade.C));
+
+        // The 100M hurdles is the C grade's own event, and everything else is open.
+        assertEquals(EnumSet.allOf(Grade.class), Event.EventType.HURDLES_100M.allowedGrades());
+        for (Event.EventType type : Event.EventType.values()) {
+            assertFalse(type.allowedGrades().isEmpty(), type + " is run by no grade at all");
+        }
+        assertTrue(Event.EventType.RUN_100M.runsGrade(Grade.A));
+        assertTrue(Event.EventType.RUN_100M.runsGrade(Grade.B));
+        assertTrue(Event.EventType.RUN_100M.runsGrade(Grade.C));
+        assertTrue(Event.EventType.SHOT_PUT.runsGrade(Grade.C), "every field event is open");
+        assertTrue(Event.EventType.RUN_800M.runsGrade(Grade.C));
+    }
+
+    @Test
+    @DisplayName("the grades a type is run by are returned in programme order, A then B then C")
+    void gradeOrderIsProgrammeOrder() {
+        assertEquals(java.util.List.of(Grade.A, Grade.B, Grade.C),
+                java.util.List.copyOf(Event.EventType.RUN_100M.allowedGrades()));
+        assertEquals(java.util.List.of(Grade.A, Grade.B),
+                java.util.List.copyOf(Event.EventType.RUN_1500M.allowedGrades()));
+    }
+
+    @Test
+    @DisplayName("an event belongs to one grade, and the name says which")
+    void theDefaultNameCarriesTheGrade() {
+        assertEquals("Boys 100M · A Grade",
+                com.sportday.service.EventService.defaultName(
+                        Event.EventType.RUN_100M, Sex.MALE, Grade.A));
+        assertEquals("Girls 1500M · B Grade",
+                com.sportday.service.EventService.defaultName(
+                        Event.EventType.RUN_1500M, Sex.FEMALE, Grade.B));
+        assertNull(com.sportday.service.EventService.defaultName(
+                        Event.EventType.RUN_100M, Sex.MALE, null),
+                "an event with no grade has no name to be given");
+    }
 }

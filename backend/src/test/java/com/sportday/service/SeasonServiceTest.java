@@ -3,6 +3,7 @@ package com.sportday.service;
 import com.sportday.dto.SeasonDTO;
 import com.sportday.entity.Event;
 import com.sportday.entity.EventCategory;
+import com.sportday.entity.Grade;
 import com.sportday.entity.Season;
 import com.sportday.entity.Sex;
 import com.sportday.repository.EventRepository;
@@ -73,10 +74,10 @@ class SeasonServiceTest {
         });
 
         Event lastYear = Event.builder()
-                .id(1L).name("Boys 100M").type(Event.EventType.RUN_100M)
-                .category(EventCategory.TRACK).sex(Sex.MALE)
+                .id(1L).name("Boys 100M · A Grade").type(Event.EventType.RUN_100M)
+                .category(EventCategory.TRACK).sex(Sex.MALE).grade(Grade.A)
                 .eventDate(LocalDate.of(2026, 10, 1)).enabled(true).groupSize(8).build();
-        when(eventRepository.findBySeasonIdOrderByTypeAscSexAsc(4L)).thenReturn(List.of(lastYear));
+        when(eventRepository.findBySeasonIdOrderByTypeAscSexAscGradeAsc(4L)).thenReturn(List.of(lastYear));
         when(eventRepository.countBySeasonId(9L)).thenReturn(1L);
 
         service.create(SeasonDTO.builder()
@@ -90,6 +91,8 @@ class SeasonServiceTest {
         Event copy = copied.getValue();
         assertEquals(Event.EventType.RUN_100M, copy.getType());
         assertEquals(Sex.MALE, copy.getSex());
+        assertEquals(Grade.A, copy.getGrade(),
+                "the copy is the same grade's event — a programme is copied event by event");
         assertEquals(LocalDate.of(2027, 10, 7), copy.getEventDate(),
                 "the copy is dated on the new year's sport day");
         assertNotNull(copy.getSeason(), "and belongs to the new year");

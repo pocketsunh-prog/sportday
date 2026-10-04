@@ -2,13 +2,24 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { api, EventResultDTO, EventDTO, EventStandingsDTO, SeasonDTO, formatAttempts } from '@/lib/api';
+import { api, EventResultDTO, EventDTO, EventStandingsDTO, Grade, GRADES, SeasonDTO, formatAttempts } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n';
-import { formatDate } from '@/lib/format';
+import { formatDate, resultMark } from '@/lib/format';
 import Link from 'next/link';
 
 type ResultsTab = 'event' | 'past';
+
+/** The message the server sent, or our own wording when there is none. */
+function errorText(err: unknown, fallback: string): string {
+  return err instanceof Error && err.message ? err.message : fallback;
+}
+
+/** Turns an event name into something safe for a download filename. */
+function slug(value: string): string {
+  const cleaned = value.replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '');
+  return cleaned || 'event';
+}
 
 export default function ResultsPage() {
   const [events, setEvents] = useState<EventDTO[]>([]);
@@ -24,8 +35,18 @@ export default function ResultsPage() {
   /** The school years, and the one the past events are narrowed to. */
   const [seasons, setSeasons] = useState<SeasonDTO[]>([]);
   const [pastYearFilter, setPastYearFilter] = useState<number | ''>('');
+  /**
+   * The grade the past events are narrowed to. An event belongs to exactly one
+   * grade, so the A and B grade runnings of a type are separate events with
+   * separate results — this is what keeps them apart in the list.
+   */
+  const [pastGradeFilter, setPastGradeFilter] = useState<Grade | ''>('');
+  /** Which PDF is being fetched (`all` or `event-{id}`), and the last outcome. */
+  const [downloading, setDownloading] = useState<string | null>(null);
+  const [downloadNotice, setDownloadNotice] = useState('');
+  const [downloadError, setDownloadError] = useState('');
   const { user, isLoading } = useAuth();
-  const { t, label } = useI18n();
+  const { t, label, lang } = useI18n();
   const router = useRouter();
 
   useEffect(() => {
@@ -111,13 +132,52 @@ export default function ResultsPage() {
     </span>
   );
 
+  /**
+   * Saves one event's results as a PDF. The endpoint answers a 409 with a
+   * message of its own when the event has nothing to print, so that message is
+   * shown as it stands rather than being swallowed.
+   */
+  const downloadEventPdf = async (eventId: number) => {
+    setDownloading(`event-${eventId}`);
+    setDownloadNotice('');
+    setDownloadError('');
+    try {
+      const name = [...events, ...pastEvents].find(event => event.id === eventId)?.name;
+      const filename = await api.downloadEventResultsPdf(
+        eventId,
+        `${slug(name || 'event')}-results.pdf`
+      );
+      setDownloadNotice(t('common.downloaded', { filename }));
+    } catch (err) {
+      setDownloadError(errorText(err, t('results.pdfFailed')));
+    } finally {
+      setDownloading(null);
+    }
+  };
+
+  /** Saves the whole programme's results — every event that has any. */
+  const downloadAllPdf = async () => {
+    setDownloading('all');
+    setDownloadNotice('');
+    setDownloadError('');
+    try {
+      const filename = await api.downloadAllResultsPdf('sportday-results.pdf');
+      setDownloadNotice(t('common.downloaded', { filename }));
+    } catch (err) {
+      setDownloadError(errorText(err, t('results.pdfFailed')));
+    } finally {
+      setDownloading(null);
+    }
+  };
+
   const pastEvent = pastEvents.find(event => event.id === selectedPastEvent) || null;
 
-  /** The past events of the chosen school year (all of them when none is chosen). */
-  const pastEventsForYear =
-    pastYearFilter === ''
-      ? pastEvents
-      : pastEvents.filter(event => event.seasonId === pastYearFilter);
+  /** The past events of the chosen school year and grade (all when none is chosen). */
+  const pastEventsForYear = pastEvents.filter(
+    event =>
+      (pastYearFilter === '' || event.seasonId === pastYearFilter) &&
+      (pastGradeFilter === '' || event.grade === pastGradeFilter)
+  );
 
   const eventTab = (
     <>
@@ -140,9 +200,21 @@ export default function ResultsPage() {
 
       {selectedEvent && (
         <div className="card mt-2">
-          <h2>{t('marks.leaderboard')}</h2>
+          <div className="flex justify-between items-center">
+            <h2>{t('marks.leaderboard')}</h2>
+            <button
+              type="button"
+              className="btn btn-sm btn-secondary"
+              disabled={downloading !== null || results.length === 0}
+              onClick={() => downloadEventPdf(selectedEvent)}
+            >
+              {downloading === `event-${selectedEvent}`
+                ? t('common.downloading')
+                : t('results.downloadEventPdf')}
+            </button>
+          </div>
           {results.length === 0 ? (
-            <p style={{ color: '#888' }}>{t('results.noResultsEvent')}</p>
+            <p style={{ color: '#888' }}>{t('results.pdfNothingForEvent')}</p>
           ) : (
             <div className="table-wrap">
               <table>
@@ -150,33 +222,41 @@ export default function ResultsPage() {
                   <tr>
                     <th>{t('marks.rank')}</th>
                     <th>{t('results.athlete')}</th>
-                    <th>{t('marks.record')}</th>
-                    <th>{t('marks.unit')}</th>
+                    <th>{t('results.result')}</th>
                     <th>{t('results.notes')}</th>
                     <th>{t('events.date')}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {results.map((result, idx) => (
-                    <tr key={result.id}>
-                      <td>
-                        {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : idx + 1}
-                      </td>
-                      <td>{result.fullName || result.username}</td>
-                      <td>
-                        <strong>{result.mark}</strong>
-                        {result.newRecord && newRecordBadge}
-                        {/* A field result carries its three attempts; the mark
-                            above is the best of them. A track result has none. */}
-                        {formatAttempts(result.attempts) && (
-                          <div className="muted">{formatAttempts(result.attempts)}</div>
-                        )}
-                      </td>
-                      <td>{result.unit ? label('unit', result.unit) : '-'}</td>
-                      <td>{result.notes || '-'}</td>
-                      <td>{formatDate(result.recordedAt)}</td>
-                    </tr>
-                  ))}
+                  {results.map((result, idx) => {
+                    const mark = resultMark(
+                      result.displayMark,
+                      result.mark,
+                      result.unit,
+                      lang,
+                      label
+                    );
+                    return (
+                      <tr key={result.id}>
+                        <td>
+                          {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : idx + 1}
+                        </td>
+                        <td>{result.fullName || result.username}</td>
+                        <td>
+                          <strong>{mark.value}</strong>
+                          {mark.suffix}
+                          {result.newRecord && newRecordBadge}
+                          {/* A field result carries its three attempts; the mark
+                              above is the best of them. A track result has none. */}
+                          {formatAttempts(result.attempts) && (
+                            <div className="muted">{formatAttempts(result.attempts)}</div>
+                          )}
+                        </td>
+                        <td>{result.notes || '-'}</td>
+                        <td>{formatDate(result.recordedAt)}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -216,6 +296,24 @@ export default function ResultsPage() {
               ))}
             </select>
           </div>
+          <div className="field" style={{ minWidth: '16rem' }}>
+            <label>{t('marks.grade')}</label>
+            <select
+              value={pastGradeFilter}
+              onChange={e => {
+                setPastGradeFilter(e.target.value as Grade | '');
+                // The chosen event may not be of the grade now on screen.
+                setSelectedPastEvent(null);
+              }}
+            >
+              <option value="">{t('marks.allGrades')}</option>
+              {GRADES.map(value => (
+                <option key={value} value={value}>
+                  {label('grade', value)}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
         <div className="form-group mt-2">
@@ -248,19 +346,40 @@ export default function ResultsPage() {
 
       {selectedPastEvent && (
         <div className="card mt-2">
-          <h2>
-            {pastEvent ? pastEvent.name : t('results.pastStandings')}
-            {pastEvent?.sexLabel && (
-              <span className="badge badge-info" style={{ marginLeft: '0.5rem' }}>
-                {label('sex', pastEvent.sex)}
-              </span>
-            )}
-            {pastEvent?.category && (
-              <span className="badge badge-info" style={{ marginLeft: '0.4rem' }}>
-                {label('category', pastEvent.category)}
-              </span>
-            )}
-          </h2>
+          <div className="flex justify-between items-center">
+            <h2>
+              {pastEvent ? pastEvent.name : t('results.pastStandings')}
+              {pastEvent?.sexLabel && (
+                <span className="badge badge-info" style={{ marginLeft: '0.5rem' }}>
+                  {label('sex', pastEvent.sex)}
+                </span>
+              )}
+              {pastEvent?.category && (
+                <span className="badge badge-info" style={{ marginLeft: '0.4rem' }}>
+                  {label('category', pastEvent.category)}
+                </span>
+              )}
+              {pastEvent?.grade && (
+                <span
+                  className="badge badge-info"
+                  style={{ marginLeft: '0.4rem' }}
+                  title={label('grade', pastEvent.grade)}
+                >
+                  {label('grade.short', pastEvent.grade)}
+                </span>
+              )}
+            </h2>
+            <button
+              type="button"
+              className="btn btn-sm btn-secondary"
+              disabled={downloading !== null || !standings || standings.placings.length === 0}
+              onClick={() => downloadEventPdf(selectedPastEvent)}
+            >
+              {downloading === `event-${selectedPastEvent}`
+                ? t('common.downloading')
+                : t('results.downloadEventPdf')}
+            </button>
+          </div>
 
           {standingsLoading ? (
             <p className="muted">{t('common.loading')}</p>
@@ -299,51 +418,60 @@ export default function ResultsPage() {
                       <th>{t('championships.colGrade')}</th>
                       <th>{t('championships.colClass')}</th>
                       <th>{t('championships.colHouse')}</th>
-                      <th>{t('marks.record')}</th>
+                      <th>{t('results.result')}</th>
                       <th>{t('championships.colPoints')}</th>
                       <th>{t('common.details')}</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {standings.placings.map(placing => (
-                      <tr key={`${placing.userId}-${placing.place}`}>
-                        <td>
-                          {placing.place === 1
-                            ? '🥇'
-                            : placing.place === 2
-                              ? '🥈'
-                              : placing.place === 3
-                                ? '🥉'
-                                : placing.place}
-                        </td>
-                        <td>
-                          {placing.name}
-                          <span className="muted" style={{ marginLeft: '0.4rem' }}>
-                            {placing.studentRef}
-                          </span>
-                        </td>
-                        <td>{label('grade.short', placing.grade)}</td>
-                        <td>{placing.className}</td>
-                        <td>{placing.house}</td>
-                        <td>
-                          <strong>{placing.mark}</strong>{' '}
-                          {placing.unit ? label('unit', placing.unit) : ''}
-                          {placing.schoolRecord && (
-                            <span className="badge badge-success" style={{ marginLeft: '0.4rem' }}>
-                              {t('championships.schoolRecord')}
+                    {standings.placings.map(placing => {
+                      const mark = resultMark(
+                        placing.displayMark,
+                        placing.mark,
+                        placing.unit,
+                        lang,
+                        label
+                      );
+                      return (
+                        <tr key={`${placing.userId}-${placing.place}`}>
+                          <td>
+                            {placing.place === 1
+                              ? '🥇'
+                              : placing.place === 2
+                                ? '🥈'
+                                : placing.place === 3
+                                  ? '🥉'
+                                  : placing.place}
+                          </td>
+                          <td>
+                            {placing.name}
+                            <span className="muted" style={{ marginLeft: '0.4rem' }}>
+                              {placing.studentRef}
                             </span>
-                          )}
-                        </td>
-                        <td>
-                          <strong>{placing.points}</strong>
-                        </td>
-                        <td>
-                          <Link href={`/events/${standings.eventId || selectedPastEvent}`}>
-                            {t('common.details')}
-                          </Link>
-                        </td>
-                      </tr>
-                    ))}
+                          </td>
+                          <td>{label('grade.short', placing.grade)}</td>
+                          <td>{placing.className}</td>
+                          <td>{placing.house}</td>
+                          <td>
+                            <strong>{mark.value}</strong>
+                            {mark.suffix}
+                            {placing.schoolRecord && (
+                              <span className="badge badge-success" style={{ marginLeft: '0.4rem' }}>
+                                {t('championships.schoolRecord')}
+                              </span>
+                            )}
+                          </td>
+                          <td>
+                            <strong>{placing.points}</strong>
+                          </td>
+                          <td>
+                            <Link href={`/events/${standings.eventId || selectedPastEvent}`}>
+                              {t('common.details')}
+                            </Link>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -356,7 +484,23 @@ export default function ResultsPage() {
 
   return (
     <div>
-      <h1 className="page-title">{t('results.eventResults')}</h1>
+      <div className="flex justify-between items-center">
+        <h1 className="page-title">{t('results.eventResults')}</h1>
+        <button
+          type="button"
+          className="btn btn-secondary"
+          disabled={downloading !== null || loading || events.length === 0}
+          onClick={downloadAllPdf}
+        >
+          {downloading === 'all' ? t('common.downloading') : t('results.downloadAllPdf')}
+        </button>
+      </div>
+      {!loading && events.length === 0 && (
+        <p className="muted">{t('results.pdfNothingForProgramme')}</p>
+      )}
+
+      {downloadNotice && <div className="alert alert-success">{downloadNotice}</div>}
+      {downloadError && <div className="alert alert-error">{downloadError}</div>}
 
       <div className="grid-toolbar">
         <button

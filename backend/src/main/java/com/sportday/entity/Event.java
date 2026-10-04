@@ -6,12 +6,21 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /**
- * A single competition event, e.g. "Boys A Grade 100M".
+ * A single competition event, e.g. "Boys 100M · A Grade".
  *
- * <p>Every event is offered in exactly one {@link Sex} division and belongs to
- * one {@link EventCategory} (徑項 track / 田項 field). Events are created
- * <strong>enabled by default</strong>; an administrator can disable one at any
- * time, and disabled events reject new entries.</p>
+ * <p>Every event is offered in exactly one {@link Sex} division <em>and</em> one
+ * {@link Grade}, so no grade is ever ranked against another: {@code Boys 100M}
+ * is three separate events — one for the A grade, one for the B grade and one
+ * for the C grade — each with its own heats, marking sheets, results and
+ * placings. Belongs to one {@link EventCategory} (徑項 track / 田項 field).
+ * Events are created <strong>enabled by default</strong>; an administrator can
+ * disable one at any time, and disabled events reject new entries.</p>
+ *
+ * <p>Whether a grade runs an event is simply whether that event exists, so the
+ * old per-type grade-eligibility rules are gone. The school's starting position
+ * — no C grade in the 1500M or the senior hurdles, only the A grade in the
+ * 5000M — lives on {@link EventType#allowedGrades()} and decides which events
+ * {@code EventService.createDefaults} creates.</p>
  */
 @Entity
 @Table(name = "events", indexes = {
@@ -46,6 +55,20 @@ public class Event {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private Sex sex;
+
+    /**
+     * The one grade that competes in this event. An event with no grade would rank
+     * grades against each other, which is exactly what the school does not want, so
+     * this is required: a create or an update that would leave it unset is refused.
+     *
+     * <p>It is part of the event's identity alongside type and division, and it is
+     * written into {@link #name} — {@code Boys 100M · A Grade} — so every existing
+     * consumer (marking sheets, results, the entry list) shows the grade without
+     * having to be taught about it.</p>
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 4)
+    private Grade grade;
 
     @Column(nullable = false)
     private LocalDate eventDate;
@@ -202,6 +225,7 @@ public class Event {
         RUN_800M("800M", EventCategory.TRACK, false),
         RUN_1500M("1500M", EventCategory.TRACK, false),
         RUN_5000M("5000M", EventCategory.TRACK, false),
+        HURDLES_100M("100M Hurdles", EventCategory.TRACK, false),
         HURDLES_110M("110M Hurdles", EventCategory.TRACK, false),
         HURDLES_400M("400M Hurdles", EventCategory.TRACK, false),
         RELAY_4X100M("4x100M Relay", EventCategory.TRACK, false),
@@ -326,6 +350,37 @@ public class Event {
          */
         public boolean isRelay() {
             return this == RELAY_4X100M || this == RELAY_4X400M;
+        }
+
+        /**
+         * The grades that run this event type — which events the catalogue offers.
+         *
+         * <p>This used to live in {@code EventGradeRule.defaultAllowedGrades}. Now
+         * that an event belongs to exactly one grade, whether a grade runs an event
+         * is simply whether that event exists, so the school's starting position is
+         * decided once here and {@code createDefaults} creates exactly these events:</p>
+         *
+         * <ul>
+         *   <li>the 1500M — no C grade;</li>
+         *   <li>the 5000M — the A grade only;</li>
+         *   <li>the 110M hurdles — no C grade, which runs the 100M hurdles instead;</li>
+         *   <li>everything else — all three grades.</li>
+         * </ul>
+         *
+         * <p>Returned in programme order (A, B, C), which is what makes the seeded
+         * events list that way.</p>
+         */
+        public java.util.Set<Grade> allowedGrades() {
+            return switch (this) {
+                case RUN_5000M -> java.util.EnumSet.of(Grade.A);
+                case RUN_1500M, HURDLES_110M -> java.util.EnumSet.of(Grade.A, Grade.B);
+                default -> java.util.EnumSet.allOf(Grade.class);
+            };
+        }
+
+        /** True when this event type is run by that grade. */
+        public boolean runsGrade(Grade grade) {
+            return grade != null && allowedGrades().contains(grade);
         }
     }
 }

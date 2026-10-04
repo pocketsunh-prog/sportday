@@ -2,6 +2,7 @@ package com.sportday.repository;
 
 import com.sportday.entity.Event;
 import com.sportday.entity.EventCategory;
+import com.sportday.entity.Grade;
 import com.sportday.entity.Sex;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
@@ -27,7 +28,11 @@ public interface EventRepository extends JpaRepository<Event, Long> {
 
     List<Event> findAllByOrderByCategoryAscTypeAscSexAsc();
 
-    Optional<Event> findFirstByTypeAndSex(Event.EventType type, Sex sex);
+    /**
+     * One event of a type, division and grade — the combination that identifies an
+     * event. Used to keep the catalogue seeding idempotent.
+     */
+    Optional<Event> findFirstByTypeAndSexAndGrade(Event.EventType type, Sex sex, Grade grade);
 
     Optional<Event> findFirstByTypeAndSexAndEventDate(Event.EventType type, Sex sex, LocalDate eventDate);
 
@@ -37,7 +42,7 @@ public interface EventRepository extends JpaRepository<Event, Long> {
 
     long countBySeasonId(Long seasonId);
 
-    List<Event> findBySeasonIdOrderByTypeAscSexAsc(Long seasonId);
+    List<Event> findBySeasonIdOrderByTypeAscSexAscGradeAsc(Long seasonId);
 
     /** Events created before seasons existed, so the bootstrap can adopt them. */
     List<Event> findBySeasonIsNull();

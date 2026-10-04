@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { api, defaultUnitForCategory, EventCategory, EventDateDTO, EventDTO, SeasonDTO, SexCode } from '@/lib/api';
+import { api, defaultUnitForCategory, EventCategory, EventDateDTO, EventDTO, Grade, GRADES, SeasonDTO, SexCode } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { formatDate } from '@/lib/format';
 import { useI18n } from '@/lib/i18n';
@@ -22,6 +22,7 @@ export default function AdminEventsPage() {
   const [defaultsDate, setDefaultsDate] = useState('');
   const [filterCategory, setFilterCategory] = useState<EventCategory | ''>('');
   const [filterSex, setFilterSex] = useState<SexCode | ''>('');
+  const [filterGrade, setFilterGrade] = useState<Grade | ''>('');
   const [filterDate, setFilterDate] = useState('');
   const [dates, setDates] = useState<EventDateDTO[]>([]);
   const [search, setSearch] = useState('');
@@ -184,31 +185,25 @@ export default function AdminEventsPage() {
     return events.filter(event => {
       if (filterCategory && event.category !== filterCategory) return false;
       if (filterSex && event.sex !== (filterSex === 'M' ? 'MALE' : 'FEMALE')) return false;
+      if (filterGrade && event.grade !== filterGrade) return false;
       if (needle) {
         const haystack = `${event.name} ${event.typeLabel} ${event.type}`.toLowerCase();
         if (!haystack.includes(needle)) return false;
       }
       return true;
     });
-  }, [events, filterCategory, filterSex, search]);
+  }, [events, filterCategory, filterSex, filterGrade, search]);
 
   /**
-   * The grades that may enter an event, as compact badges (`A B` or `A B C`).
-   * The list is the organiser's rule, assigned on the grade assignment page.
+   * An event's grade, as a badge. Every event belongs to exactly one grade and
+   * the name already spells it out (`Boys 100M · A Grade`), but the badge is
+   * what makes an A grade row unmistakable next to a B grade one at a glance.
    */
-  const allowedGradesCell = (event: EventDTO) => {
-    const allowed = event.allowedGrades;
-    if (!allowed || allowed.length === 0) return <span className="muted">—</span>;
-    return (
-      <div className="flex gap-2">
-        {allowed.map(grade => (
-          <span className="badge badge-success" key={grade}>
-            {label('grade.short', grade)}
-          </span>
-        ))}
-      </div>
-    );
-  };
+  const gradeCell = (event: EventDTO) => (
+    <span className="badge badge-info" title={label('grade', event.grade)}>
+      {label('grade.short', event.grade)}
+    </span>
+  );
 
   const totals = useMemo(() => {
     const enabled = events.filter(event => event.enabled).length;
@@ -321,6 +316,20 @@ export default function AdminEventsPage() {
             </select>
           </div>
           <div className="form-group">
+            <label>{t('marks.grade')}</label>
+            <select
+              value={filterGrade}
+              onChange={e => setFilterGrade(e.target.value as Grade | '')}
+            >
+              <option value="">{t('marks.allGrades')}</option>
+              {GRADES.map(grade => (
+                <option key={grade} value={grade}>
+                  {label('grade', grade)}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="form-group">
             <label>{t('events.schoolYear')}</label>
             <select
               value={seasonId}
@@ -383,7 +392,7 @@ export default function AdminEventsPage() {
                   <th>{t('events.sheet')}</th>
                   <th>{t('events.format')}</th>
                   <th>{t('marks.unit')}</th>
-                  <th>{t('events.allowedGrades')}</th>
+                  <th>{t('marks.grade')}</th>
                   <th>{t('events.entries')}</th>
                   <th>{t('admin.colStatus')}</th>
                   <th>{t('common.actions')}</th>
@@ -459,7 +468,7 @@ export default function AdminEventsPage() {
                     <td>
                       {label('unit', event.defaultUnit || defaultUnitForCategory(event.category))}
                     </td>
-                    <td>{allowedGradesCell(event)}</td>
+                    <td>{gradeCell(event)}</td>
                     <td>
                       {event.enrolledCount} / {event.maxParticipants}
                       {event.groupCount > 0 && (

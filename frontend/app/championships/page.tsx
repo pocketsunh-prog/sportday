@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { api, ChampionshipsDTO, EventStandingsDTO, SettingsDTO } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useI18n, MessageKey } from '@/lib/i18n';
-import { formatDate } from '@/lib/format';
+import { formatDate, resultMark } from '@/lib/format';
 
 /** `1st 9, 2nd 6, 3rd 3, 4th–8th 1 · relay 30 / 20 / 10` */
 function scaleLine(
@@ -36,7 +36,7 @@ function placingIcon(place: number): string {
 
 export default function ChampionshipsPage() {
   const { user, isLoading } = useAuth();
-  const { t, label } = useI18n();
+  const { t, label, lang } = useI18n();
   const router = useRouter();
   const [data, setData] = useState<ChampionshipsDTO | null>(null);
   const [loading, setLoading] = useState(true);
@@ -92,42 +92,45 @@ export default function ChampionshipsPage() {
             <th>{t('championships.colGrade')}</th>
             <th>{t('championships.colClass')}</th>
             <th>{t('championships.colHouse')}</th>
-            <th>{t('marks.record')}</th>
+            <th>{t('results.result')}</th>
             <th>{t('championships.colPoints')}</th>
           </tr>
         </thead>
         <tbody>
-          {event.placings.map(placing => (
-            <tr key={`${event.eventId}-${placing.userId}-${placing.place}`}>
-              <td>{placingIcon(placing.place)}</td>
-              <td>
-                {placing.name}
-                <span className="muted" style={{ marginLeft: '0.4rem' }}>
-                  {placing.studentRef}
-                </span>
-                {event.relay && (
-                  <span className="badge badge-warn" style={{ marginLeft: '0.4rem' }}>
-                    {t('championships.relay')}
+          {event.placings.map(placing => {
+            const mark = resultMark(placing.displayMark, placing.mark, placing.unit, lang, label);
+            return (
+              <tr key={`${event.eventId}-${placing.userId}-${placing.place}`}>
+                <td>{placingIcon(placing.place)}</td>
+                <td>
+                  {placing.name}
+                  <span className="muted" style={{ marginLeft: '0.4rem' }}>
+                    {placing.studentRef}
                   </span>
-                )}
-              </td>
-              <td>{label('grade.short', placing.grade) || placing.grade}</td>
-              <td>{placing.className}</td>
-              <td>{placing.house}</td>
-              <td>
-                <strong>{placing.mark}</strong>{' '}
-                {placing.unit ? label('unit', placing.unit) : ''}
-                {placing.schoolRecord && (
-                  <span className="badge badge-success" style={{ marginLeft: '0.4rem' }}>
-                    {t('championships.schoolRecord')}
-                  </span>
-                )}
-              </td>
-              <td>
-                <strong>{placing.points}</strong>
-              </td>
-            </tr>
-          ))}
+                  {event.relay && (
+                    <span className="badge badge-warn" style={{ marginLeft: '0.4rem' }}>
+                      {t('championships.relay')}
+                    </span>
+                  )}
+                </td>
+                <td>{label('grade.short', placing.grade) || placing.grade}</td>
+                <td>{placing.className}</td>
+                <td>{placing.house}</td>
+                <td>
+                  <strong>{mark.value}</strong>
+                  {mark.suffix}
+                  {placing.schoolRecord && (
+                    <span className="badge badge-success" style={{ marginLeft: '0.4rem' }}>
+                      {t('championships.schoolRecord')}
+                    </span>
+                  )}
+                </td>
+                <td>
+                  <strong>{placing.points}</strong>
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

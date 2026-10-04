@@ -9,6 +9,8 @@ import {
   EventDTO,
   EventGroupDTO,
   EventSex,
+  Grade,
+  GRADES,
   SexCode,
 } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
@@ -83,6 +85,12 @@ export default function PrintSheetsPage() {
 
   const [sex, setSex] = useState<DivisionFilter>('');
   const [category, setCategory] = useState<CategoryFilter>('');
+  /**
+   * The grade the list is narrowed to. An event belongs to exactly one grade,
+   * and the whole-run download endpoint takes no grade, so this narrows what is
+   * shown and what is downloaded per event — see `print.gradeDownloadHint`.
+   */
+  const [grade, setGrade] = useState<Grade | ''>('');
   const [eventId, setEventId] = useState(0);
 
   const [preview, setPreview] = useState<Preview | null>(null);
@@ -139,9 +147,10 @@ export default function PrintSheetsPage() {
         event =>
           (!sex || SEX_CODE[event.sex] === sex) &&
           (!category || event.category === category) &&
+          (!grade || event.grade === grade) &&
           (!eventId || event.id === eventId)
       ),
-    [events, sex, category, eventId]
+    [events, sex, category, grade, eventId]
   );
 
   // Heat lists, fetched once per event and cached. `groupCount` on the event DTO
@@ -375,6 +384,22 @@ export default function PrintSheetsPage() {
           </div>
 
           <div className="field">
+            <label htmlFor="print-grade">{t('marks.grade')}</label>
+            <select
+              id="print-grade"
+              value={grade}
+              onChange={e => setGrade(e.target.value as Grade | '')}
+            >
+              <option value="">{t('marks.allGrades')}</option>
+              {GRADES.map(value => (
+                <option key={value} value={value}>
+                  {label('grade', value)}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="field">
             <label htmlFor="print-event">{t('print.event')}</label>
             <select
               id="print-event"
@@ -395,7 +420,7 @@ export default function PrintSheetsPage() {
           <button
             type="button"
             className="btn btn-primary"
-            disabled={busy === 'all' || totalHeats === 0}
+            disabled={busy === 'all' || totalHeats === 0 || grade !== ''}
             onClick={handleDownloadAll}
           >
             {busy === 'all' ? t('common.downloading') : t('print.downloadAll')}
@@ -405,6 +430,10 @@ export default function PrintSheetsPage() {
           </span>
           {groupsLoading && <span className="muted">{t('common.loading')}</span>}
         </div>
+        {/* `GET /sheets.pdf` narrows by division, category and event only, so a
+            grade filter cannot be honoured by the whole-run download. Say so
+            rather than downloading more grades than the count above implies. */}
+        {grade !== '' && <p className="muted mt-2">{t('print.gradeDownloadHint')}</p>}
 
         <div className="hint mt-3">{t('print.columns')}</div>
       </div>
@@ -459,7 +488,16 @@ export default function PrintSheetsPage() {
 
             return (
               <div key={event.id} className="print-card">
-                <h3>{event.name}</h3>
+                <h3>
+                  {event.name}
+                  <span
+                    className="badge badge-info"
+                    style={{ marginLeft: '0.5rem' }}
+                    title={label('grade', event.grade)}
+                  >
+                    {label('grade.short', event.grade)}
+                  </span>
+                </h3>
                 <div className="print-meta">
                   {event.typeLabel} · {label('sex', event.sex)} · {label('category', event.category)}{' '}
                   · {t('events.sheet')} {label('sheet', event.sheetSize)}

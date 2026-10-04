@@ -380,6 +380,11 @@ export default function EventGroupsPage() {
             <h2>{event.name}</h2>
             <div className="flex gap-2 mt-2">
               <span className="badge badge-info">{event.typeLabel}</span>
+              {/* The event's own grade: an A grade event and a B grade event of
+                  the same type are separate races, never ranked together. */}
+              <span className="badge badge-info" title={label('grade', event.grade)}>
+                {label('grade.short', event.grade)}
+              </span>
               <span
                 className={event.category === 'TRACK' ? 'badge badge-danger' : 'badge badge-info'}
               >

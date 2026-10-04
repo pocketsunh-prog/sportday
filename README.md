@@ -33,10 +33,12 @@ Spring Boot 4.1 (Java 25) backend, Next.js 16 web app, MySQL 8.
 | 19 | Marks are recorded in **M** for a field event and **s** for a track one | `Event.EventType.getDefaultUnit()` |
 | 20 | A field event gives **three attempts**, and the best of them is the result | `EventResult.attempt1..3`, `MarkEntryService` |
 | 21 | An event runs **direct to a final** by default; only 60/100/200/400 can be split into heats and a final | `Event.directToFinal`, `FinalQualificationService` |
-| 22 | **Which grades may enter which events**, assigned on a page — by default C does not run the 1500M/5000M, nor B the 5000M | `EventGradeRule`, `GradeEligibilityService` |
+| 22 | **An event belongs to one grade** — no grade is ever ranked against another | `Event.grade`, `EventService.createDefaults` |
 | 23 | A sprint with **8 or fewer entered** switches itself to direct to final — a final would be the same athletes as the heat | `FinalQualificationService.syncFinalFormat` |
 | 24 | A race **longer than 400M** is timed in **minutes and seconds**; the mark is still stored in seconds | `EventType.usesMinutesAndSeconds` |
 | 25 | Mark entry lists only events with **more than one athlete** entered | `app/admin/marks` |
+| 26 | A **100M hurdles** for the C grade, with the 110M hurdles for A and B | `EventType.HURDLES_100M`, `EventGradeRule` |
+| 27 | A result reads the way the sport writes it — **14.123s, 1.04.123s, 18.12M** — and prints to PDF | `MarkFormatter`, `PdfResultService` |
 
 Events are also split by **sex division** (Boys / Girls), so each event is
 contested in exactly one division.
@@ -308,44 +310,41 @@ A student is locked by disabling both their roster record and the account they s
 in with, so the lock is enforced at sign-in and at entry, not just in the user
 interface. A locked account signing in gets a **403** saying why.
 
-### Which grades may enter which events
+### An event belongs to one grade
 
-Not every event is for everybody. Out of the box:
+An event is per **type × division × grade**. `Boys 100M · A Grade`, `Boys 100M · B Grade`
+and `Boys 100M · C Grade` are three separate events, each with its own heats, marking
+sheets, results and placings — so no grade is ever ranked against another. The grade is
+in the event's name, so a printed sheet, a results list and an entry list all say which
+grade a result belongs to without a column of explanation.
 
-| Grade | May enter |
-|-------|-----------|
-| A | everything — 38 events |
-| B | everything except the 5000M — 36 |
-| C | one fewer again: no 1500M, no 5000M — 34 |
+The seeded programme is **112 events**:
 
-The sprints, the 800M, the hurdles, the relays and every field event are open to all
-three grades. Only the long distances are restricted.
+| Grade | Events | What it does not run |
+|-------|--------|----------------------|
+| A | 40 | — |
+| B | 38 | the 5000M |
+| C | 34 | the 1500M, the 5000M and the 110M hurdles |
+
+Everything else — the sprints, the 800M, the 100M hurdles, the relays and every field
+event — runs in all three grades. A grade that does not run an event simply has **no
+such event**, which is also how a school adds one: create it for that grade.
 
 ```
-GET  /api/grade-events                # the event-by-grade grid, with each grade's count
-PUT  /api/admin/grade-events          # [{eventType, grade, allowed}, …] — the cells that changed
-POST /api/admin/grade-events/reset    # back to the school's defaults
+POST /api/events   { "type": "RUN_100M", "sex": "MALE", "grade": "B", ... }
 ```
 
-The rules are stored per **event type**, not per event: Boys 1500M and Girls 1500M
-are the same race in two divisions, so the school sets the rule once. A **missing
-rule means allowed**, so an event type added later is open to every grade until
-somebody says otherwise — and an event whose only rule is a refusal still reports all
-the *other* grades as allowed, rather than locking the race for everyone.
+A create or update without a grade is refused, as is a grade the type does not run
+(a C-grade 5000M). Entry is then enforced server-side against the event's own grade:
 
-The page shows how many events each grade ends up with, because that is the number a
-school checks against. Each event also carries `allowedGrades`, so the entry list can
-leave out what a student's grade cannot enter.
+> `This is the A Grade 1500M and you are in the C grade.`
 
-Entry is refused server-side for a grade that is not allowed — including when an
-administrator enters a student on their behalf, so the rule cannot be worked around
-by doing it for them:
+That applies to the student's own entry, to an administrator entering somebody, and to
+reviving a withdrawn entry — so the rule cannot be worked around by doing it for them.
 
-> `C Grade does not enter Boys 1500M. The events open to that grade are on the entry list — the organiser sets this on the grade assignment page.`
-
-Changing a rule affects **who may enter from then on**. It does not remove entries
-already made, which is deliberate: a withdrawal is a decision for the school, not a
-side effect of editing a grid.
+There used to be a separate page assigning which grades could enter which events. With
+an event per grade that page had nothing left to decide, so it and its rules table are
+gone: a grade's programme *is* its list of events.
 
 ### Timed in minutes and seconds
 
@@ -374,13 +373,19 @@ the event itself whenever entries are added, withdrawn or cancelled, and marks i
 its own doing so the event list can say **"Direct to final · set automatically"**
 rather than passing it off as the school's choice.
 
+The seeded sprints start in exactly that state — marked as the system's own doing —
+so **a school that changes nothing gets a final in every sprint that fills past eight
+and a straight final in every sprint that does not**. Entries clearing, as a season
+reset does, puts them all back.
+
 Entries rising again bring the final back, but only if the system was the one that
 took it away. An event the school chose to run straight to a final stays that way
-however large the field becomes.
+however large the field becomes — which is the whole point of the flag: a deliberate
+straight final is not undone behind the school's back.
 
-The rule is deliberately one-sided: a school that untickes the box with six entered
-is overruled on the next entry change, because the final really would be pointless.
-What the flag protects is the *other* direction.
+The rule is therefore one-sided in the other direction too: a school that untickes
+the box with six entered is overruled on the next entry change, because a final with
+six athletes really would be pointless.
 
 ### Mark entry lists what is worth marking
 
@@ -388,6 +393,50 @@ The event picker on the mark-entry page shows only events with **more than one
 athlete entered**. An event with nobody, or with one, is not worth a sheet — in the
 live register that is 36 of 38 events — so they are left out and the page says how
 many were hidden.
+
+### How a result reads
+
+A mark is stored as one plain number — seconds for a race, metres for a throw — which
+is right for comparing and wrong for reading. Everything that shows a result to a
+person goes through one formatter:
+
+| Event | Stored | Reads as |
+|-------|--------|----------|
+| 100M | `11.86` | `11.86s` |
+| 400M under a minute | `52.337` | `52.337s` |
+| 400M over a minute | `64.123` | `1.04.123s` |
+| 800M | `130.281` | `2.10.281s` |
+| 5000M | `1001.875` | `16.41.875s` |
+| Shot put | `18.12` | `18.12M` |
+| High jump | `1.95` | `1.95M` |
+
+A time under a minute is just the seconds. Over a minute it gains a minutes part, with
+the seconds **padded to two digits** — `1.04.123`, never `1.4.123`, which would read
+as a tenth of a second. The separator is a full stop throughout, matching how the
+school writes times on paper. The unit is `s` or `M` in English and `秒` or `米` in
+Chinese; the raw `mark` and `unit` are always still there beside the formatted text,
+so a client that needs the number never has to parse it back out.
+
+### Printing the results
+
+```
+GET /api/events/{id}/results.pdf          # one event
+GET /api/results.pdf                      # the whole programme
+GET /api/results.pdf?category=FIELD       # narrowed to the field events
+GET /api/results.pdf?sex=FEMALE           # one division
+```
+
+The sheet carries place, student id, name, grade, class, house, the result as it reads
+and the points, with a star against a school record. Column headings repeat on every
+page, so a sheet lifted off the results board still says what its columns are. An
+event with no results yet is left out rather than printed empty, and a print run with
+nothing to show is refused with the reason.
+
+### The 100M hurdles
+
+The C grade — fourteen or under — hurdles over the shorter distance, so the programme
+carries **100M hurdles** for all three grades and **110M hurdles** for the A and B
+grades only. Both are 24 to a group and print on A4.
 
 ### School records
 
@@ -785,9 +834,8 @@ reported in `errors` while the good rows are still stored.
 | GET | `/api/events/past` | Authenticated | Events already held, most recent first |
 | GET | `/api/events/dates` | Public | Every date that has events, with its count |
 | GET | `/api/seasons` | Authenticated | Every school year, newest first, with its event count |
-| GET | `/api/grade-events` | Authenticated | The event-by-grade grid, with each grade's event count |
-| PUT | `/api/admin/grade-events` | Admin | Assign which grades may enter which events |
-| POST | `/api/admin/grade-events/reset` | Admin | Back to the school's starting rules |
+| GET | `/api/events/{id}/results.pdf` | Authenticated | One event's results, for the board |
+| GET | `/api/results.pdf` | Authenticated | Every event's results in one document |
 | GET | `/api/seasons/current` | Authenticated | The year students may enter |
 | POST | `/api/admin/seasons` | Admin | Set up a year, optionally copying a programme |
 | PUT | `/api/admin/seasons/{id}` | Admin | A year's date, name, notes, enrolment switch |
@@ -828,7 +876,7 @@ mvn clean compile     # wipe and build main sources
 mvn test              # run the tests against what was just built
 ```
 
-272 tests covering the grade bands and their boundaries, the password rule, the
+299 tests covering the grade bands and their boundaries, the password rule, the
 group sizes, sheet sizes and default units for every event type, the register
 reader (headings, encodings, date spellings, BOM, quoted fields, bad rows), the
 sample generator's invariants, the marking-sheet PDFs — page size, page count, the
@@ -867,7 +915,24 @@ With the backend running:
 python backend/scripts/smoke_test.py
 ```
 
-389 checks over real HTTP: admin login, season reset, the event catalogue and its
+There is a second script that fills a whole school day and checks every step of it —
+the one to run after a rebuild, or after wiping the data:
+
+```bash
+python backend/scripts/full_retest.py
+```
+
+It uploads the 600-strong register if the system is empty, enters athletes in **every
+event** in the programme, allocates every event's groups, records a mark for every
+athlete entered (three attempts for a field event, minutes and seconds for a race over
+400M), draws the finals the sprints have earned, records those, and then reads every
+event's results, placings and PDF back. It respects the rules the application
+enforces — division, grade eligibility and the entry quota — so a failure means the
+rules and the data disagree, not that the script took a shortcut. Unlike the smoke test
+it leaves the data in place, so the school ends up with a populated system. Last run:
+112 events, 1005 entries, 1005 marks, 24 finals, 0 failures.
+
+422 checks over real HTTP: admin login, season reset, the event catalogue and its
 group/sheet sizes, the event filters, the 600-student import, student login with
 the derived password, the 2-track/1-field quota including the refusals, heat
 allocation at 8 and 24 per group, CSV **and** XLSX register upload with row-level
@@ -896,9 +961,10 @@ three attempts saved and the best taken as the result (with a miss ignored, the
 first attempt winning, the placings and results agreeing, and clearing removing
 the whole set), the direct-to-final default (only the four sprints splittable, a new
 event direct, a final refused until the box is unticked, an existing split left
-alone), grade eligibility (the C grade refused the 1500M and 5000M, the B grade the
-5000M, each grade's event count, an administrator bound by the same rule, reopening
-a cell letting the entry through, and the reset restoring the defaults), the
+alone), one event per grade (the 112-event catalogue with A=40/B=38/C=34, no C-grade
+1500M, 5000M or 110M hurdles and a C-grade 100M hurdles instead, a C-grade student
+refused an A-grade event by both their own endpoint and the admin-on-behalf one, and
+the 400s for a create with no grade or a grade the type does not run), the
 small-field rule (8 or fewer switches to direct and says it was automatic, an admin's
 untick, and the rule re-applying after the next entry change), and a long race timed
 as 2 minutes 15 seconds (stored as 135 seconds, read back as 2:15, and 1 minute 75
@@ -1035,6 +1101,21 @@ docker exec -i sportday-mysql mysql -usportday -psportday123 -D sportday \
 `events.direct_to_final_auto` records that the system switched an event to direct to
 final because the field is no bigger than a final would be. It needs no backfill:
 NULL is exactly right for "the school's own setting".
+
+The 100M hurdles needs a tenth, and is the only one that rewrites a column rather
+than adding one:
+
+```bash
+docker exec -i sportday-mysql mysql -usportday -psportday123 -D sportday \
+  < backend/db/migration/hurdles-100m-migration.sql
+```
+
+`events.type` is a MySQL ENUM, so the new value has to be added to the column before
+anything can be stored as a 100M hurdles — the insert fails with *"Data truncated for
+column 'type'"* otherwise. The script rewrites the ENUM in full rather than appending
+to it, which is safe because the stored values are names, not positions. It then adds
+the two events and the grade rules that decide who may enter them, since the
+application only creates a catalogue when it does not already have one.
 
 A brand new database needs none of this.
 

@@ -119,6 +119,9 @@ public class ChampionsDTO {
         private String house;
         private BigDecimal mark;
         private String unit;
+
+        /** The mark as it reads, with its unit: {@code 14.123s}, {@code 1.04.123s}. */
+        private String displayMark;
         private int points;
 
         /** True when this placing also holds the school record. */

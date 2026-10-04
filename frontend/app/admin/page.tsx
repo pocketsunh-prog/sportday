@@ -83,13 +83,6 @@ export default function AdminPage() {
           <h3>{t('adminEvents.new')}</h3>
           <p style={{ fontSize: '0.9rem', color: '#666' }}>{t('admin.createEventHint')}</p>
         </Link>
-        {user?.role === 'ADMIN' && (
-          <Link href="/admin/grade-events" className="card text-center" style={{ textDecoration: 'none', color: '#333' }}>
-            <div style={{ fontSize: '2rem' }}>✅</div>
-            <h3>{t('gradeEvents.title')}</h3>
-            <p style={{ fontSize: '0.9rem', color: '#666' }}>{t('admin.gradeEventsHint')}</p>
-          </Link>
-        )}
         <Link href="/admin/results/new" className="card text-center" style={{ textDecoration: 'none', color: '#333' }}>
           <div style={{ fontSize: '2rem' }}>🏆</div>
           <h3>{t('admin.results')}</h3>

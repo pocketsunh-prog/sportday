@@ -5,6 +5,7 @@ import com.sportday.entity.Enrollment;
 import com.sportday.entity.Event;
 import com.sportday.entity.EventCategory;
 import com.sportday.entity.EventGroup;
+import com.sportday.entity.Grade;
 import com.sportday.entity.Sex;
 import com.sportday.exception.ResourceNotFoundException;
 import com.sportday.repository.EnrollmentRepository;
@@ -33,11 +34,33 @@ public class EventService {
     private final SettingsService settingsService;
     private final RecordService recordService;
     private final SeasonService seasonService;
-    private final GradeEligibilityService gradeEligibilityService;
+    private final FinalQualificationService finalQualificationService;
+
+    /**
+     * Brings every event's format back in step with how many are entered.
+     *
+     * <p>Used after a season reset clears the entries: with nobody entered, no sprint
+     * should still be claiming heats and a final, or the programme would advertise a
+     * final for an empty field until somebody entered it again.</p>
+     *
+     * @return how many events changed
+     */
+    @Transactional
+    public int reapplyFinalFormat() {
+        int changed = 0;
+        for (Event event : eventRepository.findAll()) {
+            if (finalQualificationService.syncFinalFormat(event)) {
+                changed++;
+            }
+        }
+        return changed;
+    }
 
     /**
      * The order a sports-day programme runs in: 徑項 before 田項, then the natural
-     * event progression (60M, 100M, 200M, …), then boys before girls.
+     * event progression (60M, 100M, 200M, …), then boys before girls, then the
+     * grades A, B, C — so the programme lists Boys 100M A, B, C and then
+     * Girls 100M A, B, C, which is how the school reads a programme.
      *
      * <p>Applied in Java rather than left to {@code ORDER BY type}: the column is a
      * MySQL ENUM and MySQL sorts it by declaration order, but {@code RUN_60M} was
@@ -47,7 +70,8 @@ public class EventService {
     public static final Comparator<Event> EVENT_ORDER = Comparator
             .comparingInt((Event event) -> event.getCategoryOrDefault().ordinal())
             .thenComparingInt(event -> event.getType() == null ? Integer.MAX_VALUE : event.getType().ordinal())
-            .thenComparingInt(event -> event.getSex() == null ? Integer.MAX_VALUE : event.getSex().ordinal());
+            .thenComparingInt(event -> event.getSex() == null ? Integer.MAX_VALUE : event.getSex().ordinal())
+            .thenComparingInt(event -> event.getGrade() == null ? Integer.MAX_VALUE : event.getGrade().ordinal());
 
     public List<EventDTO> getAllEvents() {
         return eventRepository.findAll().stream()
@@ -127,6 +151,10 @@ public class EventService {
      * Creates an event. New events are <strong>enabled by default</strong> — the
      * administrator opts out rather than opting in — and inherit their category,
      * group size and marking-sheet size from the event type.
+     *
+     * <p>A grade is required, and it must be one the type is run by: an event
+     * without a grade would put A, B and C athletes into one ranking, and a
+     * C-grade 5000M is a race that grade does not run.</p>
      */
     @Transactional
     public EventDTO createEvent(EventDTO eventDTO) {
@@ -134,13 +162,16 @@ public class EventService {
             throw new IllegalArgumentException("An event type is required.");
         }
         Event.EventType type = parseType(eventDTO.getType());
+        Sex sex = resolveSex(eventDTO.getSex());
+        Grade grade = requireGradeFor(type, parseGrade(eventDTO.getGrade()));
 
         Event event = Event.builder()
-                .name(resolveName(eventDTO, type))
+                .name(resolveName(eventDTO, type, sex, grade))
                 .description(eventDTO.getDescription())
                 .type(type)
                 .category(type.getCategory())
-                .sex(resolveSex(eventDTO.getSex()))
+                .sex(sex)
+                .grade(grade)
                 .eventDate(eventDTO.getEventDate() != null ? eventDTO.getEventDate() : java.time.LocalDate.now())
                 .location(eventDTO.getLocation())
                 .maxParticipants(eventDTO.getMaxParticipants() != null
@@ -151,6 +182,11 @@ public class EventService {
                 // Direct to a final unless the school asks otherwise, and only an
                 // event that may have a final can be asked to.
                 .directToFinal(!requestedFinal(eventDTO, type))
+                // Settling for a final by default is the system's doing, not the
+                // school's, so a sprint opens its final by itself once more than a
+                // group's worth have entered. Asking for one, or for none, is a
+                // decision and is left alone.
+                .directToFinalAuto(eventDTO.getDirectToFinal() == null && type.isShortSprint())
                 // A new event joins the year the school is working on, so it lands
                 // in this year's programme rather than nowhere.
                 .season(eventDTO.getSeasonId() != null
@@ -159,17 +195,31 @@ public class EventService {
                 .build();
 
         Event saved = eventRepository.save(event);
-        // Every event has a record from the start, one per grade.
+        // Every event has a record from the start — the event is one grade now, so
+        // that is one record row.
         recordService.seedForEvent(saved);
-        log.info("Created event '{}' ({} {} {}) enabled={} groupSize={}",
-                saved.getName(), saved.getType(), saved.getSex(), saved.getCategory(),
+        log.info("Created event '{}' ({} {} {} {}) enabled={} groupSize={}",
+                saved.getName(), saved.getType(), saved.getSex(), saved.getGrade(), saved.getCategory(),
                 saved.getEnabled(), saved.getGroupSize());
         return describe(saved);
     }
 
+    /**
+     * Updates an event.
+     *
+     * <p>The event must still have a grade afterwards, and the grade must be one the
+     * type it ends up with is run by — changing a 100M into a 5000M on a C-grade
+     * event is refused, because that grade does not run the 5000M. The check is on
+     * the combination the event will have when the update is applied, so a request
+     * that changes the type and the grade together is judged on both.</p>
+     */
     @Transactional
     public EventDTO updateEvent(Long id, EventDTO eventDTO) {
         Event event = requireEvent(id);
+
+        // Kept before anything is overwritten: the name is rewritten below only when
+        // it was still the default one, so a school's own title is never clobbered.
+        String previousDefaultName = defaultName(event.getType(), event.getSex(), event.getGrade());
 
         if (eventDTO.getName() != null) event.setName(eventDTO.getName());
         if (eventDTO.getDescription() != null) event.setDescription(eventDTO.getDescription());
@@ -184,6 +234,12 @@ public class EventService {
         if (eventDTO.getSex() != null && !eventDTO.getSex().isBlank()) {
             event.setSex(resolveSex(eventDTO.getSex()));
         }
+        if (eventDTO.getGrade() != null && !eventDTO.getGrade().isBlank()) {
+            event.setGrade(parseGrade(eventDTO.getGrade()));
+        }
+        // The event must still carry a grade, and one the type it ends up with is run
+        // by: a 5000M on a C-grade event is refused however it was reached.
+        requireGradeFor(event.getType(), event.getGrade());
         if (eventDTO.getEventDate() != null) event.setEventDate(eventDTO.getEventDate());
         if (eventDTO.getLocation() != null) event.setLocation(eventDTO.getLocation());
         if (eventDTO.getMaxParticipants() != null) event.setMaxParticipants(eventDTO.getMaxParticipants());
@@ -200,6 +256,11 @@ public class EventService {
             event.setDirectToFinal(!requestedFinal(eventDTO, event.getType()));
             // The school has spoken, so the automatic switch must not undo it.
             event.setDirectToFinalAuto(false);
+        }
+        // Moving an event to another type or grade renames it only while it still
+        // carries its own default name; a title the school chose is left alone.
+        if (previousDefaultName != null && previousDefaultName.equals(event.getName())) {
+            event.setName(defaultName(event.getType(), event.getSex(), event.getGrade()));
         }
 
         event.applyTypeDefaults();
@@ -248,7 +309,20 @@ public class EventService {
                 id, event.getName(), enrollments.size(), groups.size());
     }
 
-    /** Copies the fee-free default catalogue of sport-day events into the season. */
+    /**
+     * Creates the standard catalogue of sport-day events for the season: every
+     * event type, in both divisions, for each grade that runs it.
+     *
+     * <p>An event belongs to exactly one grade, so one type and division yields two
+     * or three events — {@code Boys 100M · A Grade}, {@code Boys 100M · B Grade}
+     * and {@code Boys 100M · C Grade} — rather than one grade-mixed race. Whether a
+     * grade runs an event is decided by {@link Event.EventType#allowedGrades()}: the
+     * 1500M and the 110M hurdles have no C grade, and only the A grade runs the
+     * 5000M.</p>
+     *
+     * <p>Idempotent: an event that already exists for a type, division and grade is
+     * left alone, so running this again only fills in what is missing.</p>
+     */
     @Transactional
     public int createDefaults(java.time.LocalDate eventDate, boolean includeField) {
         int created = 0;
@@ -260,35 +334,61 @@ public class EventService {
                 continue;
             }
             for (Sex sex : Sex.values()) {
-                if (eventRepository.findFirstByTypeAndSex(type, sex).isPresent()) {
-                    continue;
+                for (Grade grade : java.util.EnumSet.allOf(Grade.class)) {
+                    if (!type.runsGrade(grade)) {
+                        // This grade does not run this event, so it has no event at all.
+                        continue;
+                    }
+                    if (eventRepository.findFirstByTypeAndSexAndGrade(type, sex, grade).isPresent()) {
+                        continue;
+                    }
+                    Event saved = eventRepository.save(Event.builder()
+                            .name(defaultName(type, sex, grade))
+                            .description(type.getCategory().getLabel() + " " + type.getDisplayName())
+                            .type(type)
+                            .category(type.getCategory())
+                            .sex(sex)
+                            .grade(grade)
+                            .eventDate(eventDate)
+                            .location("Main Sports Ground")
+                            .maxParticipants(Event.DEFAULT_MAX_PARTICIPANTS)
+                            .groupSize(type.getDefaultGroupSize())
+                            .enabled(true)
+                            // Every seeded event starts direct to a final, which is what
+                            // most of a school day is. A sprint is marked as the system's
+                            // own doing, so once more than a group's worth enter, the
+                            // final opens by itself — the entry count decides.
+                            .directToFinal(true)
+                            .directToFinalAuto(type.isShortSprint())
+                            .season(seasonService.currentSeason())
+                            .build());
+                    // Every event has a record from the start, and the event is one
+                    // grade, so that is one record row.
+                    recordService.seedForEvent(saved);
+                    created++;
                 }
-                Event saved = eventRepository.save(Event.builder()
-                        .name(defaultName(type, sex))
-                        .description(type.getCategory().getLabel() + " " + type.getDisplayName())
-                        .type(type)
-                        .category(type.getCategory())
-                        .sex(sex)
-                        .eventDate(eventDate)
-                        .location("Main Sports Ground")
-                        .maxParticipants(Event.DEFAULT_MAX_PARTICIPANTS)
-                        .groupSize(type.getDefaultGroupSize())
-                        .enabled(true)
-                        // The seeded programme runs straight to finals; the school
-                        // untickes the sprints it wants run as heats and a final.
-                        .directToFinal(true)
-                        .season(seasonService.currentSeason())
-                        .build());
-                // Every event has a record from the start, one per grade.
-                recordService.seedForEvent(saved);
-                created++;
             }
         }
         return created;
     }
 
-    public static String defaultName(Event.EventType type, Sex sex) {
-        return (sex == Sex.MALE ? "Boys " : "Girls ") + type.getDisplayName();
+    /**
+     * The name an event is given when the school does not supply one: the division,
+     * the type and the grade, e.g. {@code Boys 100M · A Grade}.
+     *
+     * <p>The grade is <em>stored in the name</em> rather than rendered beside it.
+     * Every consumer that shows an event — the marking-sheet heading, the results
+     * PDF, the entry list, the mark-entry picker — already prints
+     * {@code event.getName()}, so storing the suffixed name means all of them show
+     * the grade with no further changes, and there is one place to read a name from
+     * rather than two that can disagree. The structured {@code grade} field is kept
+     * as well, so a client can still filter or style on it.</p>
+     */
+    public static String defaultName(Event.EventType type, Sex sex, Grade grade) {
+        if (type == null || sex == null || grade == null) {
+            return null;
+        }
+        return (sex == Sex.MALE ? "Boys " : "Girls ") + type.getDisplayName() + " · " + grade.getLabel();
     }
 
     /**
@@ -334,21 +434,21 @@ public class EventService {
         dto.setGroupCount(eventGroupRepository.countByEventId(event.getId()));
         dto.setUngroupedCount(enrollmentRepository.countUngroupedByEvent(
                 event.getId(), Enrollment.EnrollmentStatus.CONFIRMED));
-        // The entry limit and the grades that may enter are assigned, not constants,
-        // so they are filled in here.
+        // The entry limit is assigned rather than a constant, so it is filled in here.
         dto.setMaxEntriesPerStudent(settingsService.maxEntriesFor(event.getCategoryOrDefault()));
-        dto.setAllowedGrades(gradeEligibilityService.allowedGrades(event.getType()).stream()
-                .sorted()
-                .map(Enum::name)
-                .toList());
+        // The event's own grade. Which grades may enter used to be a rule looked up
+        // per event type; now the event simply is one grade.
+        dto.setGrade(event.getGrade() == null ? null : event.getGrade().name());
+        dto.setGradeLabel(event.getGrade() == null ? null : event.getGrade().getLabel());
         return dto;
     }
 
-    private static String resolveName(EventDTO dto, Event.EventType type) {
+    private static String resolveName(EventDTO dto, Event.EventType type, Sex sex, Grade grade) {
         if (dto.getName() != null && !dto.getName().isBlank()) {
             return dto.getName();
         }
-        return type.getDisplayName();
+        // No name given: the programme's own, which carries the grade.
+        return defaultName(type, sex, grade);
     }
 
     private static Sex resolveSex(String raw) {
@@ -358,6 +458,55 @@ public class EventService {
                     "A sex division is required: MALE (M) or FEMALE (F). Got: " + raw);
         }
         return sex;
+    }
+
+    /**
+     * Reads a grade from a request. {@code A}, {@code B} and {@code C} — or the
+     * labels the UI shows, {@code A Grade} and so on — are the only accepted values.
+     *
+     * @throws IllegalArgumentException when a value was sent that is not a grade
+     */
+    private static Grade parseGrade(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        String value = raw.trim().toUpperCase();
+        for (Grade grade : Grade.values()) {
+            if (value.equals(grade.name()) || value.equals(grade.getLabel().toUpperCase())) {
+                return grade;
+            }
+        }
+        throw new IllegalArgumentException("Unknown grade: " + raw + " — use A, B or C.");
+    }
+
+    /**
+     * An event must have a grade, and it must be one the event's type is run by.
+     *
+     * <p>The grade is what keeps one grade from being ranked against another, so an
+     * event without one is meaningless; and the catalogue does not offer every grade
+     * every race, so a C-grade 5000M is refused here rather than created and left
+     * empty.</p>
+     *
+     * @return the grade, so a caller can use it directly
+     * @throws IllegalArgumentException when the grade is missing or the type does not run it
+     */
+    private static Grade requireGradeFor(Event.EventType type, Grade grade) {
+        if (grade == null) {
+            throw new IllegalArgumentException("A grade is required: an event is run by exactly "
+                    + "one grade — A, B or C.");
+        }
+        if (type != null && !type.runsGrade(grade)) {
+            throw new IllegalArgumentException(type.getDisplayName() + " is not run by the "
+                    + grade.getLabel() + " — it is open to " + gradeList(type.allowedGrades()) + ".");
+        }
+        return grade;
+    }
+
+    /** "A Grade", "A Grade and B Grade" — how the refusal above names the grades. */
+    private static String gradeList(java.util.Collection<Grade> grades) {
+        return grades.stream()
+                .map(Grade::getLabel)
+                .collect(Collectors.joining(" and "));
     }
 
     private static Event.EventType parseType(String raw) {

@@ -61,18 +61,22 @@ public interface EventResultRepository extends JpaRepository<EventResult, Long> 
                        @Param("to") String to);
 
     /**
-     * Every mark ever recorded in events of one type and division. A school record
-     * spans every edition of the event, not just today's, so it is rebuilt from
-     * these rather than from a single event.
+     * Every mark ever recorded in events of one type, division <em>and grade</em>. A
+     * school record spans every edition of the event, not just today's, so it is
+     * rebuilt from these rather than from a single event. The grade is the event's
+     * own — an event belongs to exactly one grade — so the marks that count towards
+     * a record are exactly those run in that grade's event.
      */
     @Query("""
            select r from EventResult r
            join fetch r.user u
            join fetch r.event e
-           where e.type = :type and e.sex = :sex
+           where e.type = :type and e.sex = :sex and e.grade = :grade
            """)
-    List<EventResult> findByEventTypeAndSex(@Param("type") com.sportday.entity.Event.EventType type,
-                                            @Param("sex") com.sportday.entity.Sex sex);
+    List<EventResult> findByEventTypeAndSexAndGrade(
+            @Param("type") com.sportday.entity.Event.EventType type,
+            @Param("sex") com.sportday.entity.Sex sex,
+            @Param("grade") com.sportday.entity.Grade grade);
 
     /** Used when an event is deleted, so its results go with it. */
     @Modifying

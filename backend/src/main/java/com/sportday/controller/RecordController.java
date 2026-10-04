@@ -4,13 +4,18 @@ import com.sportday.dto.ChampionsDTO;
 import com.sportday.dto.EventRecordDTO;
 import com.sportday.dto.RecordBaselineDTO;
 import com.sportday.dto.SportDaySettingsDTO;
+import com.sportday.entity.EventCategory;
+import com.sportday.entity.Sex;
 import com.sportday.service.ChampionService;
+import com.sportday.service.PdfResultService;
 import com.sportday.service.RecordService;
 import com.sportday.service.SettingsService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -32,6 +37,7 @@ public class RecordController {
     private final SettingsService settingsService;
     private final RecordService recordService;
     private final ChampionService championService;
+    private final PdfResultService pdfResultService;
 
     // ------------------------------------------------------------- settings
 
@@ -131,5 +137,32 @@ public class RecordController {
     @GetMapping("/events/{eventId}/standings")
     public ResponseEntity<ChampionsDTO.EventStandingsDTO> getStandings(@PathVariable Long eventId) {
         return ResponseEntity.ok(championService.standingsFor(eventId));
+    }
+
+    @Operation(summary = "One event's results as a PDF",
+            description = "A results sheet for the board: place, student id, name, grade, class, "
+                    + "house, the result as it reads (14.123s, 1.04.123s, 18.12M) and the points. "
+                    + "A school record is marked with a star.")
+    @GetMapping("/events/{eventId}/results.pdf")
+    public ResponseEntity<byte[]> eventResultsPdf(@PathVariable Long eventId) {
+        return pdf(pdfResultService.renderEventResults(eventId),
+                "results-" + eventId + ".pdf");
+    }
+
+    @Operation(summary = "Every event's results as one PDF",
+            description = "The whole programme, in programme order, skipping events with no results "
+                    + "yet. Narrow it with ?sex= and ?category=.")
+    @GetMapping("/results.pdf")
+    public ResponseEntity<byte[]> programmeResultsPdf(
+            @RequestParam(required = false) Sex sex,
+            @RequestParam(required = false) EventCategory category) {
+        return pdf(pdfResultService.renderProgrammeResults(sex, category), "results.pdf");
+    }
+
+    private static ResponseEntity<byte[]> pdf(byte[] body, String fileName) {
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_PDF_VALUE)
+                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + fileName + "\"")
+                .body(body);
     }
 }

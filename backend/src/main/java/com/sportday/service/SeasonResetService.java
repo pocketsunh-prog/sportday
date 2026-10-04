@@ -29,6 +29,7 @@ public class SeasonResetService {
     private final FinalEntryRepository finalEntryRepository;
     private final EventRecordRepository eventRecordRepository;
     private final RecordService recordService;
+    private final EventService eventService;
 
     @Transactional
     public Map<String, Object> resetSeason() {
@@ -52,9 +53,15 @@ public class SeasonResetService {
         // becomes empty if it never had one.
         int records = recordService.recomputeAll();
 
+        // Nobody is entered any more, so a sprint cannot be running heats and a final.
+        // Without this the programme would still claim a final for an event with an
+        // empty field, and the next entry would have to work it out again.
+        int reformatted = eventService.reapplyFinalFormat();
+
         log.warn("Season reset: removed {} entries, {} final places, {} groups and {} results; "
-                        + "kept the hand-entered school records ({})",
-                enrollments, finalPlaces, groups, results, records);
+                        + "kept the hand-entered school records ({}); {} event(s) back to a "
+                        + "straight final",
+                enrollments, finalPlaces, groups, results, records, reformatted);
 
         Map<String, Object> summary = new LinkedHashMap<>();
         summary.put("enrollmentsRemoved", enrollments);
@@ -62,6 +69,7 @@ public class SeasonResetService {
         summary.put("groupsRemoved", groups);
         summary.put("resultsRemoved", results);
         summary.put("recordsKept", eventRecordRepository.count());
+        summary.put("eventsReformatted", reformatted);
         summary.put("studentsKept", "unchanged");
         summary.put("eventsKept", "unchanged");
         return summary;

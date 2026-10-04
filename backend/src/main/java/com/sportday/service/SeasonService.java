@@ -162,10 +162,10 @@ public class SeasonService {
         log.info("Deleted the {} sport day", season.getYear());
     }
 
-    /** Copies another year's events into this one, keeping the types and divisions. */
+    /** Copies another year's events into this one, keeping the types, divisions and grades. */
     @Transactional
     public int copyEvents(Long fromSeasonId, Season target) {
-        List<Event> source = eventRepository.findBySeasonIdOrderByTypeAscSexAsc(fromSeasonId);
+        List<Event> source = eventRepository.findBySeasonIdOrderByTypeAscSexAscGradeAsc(fromSeasonId);
         LocalDate on = target.getSportDayDate() != null
                 ? target.getSportDayDate()
                 : LocalDate.now();
@@ -177,6 +177,7 @@ public class SeasonService {
                     .type(original.getType())
                     .category(original.getCategoryOrDefault())
                     .sex(original.getSex())
+                    .grade(original.getGrade())
                     .eventDate(on)
                     .location(original.getLocation())
                     .maxParticipants(original.getMaxParticipants())

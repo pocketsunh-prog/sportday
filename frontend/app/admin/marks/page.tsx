@@ -9,6 +9,8 @@ import {
   BulkMarkResultDTO,
   EventDTO,
   formatAttempts,
+  Grade,
+  GRADES,
   MarkEntryInput,
   MarkRowDTO,
   MarkSheetDTO,
@@ -198,6 +200,12 @@ export default function MarkEntryPage() {
 
   const [events, setEvents] = useState<EventDTO[]>([]);
   const [eventId, setEventId] = useState(0);
+  /**
+   * The grade the event list is narrowed to. An event belongs to exactly one
+   * grade, so this is what tells `Boys 100M · A Grade` from the B grade in the
+   * picker. It filters the list only — the sheet on screen is untouched.
+   */
+  const [eventGrade, setEventGrade] = useState<Grade | ''>('');
   /** `HEAT` is the numbered heats, `FINAL` the drawn final. */
   const [stage, setStage] = useState<MarkStage>('HEAT');
   /** 0 is "All heats". Not used on the final sheet, which is a single group. */
@@ -618,6 +626,19 @@ export default function MarkEntryPage() {
   };
 
   /**
+   * The events the grade filter lets through. The event already open stays on
+   * the list whatever its grade, so the picker never points away from the grid
+   * on screen.
+   */
+  const eventsForGrade = useMemo(
+    () =>
+      eventGrade === ''
+        ? events
+        : events.filter(event => event.grade === eventGrade || event.id === eventId),
+    [events, eventGrade, eventId]
+  );
+
+  /**
    * The events worth marking: at least two athletes entered. One athlete has
    * nobody to be placed against and nobody at all has no marks to take, so
    * neither belongs in the picker — it would only make the list longer.
@@ -628,10 +649,10 @@ export default function MarkEntryPage() {
    */
   const markableEvents = useMemo(
     () =>
-      events.filter(
+      eventsForGrade.filter(
         event => (event.enrolledCount ?? 0) > 1 || (eventId > 0 && event.id === eventId)
       ),
-    [events, eventId]
+    [eventsForGrade, eventId]
   );
 
   /** The markable events, grouped so the selector stays readable. */
@@ -639,8 +660,14 @@ export default function MarkEntryPage() {
 
   /** Events that have too few entered to be marked, i.e. the ones left out. */
   const thinEvents = useMemo(
-    () => events.filter(event => (event.enrolledCount ?? 0) <= 1),
-    [events]
+    () => eventsForGrade.filter(event => (event.enrolledCount ?? 0) <= 1),
+    [eventsForGrade]
+  );
+
+  /** The event whose sheet is open, so its grade can be shown beside the name. */
+  const selectedEvent = useMemo(
+    () => events.find(event => event.id === eventId) ?? null,
+    [events, eventId]
   );
 
   const unitOptions = useMemo(() => {
@@ -699,6 +726,22 @@ export default function MarkEntryPage() {
 
       <div className="card">
         <div className="grid-toolbar">
+          <div className="field">
+            <label htmlFor="marks-event-grade">{t('marks.eventGrade')}</label>
+            <select
+              id="marks-event-grade"
+              value={eventGrade}
+              onChange={e => setEventGrade(e.target.value as Grade | '')}
+            >
+              <option value="">{t('marks.allGrades')}</option>
+              {GRADES.map(value => (
+                <option key={value} value={value}>
+                  {label('grade', value)}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div className="field">
             <label htmlFor="marks-event">{t('marks.pickEvent')}</label>
             <select
@@ -819,6 +862,11 @@ export default function MarkEntryPage() {
             <span>
               <strong>{sheet.eventName}</strong>
             </span>
+            {selectedEvent && (
+              <span className="badge badge-info" title={label('grade', selectedEvent.grade)}>
+                {label('grade.short', selectedEvent.grade)}
+              </span>
+            )}
             {isFinal && <span className="badge badge-info">{t('marks.stageFinal')}</span>}
             {sheet.category && <span>{label('category', sheet.category)}</span>}
             {sheet.sex && <span>{label('sex', sheet.sex)}</span>}

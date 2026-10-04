@@ -23,7 +23,6 @@ function NewResultForm() {
   const [events, setEvents] = useState<EventDTO[]>([]);
   const [users, setUsers] = useState<UserDTO[]>([]);
   const [enrollments, setEnrollments] = useState<EnrollmentDTO[]>([]);
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -39,7 +38,6 @@ function NewResultForm() {
   useEffect(() => {
     api.getEvents(true).then(setEvents).catch(() => {});
     api.getAllUsers().then(setUsers).catch(() => {});
-    setLoading(false);
 
     const eventId = searchParams.get('eventId');
     if (eventId) {
@@ -86,8 +84,6 @@ function NewResultForm() {
       setSaving(false);
     }
   };
-
-  if (loading) return <div>{t('common.loading')}</div>;
 
   // Filter users to show only enrolled ones for selected event
   const enrolledUserIds = new Set(

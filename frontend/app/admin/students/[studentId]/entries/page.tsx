@@ -11,7 +11,7 @@ import {
   SexCode,
   StudentDTO,
   StudentEnrollmentsDTO,
-  gradeMayEnterEvent,
+  gradeMatchesEvent,
 } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { formatDate } from '@/lib/format';
@@ -195,10 +195,14 @@ export default function AdminStudentEntriesPage() {
     }
     // A withdrawn entry is NOT a block: the admin endpoint revives it, so those
     // events stay offered (the button says "Re-enter").
-    // The student's grade decides which events they may enter at all — the server
-    // refuses otherwise, including for an admin, so say so here.
-    if (student?.grade && !gradeMayEnterEvent(event, student.grade)) {
-      return t('events.gradeNotAllowed', { grade: label('grade.short', student.grade) });
+    // An event belongs to exactly one grade, and only the student's own grade
+    // may enter it — the server refuses any other with a 409, including for an
+    // administrator, so say so here.
+    if (student?.grade && !gradeMatchesEvent(event, student.grade)) {
+      return t('entries.gradeNotAllowed', {
+        grade: label('grade.short', event.grade),
+        mine: label('grade.short', student.grade),
+      });
     }
     if (event.maxParticipants > 0 && event.enrolledCount >= event.maxParticipants) {
       return t('events.fullCount', { count: event.enrolledCount, max: event.maxParticipants });

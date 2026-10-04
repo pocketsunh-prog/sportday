@@ -54,7 +54,6 @@ export function Navbar() {
                   {isAdmin && (
                     <>
                       <Link href="/admin/sport-day">{t('nav.sportDay')}</Link>
-                      <Link href="/admin/grade-events">{t('nav.gradeEvents')}</Link>
                       <Link href="/admin/settings">{t('nav.settings')}</Link>
                       <Link href="/admin/users">{t('nav.users')}</Link>
                     </>

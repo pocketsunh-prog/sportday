@@ -7,20 +7,19 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /**
- * The school record for one event, division and grade — for example
- * "Boys 100M, B Grade".
+ * The school record for one event — for example "Boys 100M · B Grade".
  *
- * <p>A row exists for <em>every</em> combination of event type, division and
- * grade, created as soon as the event is, so the records page is complete from the
- * start rather than filling in as results arrive.</p>
+ * <p>An event belongs to exactly one grade, so a record is keyed by the event's own
+ * type, division and grade: one row per event, created as soon as the event is, so
+ * the records page is complete from the start rather than filling in as results
+ * arrive.</p>
  *
  * <p>Two things decide the mark that stands:</p>
  * <ul>
  *   <li>a <strong>baseline</strong> an administrator types in — last season's best,
  *       or a record held by a student who has since left, which is why
  *       {@link #manualHolderName} is free text rather than a link to an account;</li>
- *   <li>the <strong>best result</strong> recorded in any event of this type and
- *       division, by an athlete in this grade.</li>
+ *   <li>the <strong>best result</strong> recorded in any edition of that event.</li>
  * </ul>
  *
  * <p>{@link #mark} and its companions are the winner of those two, recomputed by

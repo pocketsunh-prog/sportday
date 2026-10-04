@@ -1,17 +1,17 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import { api, EventDTO, EventResultDTO } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n';
+import { resultMark } from '@/lib/format';
 import Link from 'next/link';
 
 export default function EventDetailPage() {
   const params = useParams();
-  const router = useRouter();
   const { user } = useAuth();
-  const { t, label } = useI18n();
+  const { t, label, lang } = useI18n();
   const [event, setEvent] = useState<EventDTO | null>(null);
   const [results, setResults] = useState<EventResultDTO[]>([]);
   const [loading, setLoading] = useState(true);
@@ -113,21 +113,25 @@ export default function EventDetailPage() {
               <tr>
                 <th>{t('marks.rank')}</th>
                 <th>{t('results.athlete')}</th>
-                <th>{t('marks.record')}</th>
-                <th>{t('marks.unit')}</th>
+                <th>{t('results.result')}</th>
                 <th>{t('results.notes')}</th>
               </tr>
             </thead>
             <tbody>
-              {results.map((result, idx) => (
-                <tr key={result.id}>
-                  <td>{idx + 1}</td>
-                  <td>{result.fullName || result.username}</td>
-                  <td>{result.mark}</td>
-                  <td>{result.unit ? label('unit', result.unit) : '-'}</td>
-                  <td>{result.notes || '-'}</td>
-                </tr>
-              ))}
+              {results.map((result, idx) => {
+                const shown = resultMark(result.displayMark, result.mark, result.unit, lang, label);
+                return (
+                  <tr key={result.id}>
+                    <td>{idx + 1}</td>
+                    <td>{result.fullName || result.username}</td>
+                    <td>
+                      <strong>{shown.value}</strong>
+                      {shown.suffix}
+                    </td>
+                    <td>{result.notes || '-'}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}

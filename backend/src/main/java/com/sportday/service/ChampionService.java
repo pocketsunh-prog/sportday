@@ -159,6 +159,8 @@ public class ChampionService {
                     .house(roster != null ? roster.getHouse() : null)
                     .mark(result.getMark())
                     .unit(result.getUnit())
+                    .displayMark(MarkFormatter.formatWithUnit(
+                            result.getMark(), event.getType(), result.getUnit()))
                     .points(settingsService.pointsForPlace(place, relay))
                     .schoolRecord(recordResultIds.contains(result.getId()))
                     .build());

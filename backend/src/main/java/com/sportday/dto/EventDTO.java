@@ -33,6 +33,13 @@ public class EventDTO {
     private String sex;
     private String sexLabel;
 
+    /**
+     * {@code A}, {@code B} or {@code C} — the one grade that competes in this event.
+     * Required: an event without a grade would rank one grade against another.
+     */
+    private String grade;
+    private String gradeLabel;
+
     private LocalDate eventDate;
     private String location;
     private Integer maxParticipants;
@@ -72,12 +79,6 @@ public class EventDTO {
      */
     private Boolean timeInMinutes;
 
-    /**
-     * The grades that may enter this event, e.g. {@code ["A", "B"]} for a 1500M. Lets
-     * the entry page leave out what a student's grade cannot enter.
-     */
-    private java.util.List<String> allowedGrades;
-
     private Boolean enabled;
     private LocalDateTime createdAt;
     private Integer enrolledCount;
@@ -113,6 +114,8 @@ public class EventDTO {
                 .categoryLabel(category.getLabel())
                 .sex(event.getSex() == null ? null : event.getSex().name())
                 .sexLabel(event.getSex() == null ? null : event.getSex().getLabel())
+                .grade(event.getGrade() == null ? null : event.getGrade().name())
+                .gradeLabel(event.getGrade() == null ? null : event.getGrade().getLabel())
                 .eventDate(event.getEventDate())
                 .location(event.getLocation())
                 .maxParticipants(event.getMaxParticipants())

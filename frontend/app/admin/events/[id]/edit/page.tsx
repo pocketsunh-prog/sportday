@@ -9,6 +9,10 @@ import {
   EventSex,
   EVENT_TYPE_OPTIONS,
   eventTypeCategory,
+  eventTypeLabel,
+  Grade,
+  GRADES,
+  gradesForEventType,
   mayHaveFinalForType,
   SheetSize,
   sheetDefaultsForType,
@@ -26,6 +30,8 @@ export default function EditEventPage() {
     type: '',
     category: 'TRACK' as EventCategory,
     sex: 'MALE' as EventSex,
+    /** Seeded from the event; an event belongs to exactly one grade. */
+    grade: 'A' as Grade,
     eventDate: '',
     location: '',
     maxParticipants: 50,
@@ -61,6 +67,18 @@ export default function EditEventPage() {
    */
   const mayHaveFinal = mayHaveFinalForType(form.type);
 
+  /**
+   * The 5000M is A grade only, and the 1500M and 110M hurdles have no C grade,
+   * so changing the type can leave the grade sitting on one the type does not
+   * run. The server refuses that with a 400; the form refuses it too and names
+   * the type.
+   */
+  const gradeMismatch = !gradesForEventType(form.type).includes(form.grade);
+  const gradeMismatchText = t('adminEvents.gradeNotRun', {
+    type: eventTypeLabel(form.type),
+    grade: label('grade.short', form.grade),
+  });
+
   useEffect(() => {
     api
       .getEvent(eventId)
@@ -71,6 +89,7 @@ export default function EditEventPage() {
           type: event.type,
           category: event.category,
           sex: event.sex,
+          grade: event.grade,
           eventDate: event.eventDate ? event.eventDate.slice(0, 10) : '',
           location: event.location || '',
           maxParticipants: event.maxParticipants,
@@ -120,6 +139,12 @@ export default function EditEventPage() {
     e.preventDefault();
     setError('');
     setNotice('');
+    // The button is disabled on a mismatch, but Enter in any field still
+    // submits the form, so the guard is repeated here.
+    if (gradeMismatch) {
+      setError(gradeMismatchText);
+      return;
+    }
     setSaving(true);
     try {
       await api.updateEvent(eventId, form);
@@ -206,7 +231,19 @@ export default function EditEventPage() {
                 <option value="FEMALE">{label('sex', 'FEMALE')}</option>
               </select>
             </div>
+            <div className="form-group" style={{ flex: 1 }}>
+              <label>{t('marks.grade')} *</label>
+              <select name="grade" value={form.grade} onChange={handleChange}>
+                {GRADES.map(grade => (
+                  <option key={grade} value={grade}>
+                    {label('grade', grade)}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
+          <p className="muted">{t('adminEvents.gradeHint')}</p>
+          {gradeMismatch && <p className="muted">{gradeMismatchText}</p>}
           <div className="flex gap-2">
             <div className="form-group" style={{ flex: 1 }}>
               <label>{t('events.date')} *</label>
@@ -323,7 +360,7 @@ export default function EditEventPage() {
             </p>
           )}
           <div className="flex gap-2 mt-2">
-            <button type="submit" className="btn btn-primary" disabled={saving}>
+            <button type="submit" className="btn btn-primary" disabled={saving || gradeMismatch}>
               {saving ? t('common.saving') : t('common.saveChanges')}
             </button>
             <button type="button" onClick={handleToggleEnable} className="btn btn-secondary">

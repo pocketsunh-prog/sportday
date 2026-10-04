@@ -41,7 +41,6 @@ public class EnrollmentService {
     private final StudentRepository studentRepository;
     private final SettingsService settingsService;
     private final SeasonService seasonService;
-    private final GradeEligibilityService gradeEligibilityService;
     private final FinalQualificationService finalQualificationService;
 
     /** How many entries a student still has available, per category. */
@@ -76,23 +75,7 @@ public class EnrollmentService {
 
         Student roster = studentRepository.findWithUserByUserId(userId).orElse(null);
 
-        // Sex division: a student may only enter their own division's event.
-        if (roster != null && roster.getSex() != null && event.getSex() != null
-                && roster.getSex() != event.getSex()) {
-            throw new IllegalStateException(
-                    "This is the " + event.getSex().getLabel() + " event and you are entered as "
-                            + roster.getSex().getLabel() + ".");
-        }
-
-        // Grade: an event is not open to every grade — a C grade student does not run
-        // the 1500M, and only the A grade runs the 5000M.
-        if (roster != null && roster.getGrade() != null && event.getType() != null
-                && !gradeEligibilityService.isAllowed(event.getType(), roster.getGrade())) {
-            throw new IllegalStateException(String.format(
-                    "%s grade does not enter %s. The events open to that grade are on the entry "
-                            + "list — the organiser sets this on the grade assignment page.",
-                    roster.getGrade().getLabel(), event.getName()));
-        }
+        requireEventIsForTheStudent(roster, event);
 
         // Quota: at most 2 track (徑項) and 1 field (田項) per student.
         EventCategory category = event.getCategoryOrDefault();
@@ -179,6 +162,7 @@ public class EnrollmentService {
             throw new IllegalStateException("This event is closed — it has been disabled by the organiser.");
         }
         Student roster = studentRepository.findWithUserByUserId(userId).orElse(null);
+        requireEventIsForTheStudent(roster, event);
         EventCategory category = event.getCategoryOrDefault();
         long used = enrollmentRepository.countByUserAndCategory(
                 userId, Enrollment.EnrollmentStatus.CONFIRMED, category);
@@ -216,6 +200,37 @@ public class EnrollmentService {
         return enrollmentRepository.findByUserIdAndEventId(userId, eventId)
                 .map(e -> e.getStatus() == Enrollment.EnrollmentStatus.CONFIRMED)
                 .orElse(false);
+    }
+
+    /**
+     * The division and grade checks, in one place so that a student entering
+     * themselves and an administrator entering them by hand are held to exactly the
+     * same rules — the rule cannot be worked around by doing it for them.
+     *
+     * <p>An event belongs to <strong>exactly one grade</strong>, so a student may
+     * only enter an event of their own grade: the A, B and C grades are never
+     * ranked together. Which races a grade runs is now simply which events exist,
+     * so there is no separate eligibility table to consult.</p>
+     */
+    private static void requireEventIsForTheStudent(Student roster, Event event) {
+        if (roster == null) {
+            return;
+        }
+        // Sex division: a student may only enter their own division's event.
+        if (roster.getSex() != null && event.getSex() != null && roster.getSex() != event.getSex()) {
+            throw new IllegalStateException(
+                    "This is the " + event.getSex().getLabel() + " event and you are entered as "
+                            + roster.getSex().getLabel() + ".");
+        }
+        // Grade: the event is run by one grade, and it must be the student's own.
+        if (roster.getGrade() != null && event.getGrade() != null
+                && roster.getGrade() != event.getGrade()) {
+            throw new IllegalStateException(String.format(
+                    "This is the %s %s and you are in the %s grade.",
+                    event.getGrade().getLabel(),
+                    event.getType() == null ? event.getName() : event.getType().getDisplayName(),
+                    roster.getGrade().name()));
+        }
     }
 
     /** Remaining entry allowance for a student, for the entry page. */

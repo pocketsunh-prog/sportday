@@ -176,6 +176,16 @@ export interface EventDTO {
   sex: EventSex;
   /** e.g. `男 Boys`. */
   sexLabel: string;
+  /**
+   * The one grade this event belongs to: `A`, `B` or `C`. An event is never
+   * shared between grades — `Boys 100M · A Grade` and `Boys 100M · B Grade` are
+   * two events with their own heats, marks, results and placings, so no grade is
+   * ever ranked against another. Every event type is not run by every grade: see
+   * `gradesForEventType`.
+   */
+  grade: Grade;
+  /** e.g. `A Grade`. */
+  gradeLabel: string;
   eventDate: string;
   location: string;
   maxParticipants: number;
@@ -217,17 +227,6 @@ export interface EventDTO {
    * every event, and always rendered through `label('unit', …)`.
    */
   defaultUnit?: string;
-  /**
-   * The grades that may enter this event, e.g. `["A", "B"]` for a 1500M and
-   * `["A"]` for a 5000M. An administrator assigns this on the grade
-   * assignment page (`/admin/grade-events`).
-   *
-   * Entry is enforced server-side: entering an event a grade may not enter is
-   * refused with a 409. The field is optional like every other collection the
-   * API omits when it has nothing to say, so a missing list means "not spelled
-   * out here" rather than "nobody may enter".
-   */
-  allowedGrades?: string[];
   enabled: boolean;
   createdAt: string;
   enrolledCount: number;
@@ -237,21 +236,42 @@ export interface EventDTO {
 }
 
 /**
- * Whether `grade` may enter `event`, from the event's own `allowedGrades`.
- *
- * A missing or empty list means the event does not spell its grades out, and it
- * is treated as open: the server is the authority either way, and refusing to
- * show an event on a field the response omitted would be worse than letting the
- * entry be attempted and refused with the server's own message.
+ * The grades the school runs, in programme order.
  */
-export function gradeMayEnterEvent(
-  event: Pick<EventDTO, 'allowedGrades'>,
+export const GRADES: ReadonlyArray<Grade> = ['A', 'B', 'C'];
+
+/**
+ * The grades that run an event type — the frontend's copy of the server's own
+ * `EventType.allowedGrades()`, which is also why the standard catalogue holds
+ * 112 events rather than 120:
+ *
+ * - the 5000M is run by the A grade only;
+ * - the 1500M and the 110M hurdles have no C grade, which runs the 100M hurdles
+ *   instead;
+ * - every other type (including the 100M hurdles) is run by all three grades.
+ */
+export function gradesForEventType(type: string): Grade[] {
+  if (type === 'RUN_5000M') return ['A'];
+  if (type === 'RUN_1500M' || type === 'HURDLES_110M') return ['A', 'B'];
+  return [...GRADES];
+}
+
+/**
+ * Whether `grade` may enter `event`: an event belongs to exactly one grade, so
+ * the only grade that may enter it is its own. The server enforces the same rule
+ * and refuses any other with a 409.
+ *
+ * A missing `grade` means it could not be read — a student whose profile does
+ * not carry one. Everything is then shown, because letting an entry be attempted
+ * and refused with the server's own wording is better than hiding events from a
+ * student whose grade is simply unknown here.
+ */
+export function gradeMatchesEvent(
+  event: Pick<EventDTO, 'grade'>,
   grade: string | null | undefined
 ): boolean {
-  const allowed = event.allowedGrades;
-  if (!allowed || allowed.length === 0) return true;
   if (!grade) return true;
-  return allowed.includes(grade);
+  return event.grade === grade;
 }
 
 export interface EventQuery {
@@ -453,6 +473,13 @@ export interface EventResultDTO {
   mark: number;
   /** `M` in the field, `s` on the track. */
   unit?: string;
+  /**
+   * The mark as the sport writes it, with its unit: `14.123s`, `1.04.123s` over
+   * a minute, `2.15.5s` for the long distances, `18.12M` in the field. The full
+   * stops and the padded seconds are the sport's own notation, so render this
+   * through `resultMark()` rather than re-deriving it from `mark` / `unit`.
+   */
+  displayMark?: string;
   /**
    * A field event's attempts, in order. A miss arrives as an explicit `null`, so
    * the positions line up; an attempt that was never taken is left off the end.
@@ -803,58 +830,6 @@ export interface SettingsResetResultDTO extends SettingsDTO {
 }
 
 /* ------------------------------------------------------------------ *
- * Grade eligibility — which grades may enter which events
- * ------------------------------------------------------------------ */
-
-/**
- * One event type's row in the event-by-grade grid: the event, and which grades
- * may enter it. `allowed` is keyed by grade name (`A`, `B`, `C`).
- */
-export interface GradeEligibilityRowDTO {
-  /** Enum name, e.g. `RUN_1500M`. */
-  eventType: string;
-  /** e.g. `1500M`. */
-  eventTypeLabel: string;
-  category: EventCategory;
-  /** e.g. `徑項 Track`. */
-  categoryLabel: string;
-  allowed: Record<string, boolean>;
-}
-
-/**
- * The whole grid, as `GET /api/grade-events` answers with it — and as the two
- * admin endpoints answer with it after a change, so the page always re-renders
- * the server's own counts.
- */
-export interface GradeEligibilityDTO {
-  /** The grades the grid has columns for, in order: `A`, `B`, `C`. */
-  grades: string[];
-  /** One row per event type. */
-  events: GradeEligibilityRowDTO[];
-  /**
-   * How many events of the current programme each grade may enter, e.g.
-   * `{ A: 38, B: 36, C: 34 }` — the count against `totalEvents`.
-   */
-  allowedEventCounts: Record<string, number>;
-  /** How many events the programme holds altogether. */
-  totalEvents: number;
-}
-
-/** One changed cell of the grid, as sent to `PUT /api/admin/grade-events`. */
-export interface GradeEligibilityUpdate {
-  eventType: string;
-  grade: string;
-  allowed: boolean;
-}
-
-/** The reply of `POST /api/admin/grade-events/reset`. */
-export interface GradeEligibilityResetResultDTO {
-  /** How many rule rows the reset wrote. */
-  rulesCreated: number;
-  matrix: GradeEligibilityDTO;
-}
-
-/* ------------------------------------------------------------------ *
  * School records
  * ------------------------------------------------------------------ */
 
@@ -980,6 +955,8 @@ export interface ChampionshipPlacingDTO {
   house: string;
   mark: number;
   unit: string;
+  /** The mark with its unit, e.g. `18.12M` — see `resultMark()`. */
+  displayMark?: string;
   points: number;
   /** True when the mark set a school record. */
   schoolRecord?: boolean;
@@ -1528,6 +1505,29 @@ class ApiClient {
     return this.request(`/results/${id}`, { method: 'DELETE' });
   }
 
+  /**
+   * One event's results as a PDF. An event with nothing recorded is refused with
+   * a 409 whose message says so, and is worth showing as it stands.
+   */
+  async downloadEventResultsPdf(
+    eventId: number,
+    fallbackFilename: string
+  ): Promise<string> {
+    return this.downloadFile(`/events/${eventId}/results.pdf`, fallbackFilename);
+  }
+
+  /**
+   * The whole programme's results as a PDF — every event that has results.
+   * `sex` and `category` narrow it to one division or one half of the
+   * programme. Like the single event, an empty programme is refused with a 409.
+   */
+  async downloadAllResultsPdf(
+    fallbackFilename: string,
+    filters: { sex?: EventSex; category?: EventCategory } = {}
+  ): Promise<string> {
+    return this.downloadFile(`/results.pdf${buildQuery({ ...filters })}`, fallbackFilename);
+  }
+
   /* ---------------- Mark entry grid ---------------- */
 
   /**
@@ -1659,39 +1659,6 @@ class ApiClient {
   /** Admin: restores the documented defaults. */
   async resetSettings(): Promise<SettingsResetResultDTO> {
     return this.request('/admin/settings/reset', { method: 'POST' });
-  }
-
-  /* ---------------- Grade eligibility ---------------- */
-
-  /**
-   * Which grades may enter which events — the assignment grid, with how many
-   * events each grade ends up with. Readable by any signed-in role.
-   */
-  async getGradeEvents(): Promise<GradeEligibilityDTO> {
-    return this.request('/grade-events');
-  }
-
-  /**
-   * Admin: assigns the grade rules. Send only the cells that changed, as
-   * `{ eventType, grade, allowed }`; the reply is the whole grid again, so the
-   * counts on screen are always the server's.
-   */
-  async updateGradeEvents(
-    updates: GradeEligibilityUpdate[]
-  ): Promise<GradeEligibilityDTO> {
-    return this.request('/admin/grade-events', {
-      method: 'PUT',
-      body: JSON.stringify(updates),
-    });
-  }
-
-  /**
-   * Admin: back to the school's starting position — everything open except the
-   * long distances: the C grade does not run the 1500M or 5000M, and only the A
-   * grade runs the 5000M.
-   */
-  async resetGradeEvents(): Promise<GradeEligibilityResetResultDTO> {
-    return this.request('/admin/grade-events/reset', { method: 'POST' });
   }
 
   /* ---------------- School records ---------------- */

@@ -26,6 +26,14 @@ public class EventResultDTO {
 
     private BigDecimal mark;
     private String unit;
+
+    /**
+     * The mark as it reads, with its unit: {@code 14.123s}, {@code 1.04.123s},
+     * {@code 18.12M}. {@link #mark} and {@link #unit} stay as they are — this is the
+     * same value written the way a person reads it, so a client does not have to
+     * rework the number to show it.
+     */
+    private String displayMark;
     private String notes;
 
     /**
@@ -50,6 +58,10 @@ public class EventResultDTO {
                 .stage(result.getStageOrDefault().name())
                 .mark(result.getMark())
                 .unit(result.getUnit())
+                .displayMark(com.sportday.service.MarkFormatter.formatWithUnit(
+                        result.getMark(),
+                        result.getEvent() == null ? null : result.getEvent().getType(),
+                        result.getUnit()))
                 .notes(result.getNotes())
                 .attempts(result.hasAttempts()
                         ? new java.util.ArrayList<>(result.getAttempts()) : null)

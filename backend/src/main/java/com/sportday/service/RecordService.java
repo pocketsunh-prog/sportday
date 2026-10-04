@@ -30,16 +30,17 @@ import java.util.Set;
 /**
  * The school records.
  *
- * <p>A record belongs to one event type, division and grade — "Boys 100M, B Grade"
- * — and a row exists for every such combination from the moment the event does, so
- * the records page is complete before anybody has competed.</p>
+ * <p>A record belongs to one event — "Boys 100M · B Grade" — and, because an event
+ * now belongs to exactly one grade, that is one record row per event rather than
+ * one per grade of a grade-mixed race. A row exists for every event from the
+ * moment the event does, so the records page is complete before anybody has
+ * competed.</p>
  *
  * <p>The mark that stands is the better of two things: a <strong>baseline</strong>
  * an administrator typed in (last season's best, or a record held by a student who
- * has since left) and the <strong>best result</strong> recorded in any event of that
- * type and division by an athlete in that grade. Recomputing never touches the
- * baseline, so a record entered by hand survives results being cleared, an event
- * being deleted, or a season reset.</p>
+ * has since left) and the <strong>best result</strong> recorded in any edition of
+ * that event. Recomputing never touches the baseline, so a record entered by hand
+ * survives results being cleared, an event being deleted, or a season reset.</p>
  */
 @Slf4j
 @Service
@@ -51,52 +52,52 @@ public class RecordService {
     private final StudentRepository studentRepository;
     private final EventRepository eventRepository;
 
-    /** Every grade a record is kept for. */
-    private static final List<Grade> GRADES = List.of(Grade.values());
-
     // ------------------------------------------------------------- creating
 
     /**
-     * Creates the records an event should have. Called when an event is created so
+     * Creates the record an event should have. Called when an event is created so
      * "each event has a record" is true from the start.
+     *
+     * <p>The event is one grade, so this is one row: its grade is the event's.</p>
      */
     @Transactional
     public int seedForEvent(Event event) {
-        if (event == null || event.getType() == null || event.getSex() == null) {
+        if (event == null || event.getType() == null || event.getSex() == null
+                || event.getGrade() == null) {
             return 0;
         }
-        return seedFor(event.getType(), event.getSex());
+        return seedFor(event.getType(), event.getSex(), event.getGrade());
     }
 
-    /** Creates any missing record rows for one event type and division. */
+    /** Creates the missing record row for one event — its type, division and grade. */
     @Transactional
-    public int seedFor(Event.EventType type, Sex sex) {
-        int created = 0;
-        for (Grade grade : GRADES) {
-            if (recordRepository.findByEventTypeAndSexAndGrade(type, sex, grade).isEmpty()) {
-                recordRepository.save(EventRecord.builder()
-                        .eventType(type)
-                        .sex(sex)
-                        .grade(grade)
-                        .hasPrevious(false)
-                        .build());
-                created++;
-            }
+    public int seedFor(Event.EventType type, Sex sex, Grade grade) {
+        if (type == null || sex == null || grade == null) {
+            return 0;
         }
-        return created;
+        if (recordRepository.findByEventTypeAndSexAndGrade(type, sex, grade).isPresent()) {
+            return 0;
+        }
+        recordRepository.save(EventRecord.builder()
+                .eventType(type)
+                .sex(sex)
+                .grade(grade)
+                .hasPrevious(false)
+                .build());
+        return 1;
     }
 
-    /** Creates every missing record row for the whole catalogue. */
+    /** Creates every missing record row for the whole catalogue — one per event. */
     @Transactional
     public int seedAll() {
         Set<String> seen = new LinkedHashSet<>();
         int created = 0;
         for (Event event : eventRepository.findAll()) {
-            if (event.getType() == null || event.getSex() == null) {
+            if (event.getType() == null || event.getSex() == null || event.getGrade() == null) {
                 continue;
             }
-            if (seen.add(event.getType().name() + '|' + event.getSex().name())) {
-                created += seedFor(event.getType(), event.getSex());
+            if (seen.add(event.getType().name() + '|' + event.getSex().name() + '|' + event.getGrade().name())) {
+                created += seedFor(event.getType(), event.getSex(), event.getGrade());
             }
         }
         if (created > 0) {
@@ -110,6 +111,10 @@ public class RecordService {
     /**
      * Rebuilds the record that a single result belongs to. Called after a mark is
      * saved so a record-breaking performance takes the record immediately.
+     *
+     * <p>The grade is the <em>event's</em>: an event is run by exactly one grade, so
+     * the mark an athlete sets belongs to that grade's record whatever the athlete's
+     * own grade field says.</p>
      */
     @Transactional
     public void considerResult(EventResult result) {
@@ -117,18 +122,14 @@ public class RecordService {
             return;
         }
         Event event = result.getEvent();
-        if (event.getType() == null || event.getSex() == null) {
+        if (event.getType() == null || event.getSex() == null || event.getGrade() == null) {
             return;
         }
-        Student roster = studentRepository.findWithUserByUserId(result.getUser().getId()).orElse(null);
-        if (roster == null || roster.getGrade() == null) {
-            return;
-        }
-        recomputeFor(event.getType(), event.getSex(), roster.getGrade());
+        recomputeFor(event.getType(), event.getSex(), event.getGrade());
     }
 
     /**
-     * Works out which mark stands for one event type, division and grade, and
+     * Works out which mark stands for one event — its type, division and grade — and
      * records who holds it and what it beat.
      */
     @Transactional
@@ -144,14 +145,10 @@ public class RecordService {
                         .hasPrevious(false)
                         .build()));
 
-        List<EventResult> all = resultRepository.findByEventTypeAndSex(type, sex);
+        List<EventResult> all = resultRepository.findByEventTypeAndSexAndGrade(type, sex, grade);
         Map<Long, Student> rosters = rostersFor(all);
         List<EventResult> matching = all.stream()
                 .filter(result -> result.getUser() != null && result.getMark() != null)
-                .filter(result -> {
-                    Student roster = rosters.get(result.getUser().getId());
-                    return roster != null && roster.getGrade() == grade;
-                })
                 .toList();
 
         boolean lowerBetter = type.isLowerBetter();
