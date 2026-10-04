@@ -118,6 +118,32 @@ public final class MarkFormatter {
     }
 
     /**
+     * A stored result as a sheet shows it — the mark with its unit
+     * ({@code 11.86s}, {@code 18.12M}), or {@code ABS} / {@code DQ} when the
+     * athlete produced no number. Null only when there is no record at all.
+     *
+     * <p>Used where a <em>second</em> performance is shown beside the one being
+     * written — a final sheet printing what each finalist ran in their heat — so
+     * it falls back to the outcome's own name for the one case
+     * {@link #formatWithOutcome} cannot read: a row that carries an outcome but no
+     * number. Without that a reader would be shown nothing at all beside a record
+     * that exists.</p>
+     *
+     * @param record       the stored result, or null when there is none
+     * @param fallbackUnit the event's own unit, used when the record carries none
+     */
+    public static String formatRecord(EventResult record, Event.EventType type, String fallbackUnit) {
+        if (record == null) {
+            return null;
+        }
+        String unit = record.getUnit() == null || record.getUnit().isBlank()
+                ? fallbackUnit
+                : record.getUnit();
+        String formatted = formatWithOutcome(record.getOutcomeOrDefault(), record.getMark(), type, unit);
+        return formatted != null ? formatted : record.getOutcomeOrDefault().name();
+    }
+
+    /**
      * The seconds of a time longer than a minute, padded to two whole digits:
      * {@code 4.123} becomes {@code 04.123}, and a whole {@code 4} becomes {@code 04}.
      */

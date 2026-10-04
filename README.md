@@ -84,7 +84,9 @@ The print run for the helpers:
   the printer without leaving the browser.
 
 Each sheet carries the five columns the helper needs — student ID, name, grade,
-record, remark — with record and remark left blank.
+record, remark — with record and remark left blank. A **final**'s sheet carries
+one more, **初賽 Heat**, showing what each finalist ran in their heat beside the
+blank box the final is written in.
 
 ### Mark entry grid — **Admin → Mark Entry** (`/admin/marks`)
 
@@ -98,6 +100,10 @@ Type a whole heat's results straight into a grid and save them in one go.
 - edit **record** and **remark** inline, or tick **clear** to remove a mark;
 - **Save all marks** sends only the rows that were touched. Rows left blank are
   untouched, so a half-filled grid is safe to save;
+- on a **final** grid each row also carries the athlete's heat performance —
+  `heatMark` and `heatDisplayMark` (`11.86s`, or `ABS` / `DQ`), with `heatOutcome`
+  naming which — so what earned the place is shown beside the box being written
+  in. A heat grid carries none of it;
 - the response reports `saved / cleared / skipped / failed` and lists any row
   problems, and the leaderboard is shown underneath.
 
@@ -678,6 +684,12 @@ One sheet per heat or final, with **student id / name / grade / record / remark*
 The record and remark columns are left blank for the helper. The sheet is padded
 out to the group size, so a late entry still has a line, and a final's sheet is
 headed `組別 Group: Final … 決賽 Final` so it cannot be mistaken for another heat.
+
+A **final**'s sheet carries one column more, **初賽 Heat**, between the grade and
+the record boxes: the heat performance that earned the athlete their place, read
+the way every other result reads (`11.86s`, `1.04.123s`), or **ABS** / **DQ** when
+the heat produced no number. The record boxes below it stay blank for the final.
+A **heat** sheet is unchanged — no such column, same columns and same paper.
 
 A **field** sheet gets three attempt boxes under one `成績 Record (M)` heading
 instead of a single record column, because a field event gives three attempts and

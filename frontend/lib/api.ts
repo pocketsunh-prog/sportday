@@ -685,6 +685,17 @@ export interface MarkRowDTO {
    * is not a mark of any kind. An ABS/DQ row has no `mark`.
    */
   outcome?: MarkOutcome;
+
+  /*
+   * The heat record, present only on a FINAL grid: the official writing the final
+   * down needs to see what the athlete ran in the heats. All three are absent on a
+   * heat grid, and absent together when there is no heat record at all.
+   */
+  heatMark?: number;
+  /** `RESULT`, `ABS` or `DQ` — the same vocabulary as `outcome`. */
+  heatOutcome?: MarkOutcome;
+  /** The heat result ready to print: `7.43s`, `1.04.123s`, `18.12M`, `ABS`, `DQ`. */
+  heatDisplayMark?: string;
 }
 
 export interface MarkGroupOption {

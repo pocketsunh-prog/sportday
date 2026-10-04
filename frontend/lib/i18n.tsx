@@ -201,6 +201,7 @@ const en = {
   'marks.heat': 'Heat',
   'marks.lane': 'Lane',
   'marks.record': 'Record',
+  'marks.heatRecord': 'Heat',
   'marks.remark': 'Remark',
   'marks.unit': 'Unit',
   /*
@@ -1338,6 +1339,7 @@ const zh: Record<keyof typeof en, string> = {
   'marks.heat': '組別',
   'marks.lane': '線道',
   'marks.record': '成績',
+  'marks.heatRecord': '初賽',
   'marks.remark': '備註',
   'marks.unit': '單位',
   'unit.M:S': '分:秒',

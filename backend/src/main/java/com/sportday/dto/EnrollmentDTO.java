@@ -9,6 +9,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
@@ -65,6 +66,31 @@ public class EnrollmentDTO {
     // ---- entry ----
     private String status;
     private LocalDateTime enrolledAt;
+
+    // ---- the heat, on a final's roster ----
+
+    /**
+     * The athlete's <strong>heat</strong> performance, in the event's own unit.
+     * Filled in only for a {@code FINAL} group's roster, so a final marking sheet
+     * can print what each finalist ran to get there; every other roster, and a
+     * heat's own, leaves it null. Null when the heat produced no number —
+     * {@link #heatOutcome} says what happened instead.
+     */
+    private BigDecimal heatMark;
+
+    /**
+     * What the athlete's heat came to: {@code RESULT}, {@code ABS} or {@code DQ}.
+     * The same vocabulary as a result's {@code outcome}, so a sheet needs no second
+     * one. Null when the athlete has no heat record at all.
+     */
+    private String heatOutcome;
+
+    /**
+     * The heat performance as it reads — {@code 11.86s}, {@code 1.04.123s} — or
+     * {@code ABS}/{@code DQ} when the heat produced no mark. Never null while
+     * there is a heat record; null with {@link #heatOutcome} when there is none.
+     */
+    private String heatDisplayMark;
 
     public static EnrollmentDTO from(Enrollment enrollment) {
         return from(enrollment, null);

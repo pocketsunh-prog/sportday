@@ -309,6 +309,157 @@ class PdfSheetServiceTest {
         }
     }
 
+    // ------------------------------------------- the heat record, on a final
+
+    /** A finalist, carrying the heat record their place in the final came from. */
+    private static EnrollmentDTO finalist(String id, String name, String grade, String heat) {
+        String digits = heat == null ? "" : heat.replaceAll("[^0-9.]", "");
+        return EnrollmentDTO.builder()
+                .studentRef(id)
+                .name(name)
+                .grade(grade)
+                .heatMark(digits.isEmpty() ? null : new java.math.BigDecimal(digits))
+                .heatOutcome(heat == null ? null : (digits.isEmpty() ? heat : "RESULT"))
+                .heatDisplayMark(heat)
+                .build();
+    }
+
+    private static List<EnrollmentDTO> finalists() {
+        return List.of(
+                finalist("S0001", "陳大文", "A", "11.86s"),
+                finalist("S0002", "李小明", "B", "12.04s"),
+                finalist("S0003", "黃詠詩", "C", "DQ"),
+                finalist("S0004", "張家俊", "A", null));
+    }
+
+    private static EventGroupDTO finalGroup(List<EnrollmentDTO> athletes) {
+        return EventGroupDTO.builder()
+                .id(99L)
+                .eventId(1L)
+                .eventName("Boys 100M")
+                .eventType("RUN_100M")
+                .eventTypeLabel("100M")
+                .category("TRACK")
+                .categoryLabel("徑項 Track")
+                .sex("MALE")
+                .sexLabel("男 Boys")
+                .groupNumber(0)
+                .label("Final")
+                .stage("FINAL")
+                .capacity(8)
+                .athleteCount(athletes.size())
+                .sheetSize("A5")
+                .athletes(athletes)
+                .build();
+    }
+
+    @Test
+    @DisplayName("a final sheet shows each finalist's heat record, with the mark they actually ran")
+    void aFinalSheetShowsTheHeatRecord() throws Exception {
+        EventGroupDTO finalSheet = finalGroup(finalists());
+
+        byte[] pdf = service.renderSheets(List.of(finalSheet));
+
+        try (PDDocument document = load(pdf)) {
+            assertEquals(1, document.getNumberOfPages(),
+                    "the extra column must not push the final onto a second page");
+            var box = document.getPage(0).getMediaBox();
+            assertTrue(Math.abs(box.getWidth() - 421) < 3 && Math.abs(box.getHeight() - 595) < 3,
+                    "a final of a short sprint is still A5");
+            String text = new org.apache.pdfbox.text.PDFTextStripper().getText(document);
+            assertTrue(text.contains("初賽") && text.contains("Heat"),
+                    "the heat column is headed in the sheet's own bilingual style");
+            assertTrue(text.contains("11.86s"), "the first finalist's heat time");
+            assertTrue(text.contains("12.04s"), "and the second's");
+            assertTrue(text.contains("DQ"), "a disqualified heat reads as DQ rather than a number");
+            assertTrue(text.contains("成績") && text.contains("Record"),
+                    "the record boxes are still there, blank, for the final to be written in");
+        }
+    }
+
+    @Test
+    @DisplayName("a heat sheet is unchanged: no heat column, and the same count as before")
+    void aHeatSheetHasNoHeatRecordColumn() throws Exception {
+        EventGroupDTO trackHeat = group("A5", 8, 1, sprintHeat());
+        EventGroupDTO fieldHeat = EventGroupDTO.builder()
+                .id(9L).eventId(2L).eventName("Boys Shot Put").eventTypeLabel("Shot Put")
+                .category("FIELD").categoryLabel("田項 Field")
+                .sex("MALE").sexLabel("男 Boys")
+                .groupNumber(1).label("Heat 1").stage("HEAT")
+                .capacity(24).athleteCount(2).sheetSize("A4")
+                .athletes(List.of(athlete("S0001", "Chan Tai Man", "B")))
+                .build();
+
+        byte[] pdf = service.renderSheets(List.of(trackHeat));
+
+        try (PDDocument document = load(pdf)) {
+            String text = new org.apache.pdfbox.text.PDFTextStripper().getText(document);
+            assertFalse(text.contains("初賽"),
+                    "a heat sheet carries no heat record: it is the heat");
+            assertTrue(text.contains("學號") && text.contains("姓名") && text.contains("級別")
+                            && text.contains("成績") && text.contains("備註"),
+                    "and the five columns it always had");
+        }
+
+        assertEquals(5, PdfSheetService.columnCount(trackHeat),
+                "a track heat's five columns, unchanged");
+        assertEquals(7, PdfSheetService.columnCount(fieldHeat),
+                "a field heat's three attempts and five columns, unchanged");
+        assertEquals(6, PdfSheetService.columnCount(finalGroup(finalists())),
+                "a final gains exactly one column: the heat record");
+    }
+
+    @Test
+    @DisplayName("the width array always matches the column count, a field final included")
+    void widthsMatchTheColumns() {
+        for (boolean field : new boolean[]{false, true}) {
+            for (boolean finalStage : new boolean[]{false, true}) {
+                for (boolean a5 : new boolean[]{false, true}) {
+                    EventGroupDTO group = EventGroupDTO.builder()
+                            .id(1L).eventId(1L)
+                            .category(field ? "FIELD" : "TRACK")
+                            .stage(finalStage ? "FINAL" : "HEAT")
+                            .athletes(new ArrayList<>())
+                            .build();
+                    assertEquals(PdfSheetService.columnCount(group),
+                            PdfSheetService.widths(field, finalStage, a5).length,
+                            "field=" + field + " final=" + finalStage + " a5=" + a5);
+                }
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("a field sheet that somehow is a final still lays out, rather than throwing")
+    void aFieldFinalStillLaysOut() throws Exception {
+        // A field event runs straight to a final, so this sheet should not arise —
+        // but the width array has to match its columns rather than throw.
+        EventGroupDTO shotFinal = EventGroupDTO.builder()
+                .id(9L).eventId(2L).eventName("Boys Shot Put").eventTypeLabel("Shot Put")
+                .category("FIELD").categoryLabel("田項 Field")
+                .sex("MALE").sexLabel("男 Boys")
+                .groupNumber(0).label("Final").stage("FINAL")
+                .capacity(24).athleteCount(2).sheetSize("A4")
+                .athletes(List.of(
+                        finalist("S0001", "Chan Tai Man", "B", "18.12M"),
+                        finalist("S0002", "Lee Siu Ming", "A", "ABS")))
+                .build();
+
+        byte[] pdf = service.renderSheets(List.of(shotFinal));
+
+        try (PDDocument document = load(pdf)) {
+            assertEquals(1, document.getNumberOfPages());
+            String text = new org.apache.pdfbox.text.PDFTextStripper().getText(document);
+            assertTrue(text.contains("初賽"), "the heat column is on it");
+            assertTrue(text.contains("18.12M"), "carrying the heat throw");
+            assertTrue(text.contains("ABS"), "and ABS where the heat produced nothing");
+            assertTrue(text.contains("Record") && text.contains("(M)"),
+                    "with the three attempt boxes it always had");
+        }
+        assertEquals(8, PdfSheetService.columnCount(shotFinal),
+                "three athlete columns, a heat column, three attempts and a remark");
+    }
+
     /** Renders preview PNGs for eyeballing; skipped when a PDF renderer is unavailable. */
     @Test
     @DisplayName("writes preview PNGs of the A5 and A4 sheets")
@@ -341,10 +492,17 @@ class PdfSheetServiceTest {
                 .build();
         writePreview("marking-sheet-field-A4.png", service.renderSheets(List.of(shot)));
 
+        // A final sheet, so the 初賽 Heat column and the blank record boxes beside it
+        // can be eyeballed too.
+        writePreview("marking-sheet-final-A5.png",
+                service.renderSheets(List.of(finalGroup(finalists()))));
+
         assertTrue(Files.exists(PREVIEW_DIR.resolve("marking-sheet-A5.png")));
         assertTrue(Files.exists(PREVIEW_DIR.resolve("marking-sheet-A4.png")));
         assertTrue(Files.exists(PREVIEW_DIR.resolve("marking-sheet-field-A4.png")),
                 "a field sheet preview, so the three attempts can be checked");
+        assertTrue(Files.exists(PREVIEW_DIR.resolve("marking-sheet-final-A5.png")),
+                "a final sheet preview, so the heat column can be checked");
     }
 
     static boolean rendererAvailable() {
@@ -355,7 +513,9 @@ class PdfSheetServiceTest {
         }
     }
 
-    private void writePreview(String fileName, byte[] pdf) throws Exception {
+    /** Writes one page of a rendered sheet as a PNG, for eyeballing. */
+    static void writePreview(String fileName, byte[] pdf) throws Exception {
+        Files.createDirectories(PREVIEW_DIR);
         try (PDDocument document = Loader.loadPDF(pdf)) {
             PDFRenderer renderer = new PDFRenderer(document);
             // Print resolution, so the preview is good enough to check before a print run.

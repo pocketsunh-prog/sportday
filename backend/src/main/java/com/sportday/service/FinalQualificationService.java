@@ -59,9 +59,20 @@ public class FinalQualificationService {
     private final RecordService recordService;
     private final FinalStageGuard finalStageGuard;
 
-    /** One athlete in the qualification ranking. */
+    /**
+     * One athlete in the qualification ranking.
+     *
+     * @param rank position by heat performance, 1-based — the best mark, which on a
+     *             track is the fastest. This is also the final's <em>seed</em>: how
+     *             the athlete got there, which is not the same number as the lane.
+     * @param lane the lane the school's draw gives that rank in the final, or 0 for a
+     *             rank that does not go through. {@link #drawnInto} fills it in from
+     *             {@link #laneForRank(int)} for the athletes who qualify, so a client
+     *             drawing a final is shown the lane it will actually use.
+     */
     public record Qualifier(
             int rank,
+            int lane,
             Long userId,
             String studentRef,
             String name,
@@ -71,6 +82,12 @@ public class FinalQualificationService {
             String house,
             BigDecimal heatMark,
             String unit) {
+
+        /** The same athlete, drawn into {@code lane} for the final. */
+        Qualifier inLane(int lane) {
+            return new Qualifier(rank, lane, userId, studentRef, name, grade, className,
+                    classNumber, house, heatMark, unit);
+        }
     }
 
     /** The final, and who is in it. */
@@ -102,7 +119,7 @@ public class FinalQualificationService {
         requireAFinalIsPossible(event);
         int size = resolveSize(event, limit);
         List<Qualifier> ranked = rank(event);
-        List<Qualifier> qualifiers = ranked.size() > size ? ranked.subList(0, size) : ranked;
+        List<Qualifier> qualifiers = drawnInto(ranked, size);
         EventGroup existing = groupRepository.findFirstByEventIdAndStage(eventId, EventStage.FINAL).orElse(null);
 
         return describe(event, size, ranked.size(), qualifiers, existing != null, existing, 0, null);
@@ -128,7 +145,7 @@ public class FinalQualificationService {
                     "No heat results have been recorded for " + event.getName()
                             + " yet — enter the heat marks first, then draw the final.");
         }
-        List<Qualifier> qualifiers = ranked.size() > size ? ranked.subList(0, size) : ranked;
+        List<Qualifier> qualifiers = drawnInto(ranked, size);
 
         // Drop the previous final: its group, its field, and any marks recorded in it.
         int clearedMarks = clearFinal(eventId);
@@ -147,7 +164,9 @@ public class FinalQualificationService {
             entries.add(FinalEntry.builder()
                     .group(finalGroup)
                     .user(enrollmentUser(eventId, qualifier.userId()))
-                    .lane(qualifier.rank())
+                    .lane(qualifier.lane())
+                    // The seed is the entry order — how the athlete got here — while
+                    // the lane is the draw. They are different numbers.
                     .seed(qualifier.rank())
                     .seedMark(qualifier.heatMark())
                     .seedUnit(qualifier.unit())
@@ -250,6 +269,9 @@ public class FinalQualificationService {
             Student roster = rosters.get(userId);
             ranked.add(new Qualifier(
                     rank++,
+                    // The lane is the draw and belongs only to the athletes who go
+                    // through; `drawnInto` puts it on the top `size` of this list.
+                    0,
                     userId,
                     roster != null ? roster.getStudentId() : result.getUser().getUsername(),
                     roster != null ? roster.getName() : result.getUser().getFullName(),
@@ -264,6 +286,51 @@ public class FinalQualificationService {
     }
 
     // ------------------------------------------------------------- helpers
+
+    /**
+     * The lane a finalist runs in, drawn from their heat rank.
+     *
+     * <p>The school's draw puts the fastest qualifier in the <strong>middle</strong> of
+     * the track rather than in lane 1, and works outward from there:</p>
+     *
+     * <pre>
+     *   初賽成績 Heat rank   1  2  3  4  5  6  7  8
+     *   線道     Lane        3  4  5  6  7  8  2  1
+     * </pre>
+     *
+     * <p>So ranks 1–6 take lanes 3 to 8 in order, and the two slowest qualifiers are
+     * put on the outside — lane 2, then lane 1. With fewer than eight qualifiers the
+     * same rule simply stops early: five runners take lanes 3, 4, 5, 6 and 7, and no
+     * two of them ever share a lane.</p>
+     *
+     * <p>A rank past eight has no lane left to draw from a standard eight-lane track.
+     * Rather than invent one, the lane falls back to the rank so nothing is lost —
+     * an event with more than eight qualifiers is not a lane race the school runs.</p>
+     */
+    static int laneForRank(int rank) {
+        if (rank < 1 || rank > LANES) {
+            return rank;
+        }
+        // Ranks 1-6 fill the middle lanes outwards; 7 and 8 go to the outside.
+        return rank <= 6 ? rank + 2 : 9 - rank;
+    }
+
+    /** The lanes a standard track has; the school's draw works within them. */
+    static final int LANES = 8;
+
+    /**
+     * The athletes who go through — the best {@code size} of the ranking — each with
+     * the lane the school's draw gives their rank.
+     *
+     * <p>This is the one place the draw is applied on the way out, so the lane a
+     * preview shows an athlete is the lane the drawn final puts them in.</p>
+     */
+    private static List<Qualifier> drawnInto(List<Qualifier> ranked, int size) {
+        List<Qualifier> through = ranked.size() > size ? ranked.subList(0, size) : ranked;
+        return through.stream()
+                .map(qualifier -> qualifier.inLane(laneForRank(qualifier.rank())))
+                .toList();
+    }
 
     private int resolveSize(Event event, Integer limit) {
         if (limit != null && limit > 0) {

@@ -2,10 +2,12 @@ package com.sportday.service;
 
 import com.sportday.dto.EnrollmentDTO;
 import com.sportday.dto.EventGroupDTO;
+import com.sportday.dto.EventRecordDTO;
 import com.sportday.entity.Enrollment;
 import com.sportday.entity.Event;
 import com.sportday.entity.EventCategory;
 import com.sportday.entity.EventGroup;
+import com.sportday.entity.EventResult;
 import com.sportday.entity.EventStage;
 import com.sportday.entity.FinalEntry;
 import com.sportday.entity.Sex;
@@ -201,7 +203,12 @@ public class EventGroupService {
         if (!eventRepository.existsById(eventId)) {
             throw new ResourceNotFoundException("Event not found with id: " + eventId);
         }
-        return groupsOf(eventId).stream().map(group -> withAthletes(group, false)).toList();
+        beginRender();
+        try {
+            return groupsOf(eventId).stream().map(group -> withAthletes(group, false)).toList();
+        } finally {
+            endRender();
+        }
     }
 
     /** One group including its full roster — used to render a marking sheet. */
@@ -209,7 +216,12 @@ public class EventGroupService {
     public EventGroupDTO getGroup(Long groupId) {
         EventGroup group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new ResourceNotFoundException("Group not found with id: " + groupId));
-        return withAthletes(group, true);
+        beginRender();
+        try {
+            return withAthletes(group, true);
+        } finally {
+            endRender();
+        }
     }
 
     /** All groups of an event with their rosters, heats first and then the final. */
@@ -218,7 +230,12 @@ public class EventGroupService {
         if (!eventRepository.existsById(eventId)) {
             throw new ResourceNotFoundException("Event not found with id: " + eventId);
         }
-        return groupsOf(eventId).stream().map(group -> withAthletes(group, true)).toList();
+        beginRender();
+        try {
+            return groupsOf(eventId).stream().map(group -> withAthletes(group, true)).toList();
+        } finally {
+            endRender();
+        }
     }
 
     /**
@@ -273,11 +290,16 @@ public class EventGroupService {
                 .filter(e -> category == null || e.getCategoryOrDefault() == category)
                 .sorted(EventService.EVENT_ORDER)
                 .toList();
-        List<EventGroupDTO> result = new ArrayList<>();
-        for (Event event : events) {
-            result.addAll(getGroupsWithAthletes(event.getId()));
+        beginRender();
+        try {
+            List<EventGroupDTO> result = new ArrayList<>();
+            for (Event event : events) {
+                result.addAll(getGroupsWithAthletes(event.getId()));
+            }
+            return result;
+        } finally {
+            endRender();
         }
-        return result;
     }
 
     /** Heats in heat order, then the final, whichever group numbers they carry. */
@@ -317,6 +339,7 @@ public class EventGroupService {
 
     private EventGroupDTO withAthletes(EventGroup group, boolean includeAthletes) {
         EventGroupDTO dto = EventGroupDTO.from(group);
+        withRecord(dto, group.getEvent());
         if (!includeAthletes) {
             return dto;
         }
@@ -324,11 +347,102 @@ public class EventGroupService {
         return dto;
     }
 
+    // ------------------------------------------------------- the school record
+
+    /**
+     * The school record this sheet prints in its header, put on the group as it is
+     * built rather than looked up by the PDF renderer.
+     *
+     * <p>A record belongs to the <em>event</em> — its type, division and grade — so
+     * every group of an event carries the same one and the sheet can print it for
+     * nothing. The record is read at most once per event per render: a whole-
+     * programme print run of every group of every event pays one indexed lookup per
+     * event that has a record, never one per sheet and certainly not one per athlete
+     * row. An event with no record is a miss rather than a cached blank — that is
+     * the cheap case, and it keeps the blank out of the cache.</p>
+     *
+     * <p>An event with no record carries none, and the sheet leaves the line out
+     * rather than printing a dash or the word "none". A record that only exists
+     * because of this season's results counts as no record — see below.</p>
+     */
+    private void withRecord(EventGroupDTO dto, Event event) {
+        if (event == null || event.getType() == null || event.getSex() == null || event.getGrade() == null) {
+            return;
+        }
+        EventRecordDTO record = renderRecords.get()
+                .computeIfAbsent(event.getType() + "|" + event.getSex() + "|" + event.getGrade(),
+                        key -> recordService.record(event.getType(), event.getSex(), event.getGrade()));
+        /*
+         * Which mark is "the record to beat" — and why it is not `record.getMark()`.
+         *
+         * `mark` is the STANDING record: the service keeps it equal to the better of
+         * the entered baseline and the best result recorded so far. During the meeting
+         * that means it is today's leading performance, so printing it under 紀錄 would
+         * tell a helper that the school record is a time run twenty minutes ago by
+         * someone standing in the next lane — and it would creep upward all afternoon
+         * as the results came in.
+         *
+         * The record a helper needs is the one that stood BEFORE this season's results:
+         * the previous mark, or a baseline typed in from the school's own history. With
+         * neither there is no record, and the sheet prints no line rather than
+         * presenting today's best as one.
+         */
+        boolean fromPrevious = record != null && record.getPreviousMark() != null;
+        BigDecimal mark = fromPrevious
+                ? record.getPreviousMark()
+                : (record == null ? null : record.getManualMark());
+        if (mark == null) {
+            return;
+        }
+        String unit = fromPrevious ? record.getUnit() : record.getManualUnit();
+        dto.setRecordDisplayMark(MarkFormatter.formatWithUnit(mark, event.getType(), unit));
+        dto.setRecordHolderName(fromPrevious
+                ? record.getPreviousHolderName() : record.getManualHolderName());
+        dto.setRecordAchievedOn(fromPrevious
+                ? record.getPreviousAchievedOn() : record.getManualAchievedOn());
+    }
+
+    /**
+     * The records already read during one render, so two groups of the same event
+     * share a lookup. Held on the thread doing the render and cleared when the
+     * outermost read returns, so nothing is cached between requests and a record
+     * set while a print run is running is never served stale.
+     *
+     * <p>An event group service is a singleton and a print run is long, so this is
+     * deliberately a thread-local rather than a field.</p>
+     */
+    private final ThreadLocal<Map<String, EventRecordDTO>> renderRecords =
+            ThreadLocal.withInitial(HashMap::new);
+
+    /**
+     * Marks the depth of nested reads on this thread; the outermost one clears the
+     * record cache as it returns, so the cache lives exactly as long as one render.
+     */
+    private final ThreadLocal<Integer> renderDepth = ThreadLocal.withInitial(() -> 0);
+
+    private void beginRender() {
+        renderDepth.set(renderDepth.get() + 1);
+    }
+
+    private void endRender() {
+        int depth = renderDepth.get() - 1;
+        if (depth <= 0) {
+            renderDepth.remove();
+            renderRecords.remove();
+        } else {
+            renderDepth.set(depth);
+        }
+    }
+
     /**
      * The group's athletes as {@link EnrollmentDTO}s, whichever stage it is.
      *
      * <p>For the final the athlete's own event entry supplies the name, class and
-     * house, while the group and lane come from the final itself.</p>
+     * house, while the group and lane come from the final itself — and each athlete
+     * also carries the heat they ran to get there, so the final's marking sheet can
+     * print that heat record beside the box the final is written in. It takes one
+     * extra query for the whole roster, and a heat's own roster has no earlier
+     * stage, so it carries none.</p>
      */
     @Transactional(readOnly = true)
     public List<EnrollmentDTO> athletesOf(EventGroup group) {
@@ -345,6 +459,9 @@ public class EventGroupService {
             }
         }
         Map<Long, Student> rosters = rosterByUser(new ArrayList<>(entries.values()));
+        Map<Long, EventResult> heatResults = group.isFinal()
+                ? heatResultsByUser(group.getEvent().getId())
+                : Map.of();
 
         List<EnrollmentDTO> athletes = new ArrayList<>(members.size());
         for (GroupMember member : members) {
@@ -359,9 +476,33 @@ public class EventGroupService {
             dto.setGroupNumber(group.getGroupNumber());
             dto.setGroupLabel(group.getLabel());
             dto.setLane(member.lane());
+            if (group.isFinal()) {
+                EventResult heat = heatResults.get(member.userId());
+                Event.EventType type = group.getEvent().getType();
+                dto.setHeatMark(heat == null ? null : heat.getMark());
+                dto.setHeatOutcome(heat == null ? null : heat.getOutcomeOrDefault().name());
+                dto.setHeatDisplayMark(MarkFormatter.formatRecord(heat, type,
+                        type == null ? null : type.getDefaultUnit()));
+            }
             athletes.add(dto);
         }
         return athletes;
+    }
+
+    /**
+     * The heat results of an event by athlete — one query for a whole roster, so a
+     * final sheet never looks a mark up per row. A duplicate row (which the unique
+     * key forbids) would keep the first.
+     */
+    private Map<Long, EventResult> heatResultsByUser(Long eventId) {
+        Map<Long, EventResult> byUser = new HashMap<>();
+        for (EventResult result : resultRepository.findByEventIdAndStageOrderByMarkAsc(
+                eventId, EventStage.HEAT)) {
+            if (result.getUser() != null) {
+                byUser.putIfAbsent(result.getUser().getId(), result);
+            }
+        }
+        return byUser;
     }
 
     /** One query for all the rosters behind a set of entries. */

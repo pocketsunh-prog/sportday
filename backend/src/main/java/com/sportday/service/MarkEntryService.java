@@ -49,6 +49,12 @@ import java.util.stream.Collectors;
  * final time never overwrites the heat time that earned the athlete their place.
  * Which stage a grid covers is decided by the group it is showing, or by the
  * {@code stage} on the request.</p>
+ *
+ * <p>A <strong>final</strong> grid also carries the heat each finalist ran
+ * ({@link MarkRowDTO#getHeatMark() heatMark} / {@link MarkRowDTO#getHeatDisplayMark()
+ * heatDisplayMark}), because the final is drawn from those heat marks and the person
+ * writing the final down needs to see what earned the place. A heat grid carries
+ * none, having no earlier stage to show.</p>
  */
 @Slf4j
 @Service
@@ -149,8 +155,17 @@ public class MarkEntryService {
         List<Long> userIds = candidates.stream().map(Candidate::userId).distinct().toList();
         Map<Long, Student> rosters = rostersFor(userIds);
         Map<Long, EventResult> results = resultsFor(eventId, effectiveStage);
+        // A final's grid shows what each finalist ran in their heat, because that
+        // is the performance that put them in the final. One query for the whole
+        // sheet — and none at all for a heat sheet, which has no earlier stage.
+        Map<Long, EventResult> heatResults = effectiveStage == EventStage.FINAL
+                ? resultsFor(eventId, EventStage.HEAT)
+                : Map.of();
         // One lookup, so a record-breaking row can be badged as it is entered.
         Set<Long> recordHolders = recordService.recordResultIds();
+
+        Event.EventType type = event.getType();
+        String defaultUnit = type == null ? null : type.getDefaultUnit();
 
         List<MarkRowDTO> rows = new ArrayList<>();
         Set<String> grades = new LinkedHashSet<>();
@@ -163,6 +178,7 @@ public class MarkEntryService {
                 continue;
             }
             EventResult result = results.get(candidate.userId());
+            EventResult heat = heatResults.get(candidate.userId());
             rows.add(MarkRowDTO.builder()
                     .userId(candidate.userId())
                     .studentRef(roster != null ? roster.getStudentId() : String.valueOf(candidate.userId()))
@@ -185,6 +201,9 @@ public class MarkEntryService {
                             ? new ArrayList<>(result.getAttempts()) : null)
                     .minutes(minutesOf(result == null ? null : result.getMark()))
                     .seconds(secondsOf(result == null ? null : result.getMark()))
+                    .heatMark(heat == null ? null : heat.getMark())
+                    .heatOutcome(heat == null ? null : heat.getOutcomeOrDefault().name())
+                    .heatDisplayMark(MarkFormatter.formatRecord(heat, type, defaultUnit))
                     .build());
         }
 
@@ -193,7 +212,6 @@ public class MarkEntryService {
 
         boolean finalDrawn = eventGroupService.finalDrawn(eventId);
         FinalStageGuard.FinalState finalState = FinalStageGuard.state(event, finalDrawn);
-        Event.EventType type = event.getType();
         boolean field = event.getCategoryOrDefault() == EventCategory.FIELD;
         return MarkSheetDTO.builder()
                 .eventId(event.getId())

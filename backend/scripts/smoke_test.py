@@ -2711,6 +2711,54 @@ def main() -> int:
     check(helper_name not in names, "and the throwaway helper is removed",
           f"still there: {helper_name in names}")
 
+    # ---------------- 23. the heat record follows the final
+    section("23. A final shows the heat record it was run from")
+
+    status, now_events = api.request("GET", "/events", token=admin_token)
+    drawn = None
+    for candidate in now_events:
+        if candidate["type"] not in ("RUN_60M", "RUN_100M", "RUN_200M", "RUN_400M"):
+            continue
+        status, candidate_sheet = api.request(
+            "GET", f"/events/{candidate['id']}/marks?stage=FINAL", token=admin_token)
+        if status == 200 and isinstance(candidate_sheet, dict) \
+                and candidate_sheet.get("finalState") == "DRAWN":
+            drawn = (candidate, candidate_sheet)
+            break
+
+    check(drawn is not None, "the programme has a drawn final to look at")
+    if drawn:
+        event, final_sheet = drawn
+        with_heat = [r for r in final_sheet["rows"] if r.get("heatDisplayMark")]
+        check(bool(with_heat),
+              "a finalist's grid row carries the heat result they ran",
+              f"rows={len(final_sheet['rows'])} withHeat={len(with_heat)}")
+        check(all(r.get("heatOutcome") in ("RESULT", "ABS", "DQ") for r in with_heat),
+              "as a readable value plus the outcome behind it",
+              f"got {[r.get('heatOutcome') for r in with_heat][:4]}")
+        sample = with_heat[0]
+        check(any(ch.isdigit() for ch in str(sample.get("heatDisplayMark")))
+              or sample.get("heatMark") is None,
+              "reading as a time or a distance, or as ABS/DQ",
+              f"got {sample.get('heatDisplayMark')}")
+
+        # The heat grid must not gain the field — it is the same grid it always was.
+        status, heat_sheet = api.request(
+            "GET", f"/events/{event['id']}/marks?stage=HEAT", token=admin_token)
+        if status == 200 and isinstance(heat_sheet, dict):
+            polluted = [r for r in heat_sheet["rows"] if r.get("heatDisplayMark")]
+            check(not polluted, "while a heat grid carries no heat record of its own",
+                  f"got {len(polluted)} of {len(heat_sheet['rows'])}")
+
+        # And the final's marking sheet prints that same heat column.
+        status, final_pdf = api.request(
+            "GET", f"/groups/{final_sheet.get('groups', [{}])[0].get('id')}/sheet.pdf"
+            if final_sheet.get("groups") else f"/events/{event['id']}/sheets.pdf",
+            token=admin_token, raw=True)
+        check(isinstance(final_pdf, bytes) and final_pdf[:4] == b"%PDF",
+              "and the final's marking sheet prints",
+              f"status={status}")
+
     # ------------------------------------------------------------------ summary
     section("Summary")
     print(f"  checks run : {CHECKS}")

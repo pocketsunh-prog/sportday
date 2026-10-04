@@ -405,11 +405,26 @@ class FinalQualificationServiceTest {
         ArgumentCaptor<List<FinalEntry>> entries = ArgumentCaptor.forClass(List.class);
         verify(finalEntryRepository).saveAll(entries.capture());
         assertEquals(8, entries.getValue().size());
-        assertEquals(1, entries.getValue().get(0).getLane());
-        assertEquals(1, entries.getValue().get(0).getSeed());
+        // The lane is the draw, the seed is the entry order — and the school's draw
+        // puts the fastest qualifier in the middle of the track, not in lane 1.
+        assertEquals(3, entries.getValue().get(0).getLane(),
+                "the fastest heat rank runs in lane 3");
+        assertEquals(1, entries.getValue().get(0).getSeed(),
+                "while the seed is still the rank they qualified at");
         assertEquals(new BigDecimal("10.100"), entries.getValue().get(0).getSeedMark(),
                 "the seeding keeps the heat mark that earned the place");
-        assertEquals(8, entries.getValue().get(7).getLane());
+        assertEquals(2, entries.getValue().get(6).getLane(),
+                "the seventh qualifier is on the outside, in lane 2");
+        assertEquals(1, entries.getValue().get(7).getLane(),
+                "and the slowest qualifier has lane 1");
+        // The whole table the school wrote, rank 1..8 against lane 3,4,5,6,7,8,2,1,
+        // read back off the rows that were actually written.
+        assertEquals(List.of(3, 4, 5, 6, 7, 8, 2, 1), entries.getValue().stream()
+                        .map(FinalEntry::getLane).toList(),
+                "the entries carry the school's lanes, not the ranks");
+        assertEquals(List.of(1, 2, 3, 4, 5, 6, 7, 8), entries.getValue().stream()
+                        .map(FinalEntry::getSeed).toList(),
+                "while the seed stays the qualification rank");
     }
 
     @Test
@@ -479,6 +494,15 @@ class FinalQualificationServiceTest {
                 .outcome(value).build());
     }
 
+    /** A heat row for an athlete still entered, but with nothing written down. */
+    private void recordNoMark(long userId) {
+        User athlete = user(userId);
+        recorded.add(EventResult.builder()
+                .id(userId).user(athlete).event(event).stage(EventStage.HEAT)
+                .outcome(EventResult.Outcome.RESULT)
+                .build());
+    }
+
     @Test
     @DisplayName("an athlete who was absent or disqualified cannot qualify for the final")
     void absentAthletesCannotQualify() {
@@ -539,5 +563,136 @@ class FinalQualificationServiceTest {
         assertTrue(entries.getValue().stream()
                         .noneMatch(entry -> entry.getUser().getId() == 40L),
                 "a disqualified athlete is not in the final's field");
+    }
+
+    @Test
+    @DisplayName("a heat entry with no mark cannot qualify either — nothing was run")
+    void aHeatEntryWithoutAMarkCannotQualify() {
+        // The three ways a heat row can carry no performance: an empty box, ABS and
+        // DQ. Only a mark gets an athlete to the final, so all three stay out — and
+        // the two who ran are not pushed out of the field by them.
+        record(1, "11.900");
+        record(2, "12.400");
+        recordNoMark(6);
+        recordOutcome(7, EventResult.Outcome.ABS);
+        recordOutcome(8, EventResult.Outcome.DQ);
+        givenHeatMarks();
+
+        var preview = service.preview(EVENT_ID, null);
+
+        assertEquals(2, preview.rankedAthletes(), "only the two with a mark are ranked");
+        assertEquals(2, preview.qualified());
+        assertEquals(List.of(1L, 2L), preview.qualifiers().stream()
+                .map(FinalQualificationService.Qualifier::userId).toList());
+        for (long excluded : List.of(6L, 7L, 8L)) {
+            assertTrue(preview.qualifiers().stream().noneMatch(q -> q.userId() == excluded),
+                    "athlete " + excluded + " produced no heat mark, so has no final");
+        }
+
+        // And the draw itself leaves the same three out of the final's field.
+        var drawn = service.generate(EVENT_ID, null);
+        assertEquals(2, drawn.qualified());
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<FinalEntry>> entries = ArgumentCaptor.forClass(List.class);
+        verify(finalEntryRepository).saveAll(entries.capture());
+        assertEquals(List.of(1L, 2L), entries.getValue().stream()
+                .map(entry -> entry.getUser().getId()).toList());
+    }
+
+    // ------------------------------------------------------------- the lane draw
+
+    @Test
+    @DisplayName("the preview shows the lane each qualifier would be drawn into")
+    void previewShowsTheDrawnLanes() {
+        for (int i = 1; i <= 8; i++) {
+            record(i, String.format("%.3f", 10.0 + i * 0.1));
+        }
+        givenHeatMarks();
+
+        var summary = service.preview(EVENT_ID, null);
+
+        // A client drawing the final is shown the lanes it will actually use, so the
+        // fastest qualifier is not offered lane 1.
+        assertEquals(List.of(3, 4, 5, 6, 7, 8, 2, 1), summary.qualifiers().stream()
+                        .map(FinalQualificationService.Qualifier::lane).toList(),
+                "rank 1..8 is drawn into lanes 3,4,5,6,7,8,2,1");
+        assertEquals(List.of(1, 2, 3, 4, 5, 6, 7, 8), summary.qualifiers().stream()
+                        .map(FinalQualificationService.Qualifier::rank).toList(),
+                "while the ranking a client shows stays in performance order");
+        // And the preview writes nothing.
+        verify(finalEntryRepository, never()).saveAll(any());
+    }
+
+    @Test
+    @DisplayName("a limit of five is drawn into lanes 3 to 7, one lane each")
+    void fiveQualifiersTakeLanesThreeToSeven() {
+        for (int i = 1; i <= 9; i++) {
+            record(i, String.format("%.3f", 10.0 + i * 0.1));
+        }
+        givenHeatMarks();
+
+        var summary = service.generate(EVENT_ID, 5);
+
+        assertEquals(5, summary.qualified(), "the limit still decides how many go through");
+        assertEquals(List.of(3, 4, 5, 6, 7), summary.qualifiers().stream()
+                        .map(FinalQualificationService.Qualifier::lane).toList(),
+                "five qualifiers take the middle lanes outwards, 3 to 7");
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<FinalEntry>> entries = ArgumentCaptor.forClass(List.class);
+        verify(finalEntryRepository).saveAll(entries.capture());
+        List<Integer> lanes = entries.getValue().stream().map(FinalEntry::getLane).toList();
+        assertEquals(List.of(3, 4, 5, 6, 7), lanes, "the drawn final's rows carry those lanes");
+        assertEquals(5, lanes.stream().distinct().count(), "and no two of them share a lane");
+    }
+
+    @Test
+    @DisplayName("re-drawing a final moves an athlete to the lane their new rank earns")
+    void redrawingMovesAnAthleteToTheirNewLane() {
+        record(1, "11.000");
+        record(2, "12.000");
+        givenHeatMarks();
+
+        service.generate(EVENT_ID, null);
+
+        // Athlete 2 runs a faster heat before the final is drawn again, so the two
+        // swap places in the ranking — and therefore lanes.
+        recorded.clear();
+        record(1, "12.500");
+        record(2, "11.500");
+        givenHeatMarks();
+        EventGroup previous = EventGroup.builder()
+                .id(55L).event(event).groupNumber(EventGroup.FINAL_GROUP_NUMBER)
+                .stage(EventStage.FINAL).capacity(8).athleteCount(2).build();
+        when(groupRepository.findFirstByEventIdAndStage(EVENT_ID, EventStage.FINAL))
+                .thenReturn(Optional.of(previous));
+
+        var second = service.generate(EVENT_ID, null);
+
+        assertEquals(List.of(2L, 1L), second.qualifiers().stream()
+                .map(FinalQualificationService.Qualifier::userId).toList());
+        assertEquals(List.of(3, 4), second.qualifiers().stream()
+                .map(FinalQualificationService.Qualifier::lane).toList());
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<FinalEntry>> entries = ArgumentCaptor.forClass(List.class);
+        verify(finalEntryRepository, times(2)).saveAll(entries.capture());
+        List<List<FinalEntry>> drawn = entries.getAllValues();
+        assertEquals(3, laneOf(drawn.get(0), 1L), "athlete 1 qualified fastest first time");
+        assertEquals(4, laneOf(drawn.get(1), 1L), "and the re-draw moved them to lane 4");
+        assertEquals(4, laneOf(drawn.get(0), 2L), "athlete 2 had lane 4");
+        assertEquals(3, laneOf(drawn.get(1), 2L), "and took the middle lane of the new draw");
+        // The old field is deleted before the replacement is written, so nothing of
+        // the previous draw — lane included — is left behind.
+        verify(finalEntryRepository).deleteByGroupId(55L);
+    }
+
+    /** The lane a final's saved rows give an athlete; null when they are not in it. */
+    private static Integer laneOf(List<FinalEntry> entries, long userId) {
+        return entries.stream()
+                .filter(entry -> entry.getUser().getId() == userId)
+                .map(FinalEntry::getLane)
+                .findFirst()
+                .orElse(null);
     }
 }

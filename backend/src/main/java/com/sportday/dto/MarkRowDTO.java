@@ -62,4 +62,31 @@ public class MarkRowDTO {
      */
     private Integer minutes;
     private BigDecimal seconds;
+
+    // ---- what they did in the heat, on a final's grid ----
+
+    /**
+     * The athlete's <strong>heat</strong> performance, in the event's own unit,
+     * so a final grid can show what they ran to get there. Null when the heat
+     * produced no number — {@link #heatOutcome} says what happened instead — and
+     * null with {@link #heatOutcome} on a heat sheet, which has no earlier stage
+     * to show.
+     */
+    private BigDecimal heatMark;
+
+    /**
+     * What the athlete's heat came to: {@code RESULT}, {@code ABS} or {@code DQ}
+     * — the same vocabulary as {@link #outcome}, so a client needs no second one.
+     * Null when the athlete has no heat record at all.
+     */
+    private String heatOutcome;
+
+    /**
+     * The heat performance as it reads — {@code 11.86s}, {@code 1.04.123s},
+     * {@code 18.12M} — or {@code ABS}/{@code DQ} when the heat produced no mark.
+     * Never null while there is a heat record, so a final grid can print it
+     * without consulting {@link #heatMark} and {@link #heatOutcome} first; both
+     * are null together when there is no heat record.
+     */
+    private String heatDisplayMark;
 }

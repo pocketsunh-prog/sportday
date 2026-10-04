@@ -37,9 +37,22 @@ import java.util.List;
  *   <li>remark (備註) — left blank</li>
  * </ol>
  *
+ * <p>A <strong>final</strong> sheet carries a sixth column, <strong>初賽 Heat</strong>,
+ * between the grade and the record boxes: the heat performance that earned the
+ * athlete their place, so the official holding the sheet can see what they ran in
+ * the heats beside the box the final is being written in. The record boxes stay
+ * blank. A heat sheet is unchanged — same columns, same paper.</p>
+ *
  * <p>Paper size follows the event: 60/100/200/400 run 8 to a group and print on
  * <strong>A5</strong>; everything else runs 24 to a group and prints on
  * <strong>A4</strong>.</p>
+ *
+ * <p>Under the event name the sheet carries the event's <strong>school record</strong>
+ * — the mark to beat — once per sheet, in the header block, for example
+ * {@code 紀錄 Record 7.406s — Chan Tai Man (2019)}. It is the record for the
+ * event's own type, division and grade, which is what the print run already knows
+ * about the group, so it arrives on the {@link EventGroupDTO} rather than being
+ * looked up here. An event with no record prints no such line.</p>
  */
 @Slf4j
 @Service
@@ -139,6 +152,18 @@ public class PdfSheetService {
         event.setSpacingAfter(a5 ? 2f : 3f);
         document.add(event);
 
+        // The school record for this event — the mark to beat — printed once per
+        // sheet, under the event name, in the sheet's own bilingual style. It comes
+        // off the group rather than out of a repository: the renderer draws DTOs, so
+        // a whole-programme print run costs no lookup here and none per athlete row.
+        String recordLine = recordLine(group);
+        if (recordLine != null) {
+            Paragraph record = new Paragraph(recordLine, metaFont);
+            record.setAlignment(Element.ALIGN_CENTER);
+            record.setSpacingAfter(a5 ? 2f : 3f);
+            document.add(record);
+        }
+
         StringBuilder meta = new StringBuilder();
         meta.append("項目 Event: ").append(nullSafe(group.getEventTypeLabel()));
         meta.append("  |  ").append(nullSafe(group.getCategoryLabel()));
@@ -168,22 +193,16 @@ public class PdfSheetService {
 
         // ---- the columns ----
         // A field event gives three attempts and the best one counts, so its sheet
-        // carries three boxes under one Record heading instead of one.
+        // carries three boxes under one Record heading instead of one. A final sheet
+        // gains a 初賽 Heat column beside them, carrying what each finalist ran in
+        // the heats that earned the place — and leaves the boxes below it blank.
         boolean field = "FIELD".equals(group.getCategory());
+        boolean finalStage = isFinal(group);
         int attempts = field ? Event.EventType.FIELD_ATTEMPTS : 1;
-        int columns = 3 + attempts + 1;
-        PdfPTable table = new PdfPTable(columns);
+        PdfPTable table = new PdfPTable(columnCount(group));
         table.setWidthPercentage(100f);
-        // student id | name | grade | record (1..n) | remark
-        if (field) {
-            table.setWidths(a5
-                    ? new float[]{1.9f, 2.4f, 0.8f, 1.05f, 1.05f, 1.05f, 1.75f}
-                    : new float[]{2.0f, 2.7f, 0.8f, 1.1f, 1.1f, 1.1f, 1.7f});
-        } else {
-            table.setWidths(a5
-                    ? new float[]{2.1f, 2.7f, 1.0f, 2.0f, 2.0f}
-                    : new float[]{2.2f, 3.0f, 0.9f, 2.0f, 1.9f});
-        }
+        // student id | name | grade | [初賽 Heat] | record (1..n) | remark
+        table.setWidths(widths(field, finalStage, a5));
         table.setHeaderRows(field ? 2 : 1);
 
         String unit = unitFor(group);
@@ -193,6 +212,12 @@ public class PdfSheetService {
             table.addCell(headerCell("學號", "Student ID", headFont, metaFont, a5, 1, 2));
             table.addCell(headerCell("姓名", "Name", headFont, metaFont, a5, 1, 2));
             table.addCell(headerCell("級別", "Grade", headFont, metaFont, a5, 1, 2));
+            if (finalStage) {
+                // A field event runs straight to a final, so this column is only
+                // ever reached by a final sheet somebody has created by hand — and
+                // it still lays out rather than throwing on the width array.
+                table.addCell(headerCell("初賽", "Heat", headFont, metaFont, a5, 1, 2));
+            }
             table.addCell(headerCell("成績 Record" + (unit == null ? "" : " (" + unit + ")"),
                     null, headFont, metaFont, a5, attempts, 1));
             table.addCell(headerCell("備註", "Remark", headFont, metaFont, a5, 1, 2));
@@ -203,6 +228,11 @@ public class PdfSheetService {
             table.addCell(headerCell("學號", "Student ID", headFont, metaFont, a5));
             table.addCell(headerCell("姓名", "Name", headFont, metaFont, a5));
             table.addCell(headerCell("級別", "Grade", headFont, metaFont, a5));
+            if (finalStage) {
+                // The heat that earned the place, printed beside the blank box the
+                // final is written in. The value carries its own unit (11.86s).
+                table.addCell(headerCell("初賽", "Heat", headFont, metaFont, a5));
+            }
             table.addCell(headerCell("成績", "Record", headFont, metaFont, a5));
             table.addCell(headerCell("備註", "Remark", headFont, metaFont, a5));
         }
@@ -221,6 +251,12 @@ public class PdfSheetService {
                     cellFont, Element.ALIGN_LEFT, rowHeight, a5));
             table.addCell(bodyCell(athlete == null || athlete.getGrade() == null ? "" : athlete.getGrade(),
                     cellFont, Element.ALIGN_CENTER, rowHeight, a5));
+            if (finalStage) {
+                // What they ran in the heat — or ABS / DQ when the heat produced no
+                // number. A padded line, for an entry that arrived late, stays blank.
+                table.addCell(bodyCell(athlete == null ? "" : nullSafe(athlete.getHeatDisplayMark()),
+                        cellFont, Element.ALIGN_CENTER, rowHeight, a5));
+            }
             for (int attempt = 0; attempt < attempts; attempt++) {
                 table.addCell(bodyCell("", cellFont, Element.ALIGN_CENTER, rowHeight, a5));
             }
@@ -233,6 +269,94 @@ public class PdfSheetService {
                 metaFont);
         footer.setSpacingBefore(a5 ? 7f : 10f);
         document.add(footer);
+    }
+
+    /**
+     * True when this sheet is a final's — the only sheet that carries a heat
+     * record, because it is the only one with an earlier stage to show.
+     */
+    static boolean isFinal(EventGroupDTO group) {
+        return group != null && "FINAL".equalsIgnoreCase(group.getStage());
+    }
+
+    /**
+     * The header line carrying the event's school record — the mark to beat — or
+     * null when the event has none.
+     *
+     * <pre>
+     *   紀錄 Record 7.406s
+     *   紀錄 Record 7.406s — Chan Tai Man (2019)
+     *   紀錄 Record 18.12M — 陳大文 (2016)
+     * </pre>
+     *
+     * <p>The mark is already formatted with its unit, by {@link MarkFormatter}, so
+     * it reads exactly as a result reads anywhere else on the sheet. The holder and
+     * the year are printed when the record knows them, because a helper holding the
+     * sheet has a use for both; the em dash is drawn on one line rather than as a
+     * second, because an A5 sheet has no room to spare in its header.</p>
+     *
+     * <p><strong>No record, no line.</strong> An event nobody has a mark for prints
+     * nothing where the record would be — not a dash and not the word "none", which
+     * a helper could read as a mark.</p>
+     */
+    static String recordLine(EventGroupDTO group) {
+        String mark = group == null ? null : group.getRecordDisplayMark();
+        if (mark == null || mark.isBlank()) {
+            return null;
+        }
+        StringBuilder line = new StringBuilder("紀錄 Record ").append(mark);
+        String holder = group.getRecordHolderName();
+        String year = group.getRecordAchievedOn() == null
+                ? null : String.valueOf(group.getRecordAchievedOn().getYear());
+        if (holder != null && !holder.isBlank()) {
+            line.append(" — ").append(holder.trim());
+        }
+        if (year != null) {
+            line.append(" (").append(year).append(')');
+        }
+        return line.toString();
+    }
+
+    /**
+     * How many columns the table has: student id, name, grade, the record boxes,
+     * the remark — and, on a final sheet, the heat record between the grade and
+     * the record. Five for a track heat (unchanged), seven for a field one,
+     * six and eight respectively once the heat column is added.
+     */
+    static int columnCount(EventGroupDTO group) {
+        int attempts = "FIELD".equals(group.getCategory()) ? Event.EventType.FIELD_ATTEMPTS : 1;
+        return 3 + attempts + 1 + (isFinal(group) ? 1 : 0);
+    }
+
+    /**
+     * The column widths, in the order the columns are drawn: student id, name,
+     * grade, [初賽 Heat], record (1..n), remark.
+     *
+     * <p>A heat sheet's array is exactly what it always was. A final's array has
+     * one more entry than a heat's, including the one case that should not arise —
+     * a <em>field</em> final, where a field event runs straight to a final — so a
+     * sheet like that lays out rather than throwing on a width array that does not
+     * match its columns.</p>
+     */
+    static float[] widths(boolean field, boolean finalStage, boolean a5) {
+        if (field && finalStage) {
+            return a5
+                    ? new float[]{1.5f, 2.0f, 0.7f, 1.5f, 0.95f, 0.95f, 0.95f, 1.5f}
+                    : new float[]{1.6f, 2.2f, 0.7f, 1.6f, 1.0f, 1.0f, 1.0f, 1.4f};
+        }
+        if (field) {
+            return a5
+                    ? new float[]{1.9f, 2.4f, 0.8f, 1.05f, 1.05f, 1.05f, 1.75f}
+                    : new float[]{2.0f, 2.7f, 0.8f, 1.1f, 1.1f, 1.1f, 1.7f};
+        }
+        if (finalStage) {
+            return a5
+                    ? new float[]{1.8f, 2.3f, 0.85f, 1.55f, 1.8f, 1.7f}
+                    : new float[]{1.9f, 2.6f, 0.85f, 1.65f, 1.9f, 1.8f};
+        }
+        return a5
+                ? new float[]{2.1f, 2.7f, 1.0f, 2.0f, 2.0f}
+                : new float[]{2.2f, 3.0f, 0.9f, 2.0f, 1.9f};
     }
 
     /** Chooses a row height that fills the sheet without overflowing the page. */

@@ -176,4 +176,43 @@ class MarkFormatterTest {
                 null, new BigDecimal("64.123"), FOUR_HUNDRED, "s"));
         assertNull(MarkFormatter.formatWithOutcome(null, null, HUNDRED, "s"));
     }
+
+    // ------------------------------------- a stored row, as a sheet shows it
+
+    private static EventResult stored(EventResult.Outcome outcome, String mark, String unit) {
+        return EventResult.builder()
+                .outcome(outcome)
+                .mark(mark == null ? null : new BigDecimal(mark))
+                .unit(unit)
+                .build();
+    }
+
+    @Test
+    @DisplayName("a stored result reads with its unit, or as ABS / DQ when it has no mark")
+    void aStoredResultReads() {
+        assertEquals("11.86s", MarkFormatter.formatRecord(
+                stored(EventResult.Outcome.RESULT, "11.860", "s"), HUNDRED, "s"));
+        assertEquals("1.04.123s", MarkFormatter.formatRecord(
+                stored(EventResult.Outcome.RESULT, "64.123", null), FOUR_HUNDRED, "seconds"),
+                "the event's own unit stands in when the row carries none");
+        assertEquals("18.12M", MarkFormatter.formatRecord(
+                stored(EventResult.Outcome.RESULT, "18.12", "M"), SHOT, "M"));
+        assertEquals("ABS", MarkFormatter.formatRecord(
+                stored(EventResult.Outcome.ABS, null, null), HUNDRED, "s"));
+        assertEquals("DQ", MarkFormatter.formatRecord(
+                stored(EventResult.Outcome.DQ, null, null), HUNDRED, "s"));
+        assertNull(MarkFormatter.formatRecord(null, HUNDRED, "s"),
+                "no record at all is nothing to show");
+    }
+
+    @Test
+    @DisplayName("a row with an outcome but no number still says what it was")
+    void anOutcomeWithNoNumberStillReads() {
+        // The one case the plain formatter cannot read, so a final sheet showing a
+        // heat beside the mark being written never shows a blank where a record is.
+        assertEquals("RESULT", MarkFormatter.formatRecord(
+                stored(EventResult.Outcome.RESULT, null, "s"), HUNDRED, "s"));
+        assertEquals("RESULT", MarkFormatter.formatRecord(
+                stored(null, null, null), HUNDRED, "s"));
+    }
 }

@@ -29,6 +29,11 @@ public class EventGroupDTO {
     private String categoryLabel;
     private String sex;
     private String sexLabel;
+
+    /** The one grade the event is run by — what the school record is keyed on. */
+    private String grade;
+    private String gradeLabel;
+
     private Integer groupNumber;
     private String label;
 
@@ -43,6 +48,25 @@ public class EventGroupDTO {
 
     /** {@code A5} for 60/100/200/400, otherwise {@code A4}. */
     private String sheetSize;
+
+    // ---------------------------------------------- the school record to beat
+
+    /**
+     * The event's own record, read the way every mark reads — {@code 7.406s},
+     * {@code 1.04.123s}, {@code 18.12M} — or null when there is no record yet.
+     *
+     * <p>It belongs to the event, not to the sheet: every group of an event carries
+     * the same one, and the marking sheet prints it once in its header. It is
+     * resolved while the group is built rather than by the renderer, so a
+     * whole-programme print run costs one record lookup per event.</p>
+     */
+    private String recordDisplayMark;
+
+    /** Who holds the record, when that is known. Null for a record with no name. */
+    private String recordHolderName;
+
+    /** When the record was set, when that is known. */
+    private java.time.LocalDate recordAchievedOn;
 
     @Builder.Default
     private List<EnrollmentDTO> athletes = new ArrayList<>();
@@ -60,6 +84,8 @@ public class EventGroupDTO {
                 .categoryLabel(event == null ? null : event.getCategoryOrDefault().getLabel())
                 .sex(event == null || event.getSex() == null ? null : event.getSex().name())
                 .sexLabel(event == null || event.getSex() == null ? null : event.getSex().getLabel())
+                .grade(event == null || event.getGrade() == null ? null : event.getGrade().name())
+                .gradeLabel(event == null || event.getGrade() == null ? null : event.getGrade().getLabel())
                 .groupNumber(group.getGroupNumber())
                 .label(group.getLabel())
                 .stage(stage.name())

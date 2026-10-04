@@ -363,6 +363,12 @@ export default function MarkEntryPage() {
    * which keeps the single box exactly as it was.
    */
   const timeInMinutes = !fieldEvent && !!sheet?.timeInMinutes;
+  /*
+   * A race timed to a thousandth rather than a bare count of seconds: 60M, 100M and
+   * 200M. Their mark box is masked `00.000`, so a helper types all three decimals
+   * and a time cannot be entered to the wrong precision by accident.
+   */
+  const sprintEvent = ['RUN_60M', 'RUN_100M', 'RUN_200M'].includes(sheet?.eventType ?? '');
   const attemptCount = fieldEvent ? sheet?.attemptCount ?? 3 : 1;
   const attemptIndexes = useMemo(
     () => Array.from({ length: attemptCount }, (_, index) => index),
@@ -1143,7 +1149,17 @@ export default function MarkEntryPage() {
                     return (
                       <tr key={row.userId} className={draft.clear ? 'cell-cleared' : undefined}>
                         <td>{row.studentRef}</td>
-                        <td>{row.name || '-'}</td>
+                        <td>
+                          {row.name || '-'}
+                          {/* On a final grid the official needs to see what this
+                              athlete ran in the heats, right where they are writing
+                              the final down. Absent altogether on a heat grid. */}
+                          {row.heatDisplayMark && (
+                            <span className="muted" style={{ display: 'block', fontSize: '0.8em' }}>
+                              {t('marks.heatRecord')} {row.heatDisplayMark}
+                            </span>
+                          )}
+                        </td>
                         <td title={label('grade', row.grade)}>
                           {label('grade.short', row.grade)}
                         </td>
@@ -1224,11 +1240,23 @@ export default function MarkEntryPage() {
                                 type="text"
                                 inputMode="decimal"
                                 value={draft.mark}
-                                placeholder={t('results.markPlaceholder')}
+                                /* A sprint is timed to a thousandth, so the box is
+                                   masked 00.000 — both as a guide to the helper and
+                                   as a nudge to type all three decimals. */
+                                placeholder={sprintEvent ? '00.000' : t('results.markPlaceholder')}
                                 aria-label={`${t('marks.record')} ${row.studentRef}`}
                                 /* A number typed in is a result again, which is
                                    what takes the row back off ABS / DQ. */
                                 onChange={e => updateDraft(row, { mark: e.target.value, outcome: '' })}
+                                onBlur={() => {
+                                  if (!sprintEvent) return;
+                                  const typed = draft.mark.trim();
+                                  if (!/^\d+(\.\d{0,3})?$/.test(typed)) return;
+                                  const [whole, fraction = ''] = typed.split('.');
+                                  updateDraft(row, {
+                                    mark: `${whole}.${fraction.padEnd(3, '0')}`,
+                                  });
+                                }}
                               />
                               {outcomeSelect(row, draft)}
                             </div>

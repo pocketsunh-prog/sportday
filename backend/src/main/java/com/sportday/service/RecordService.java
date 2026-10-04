@@ -285,6 +285,26 @@ public class RecordService {
         return records.stream().map(record -> describe(record, rosters)).toList();
     }
 
+    /**
+     * The record for one event — its type, division and grade — or null when there
+     * is no such record row, or no mark stands yet.
+     *
+     * <p>This is the lookup a marking sheet needs: it reads one event's row by the
+     * unique key rather than scanning the whole records table, so a print run that
+     * renders every group of the programme pays one indexed lookup per
+     * <em>event</em> and never one per athlete row.</p>
+     */
+    @Transactional(readOnly = true)
+    public EventRecordDTO record(Event.EventType type, Sex sex, Grade grade) {
+        if (type == null || sex == null || grade == null) {
+            return null;
+        }
+        return recordRepository.findByEventTypeAndSexAndGrade(type, sex, grade)
+                .filter(record -> record.getMark() != null)
+                .map(record -> describe(record, holderRefs(List.of(record))))
+                .orElse(null);
+    }
+
     /** The result ids that currently hold a record, so they can be badged. */
     @Transactional(readOnly = true)
     public Set<Long> recordResultIds() {
