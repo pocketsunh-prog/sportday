@@ -178,6 +178,7 @@ public class MarkEntryService {
                     .mark(result != null ? result.getMark() : null)
                     .unit(result != null ? result.getUnit() : null)
                     .notes(result != null ? result.getNotes() : null)
+                    .outcome(result != null ? result.getOutcomeOrDefault().name() : null)
                     .newRecord(result != null && recordHolders.contains(result.getId()))
                     .attempts(result != null && result.hasAttempts()
                             ? new ArrayList<>(result.getAttempts()) : null)
@@ -244,6 +245,12 @@ public class MarkEntryService {
      *
      * <p>Marks are written at the stage named on the request — {@code HEAT} unless
      * the grid is the final — so the two stages never overwrite one another.</p>
+     *
+     * <p>A row may carry an {@code outcome} instead of a number: <strong>ABS</strong>
+     * or <strong>DQ</strong> records that the athlete was absent or disqualified,
+     * which clears the mark and the attempts and skips every mark rule. A row with
+     * neither a mark nor a value to check is left exactly as it was, as it always
+     * has been.</p>
      */
     @Transactional
     public BulkMarkRequest.Result saveMarks(Long eventId, BulkMarkRequest request) {
@@ -277,6 +284,9 @@ public class MarkEntryService {
         // Marks whose event record may have changed, so the records can be rebuilt
         // once the batch has been flushed.
         Map<Long, EventResult> touched = new LinkedHashMap<>();
+        // A stored mark replaced by an ABS/DQ: the record can only stand on a
+        // performance, so it has to be rebuilt without this one.
+        boolean releasedRecord = false;
 
         for (BulkMarkRequest.Entry row : rows) {
             if (row == null || row.getUserId() == null) {
@@ -302,6 +312,11 @@ public class MarkEntryService {
                     .findByUserIdAndEventIdAndStage(userId, eventId, stage)
                     .orElse(null);
 
+            // What the helper wrote in place of a number, if anything. Refused
+            // outright — rather than stored as a mark — when the value is not one
+            // of the three the sheet understands.
+            EventResult.Outcome rowOutcome = outcomeOf(row);
+
             if (Boolean.TRUE.equals(row.getClear())) {
                 if (existing != null) {
                     // Let a school record go of this mark before deleting it, or the
@@ -313,6 +328,37 @@ public class MarkEntryService {
                 } else {
                     outcome.setSkipped(outcome.getSkipped() + 1);
                 }
+                continue;
+            }
+
+            if (rowOutcome.isNoMark()) {
+                // ABS or DQ: there is no number to store and none to check, so the
+                // plausibility and stopwatch rules are skipped. The mark and the
+                // attempts go, and the outcome is the whole result. Re-saving the
+                // same row as a real mark puts them back.
+                if (existing != null && existing.getMark() != null) {
+                    // The performance is gone, so a record built on it cannot stand.
+                    // The outcome itself has no say in the record — this is the mark
+                    // being removed, exactly as clearing it would be.
+                    releasedRecord = true;
+                }
+                if (existing == null) {
+                    existing = EventResult.builder()
+                            .user(userRepository.getReferenceById(userId))
+                            .event(event)
+                            .stage(stage)
+                            .outcome(rowOutcome)
+                            .notes(row.getNotes())
+                            .build();
+                } else {
+                    existing.setOutcome(rowOutcome);
+                    existing.setMark(null);
+                    existing.setAttempts(null);
+                    existing.setNotes(row.getNotes());
+                }
+                resultRepository.save(existing);
+                touched.put(existing.getId(), existing);
+                outcome.setSaved(outcome.getSaved() + 1);
                 continue;
             }
 
@@ -357,11 +403,15 @@ public class MarkEntryService {
                         .user(userRepository.getReferenceById(userId))
                         .event(event)
                         .stage(stage)
+                        // A mark was produced, so the row is a result — which is also
+                        // what clears an ABS/DQ previously recorded for this athlete.
+                        .outcome(EventResult.Outcome.RESULT)
                         .mark(value)
                         .unit(unit)
                         .notes(row.getNotes())
                         .build();
             } else {
+                existing.setOutcome(EventResult.Outcome.RESULT);
                 existing.setMark(value);
                 existing.setUnit(unit);
                 existing.setNotes(row.getNotes());
@@ -382,6 +432,11 @@ public class MarkEntryService {
         for (EventResult result : touched.values()) {
             recordService.considerResult(result);
         }
+        if (releasedRecord) {
+            // Rebuild the record without the performance that has just been taken
+            // away, so a disqualified mark cannot stand as the school's best.
+            recordService.recomputeFor(event.getType(), event.getSex(), event.getGrade());
+        }
 
         outcome.setResults(getResultsByEvent(eventId, stage));
         log.info("Event {} {} marks saved: {} saved, {} cleared, {} skipped, {} failed",
@@ -398,6 +453,9 @@ public class MarkEntryService {
         // One lookup for every record holder, so the grid can badge a record row.
         Set<Long> recordHolders = recordService.recordResultIds();
         return resultRepository.findByEventIdAndStageOrderByMarkAsc(eventId, stage).stream()
+                // An athlete who was absent or disqualified still appears, but after
+                // the performances: they have no mark, so they have no place.
+                .sorted(Comparator.comparing((EventResult result) -> result.isAbsentOrDisqualified()))
                 .map(result -> {
                     EventResultDTO dto = EventResultDTO.from(result);
                     dto.setNewRecord(recordHolders.contains(result.getId()));
@@ -407,6 +465,24 @@ public class MarkEntryService {
     }
 
     // ------------------------------------------------------------- helpers
+
+    /**
+     * The outcome a row asked for. An omitted or blank value is
+     * {@link EventResult.Outcome#RESULT}, the meaning the grid has always had; a
+     * value that is none of the three is refused with the value named, because
+     * silently storing it as a mark would record a performance nobody entered.
+     */
+    private static EventResult.Outcome outcomeOf(BulkMarkRequest.Entry row) {
+        String raw = row.getOutcome();
+        if (raw == null || raw.isBlank()) {
+            return EventResult.Outcome.RESULT;
+        }
+        EventResult.Outcome parsed = EventResult.Outcome.fromCode(raw);
+        if (parsed == null) {
+            throw new IllegalArgumentException("Unknown outcome: " + raw + " — use RESULT, ABS or DQ.");
+        }
+        return parsed;
+    }
 
     /**
      * A field row's attempts, always three of them. A helper may send just the

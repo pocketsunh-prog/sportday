@@ -2,7 +2,18 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { api, EventResultDTO, EventDTO, EventStandingsDTO, Grade, GRADES, SeasonDTO, formatAttempts } from '@/lib/api';
+import {
+  api,
+  EventResultDTO,
+  EventDTO,
+  EventSex,
+  EventStandingsDTO,
+  Grade,
+  GRADES,
+  MarkStage,
+  SeasonDTO,
+  formatAttempts,
+} from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n';
 import { formatDate, resultMark } from '@/lib/format';
@@ -27,6 +38,31 @@ export default function ResultsPage() {
   const [results, setResults] = useState<EventResultDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<ResultsTab>('event');
+  /**
+   * The cascade that picks an event: sex, then grade, then the event itself.
+   * An event belongs to exactly one sex and one grade, so the two together leave
+   * a short list rather than the whole programme.
+   */
+  const [sex, setSex] = useState<EventSex | ''>('');
+  const [grade, setGrade] = useState<Grade | ''>('');
+  /**
+   * Which sheet of the chosen event is on screen: its heats or its final. Only a
+   * short sprint that actually ran a final has the second one, which is what
+   * `stageInfo` says.
+   */
+  const [stage, setStage] = useState<MarkStage>('HEAT');
+  /**
+   * What the chosen event's standings say about its stages: whether a final was
+   * drawn, and which stage decided the event. Null until they arrive, so the
+   * Final option is never offered on a guess.
+   */
+  const [stageInfo, setStageInfo] = useState<{
+    hasFinal: boolean;
+    scoringStage: MarkStage;
+  } | null>(null);
+  const [stageInfoLoading, setStageInfoLoading] = useState(false);
+  /** The event named by `?eventId=`, applied once the catalogue has arrived. */
+  const [pendingEventId, setPendingEventId] = useState<number | null>(null);
   const [pastEvents, setPastEvents] = useState<EventDTO[]>([]);
   const [pastLoading, setPastLoading] = useState(true);
   const [selectedPastEvent, setSelectedPastEvent] = useState<number | null>(null);
@@ -94,14 +130,60 @@ export default function ResultsPage() {
   useEffect(() => {
     const eventId = new URLSearchParams(window.location.search).get('eventId');
     if (eventId) {
-      setSelectedEvent(Number(eventId));
+      setPendingEventId(Number(eventId));
     }
   }, []);
+
+  // Puts the cascade on the event a deep link named, once the catalogue has
+  // arrived: the event itself says which sex and grade it belongs to.
+  useEffect(() => {
+    if (pendingEventId === null || events.length === 0) return;
+    const event = events.find(item => item.id === pendingEventId);
+    if (event) {
+      setSex(event.sex);
+      setGrade(event.grade);
+      setSelectedEvent(event.id);
+    }
+    setPendingEventId(null);
+  }, [pendingEventId, events]);
 
   useEffect(() => {
     if (selectedEvent) {
       api.getEventResults(selectedEvent).then(setResults).catch(() => setResults([]));
     }
+  }, [selectedEvent]);
+
+  /**
+   * Whether the chosen event has a final, and which stage decided it. The stage
+   * control offers Final only when there is one, and starts on the stage that
+   * decided the event — the final where one was run, the heats otherwise.
+   */
+  useEffect(() => {
+    if (!selectedEvent) {
+      setStageInfo(null);
+      setStage('HEAT');
+      return;
+    }
+    let cancelled = false;
+    setStageInfoLoading(true);
+    api
+      .getEventStandings(selectedEvent)
+      .then(data => {
+        if (cancelled) return;
+        setStageInfo({ hasFinal: data.hasFinal, scoringStage: data.scoringStage });
+        setStage(data.hasFinal ? data.scoringStage : 'HEAT');
+      })
+      .catch(() => {
+        // An event whose placings cannot be read is shown as heats only: the
+        // Final option is offered on evidence, never on a guess.
+        if (!cancelled) setStageInfo(null);
+      })
+      .finally(() => {
+        if (!cancelled) setStageInfoLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [selectedEvent]);
 
   // The placings of the selected past event, with its points.
@@ -179,32 +261,135 @@ export default function ResultsPage() {
       (pastGradeFilter === '' || event.grade === pastGradeFilter)
   );
 
+  /**
+   * The events the chosen sex and grade leave. Each event belongs to exactly one
+   * grade, so the two together name a short list rather than the programme.
+   */
+  const cascadeEvents = events.filter(
+    event => (!sex || event.sex === sex) && (!grade || event.grade === grade)
+  );
+
+  /** The event the cascade has landed on, so the heading can name it. */
+  const selected = events.find(event => event.id === selectedEvent) || null;
+
+  const hasFinal = stageInfo?.hasFinal ?? false;
+
+  /** The stage on screen, in words: the heading never leaves it ambiguous. */
+  const stageText = stage === 'FINAL' ? t('championships.stageFinal') : t('championships.stageHeat');
+
+  /**
+   * The results of the stage on screen. A result recorded before the stages
+   * existed carries none, and belongs to the heats — which is what decides an
+   * event that never ran a final.
+   */
+  const stageResults = results.filter(result =>
+    stage === 'FINAL' ? result.stage === 'FINAL' : result.stage !== 'FINAL'
+  );
+
+  /**
+   * Steps down the cascade. A step that changes leaves everything after it
+   * pointing at an event that is no longer on offer, so the event goes with it
+   * and the stage falls back to the heats.
+   */
+  const chooseSex = (next: EventSex | '') => {
+    setSex(next);
+    setSelectedEvent(null);
+  };
+
+  const chooseGrade = (next: Grade | '') => {
+    setGrade(next);
+    setSelectedEvent(null);
+  };
+
   const eventTab = (
     <>
       <div className="card">
-        <div className="form-group">
-          <label>{t('results.selectEvent')}</label>
-          <select
-            value={selectedEvent || ''}
-            onChange={e => setSelectedEvent(e.target.value ? Number(e.target.value) : null)}
-          >
-            <option value="">{t('results.chooseEvent')}</option>
-            {events.map(event => (
-              <option key={event.id} value={event.id}>
-                {event.name} ({formatDate(event.eventDate)})
-              </option>
-            ))}
-          </select>
+        <div className="grid-toolbar">
+          <div className="field">
+            <label htmlFor="results-sex">{t('common.sex')}</label>
+            <select
+              id="results-sex"
+              value={sex}
+              onChange={e => chooseSex(e.target.value as EventSex | '')}
+            >
+              <option value="">{t('results.choose')}</option>
+              <option value="MALE">{label('sex', 'MALE')}</option>
+              <option value="FEMALE">{label('sex', 'FEMALE')}</option>
+            </select>
+          </div>
+
+          <div className="field">
+            <label htmlFor="results-grade">{t('marks.grade')}</label>
+            <select
+              id="results-grade"
+              value={grade}
+              onChange={e => chooseGrade(e.target.value as Grade | '')}
+            >
+              <option value="">{t('results.choose')}</option>
+              {GRADES.map(value => (
+                <option key={value} value={value}>
+                  {label('grade', value)}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="field">
+            <label htmlFor="results-event">{t('results.selectEvent')}</label>
+            <select
+              id="results-event"
+              value={selectedEvent || ''}
+              /* Nothing to choose from until the sex and the grade are picked. */
+              disabled={!sex || !grade}
+              onChange={e => setSelectedEvent(e.target.value ? Number(e.target.value) : null)}
+            >
+              <option value="">{t('results.chooseEvent')}</option>
+              {cascadeEvents.map(event => (
+                <option key={event.id} value={event.id}>
+                  {event.name} ({formatDate(event.eventDate)})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="field">
+            <label htmlFor="results-stage">{t('results.stage')}</label>
+            <select
+              id="results-stage"
+              value={stage}
+              /* Final is only offered once the event is known to have run one. */
+              disabled={!selectedEvent || stageInfoLoading || !hasFinal}
+              onChange={e => setStage(e.target.value as MarkStage)}
+            >
+              <option value="HEAT">{t('championships.stageHeat')}</option>
+              {hasFinal && <option value="FINAL">{t('championships.stageFinal')}</option>}
+            </select>
+            {selectedEvent && !stageInfoLoading && !hasFinal && (
+              <p className="muted">{t('results.noFinal')}</p>
+            )}
+          </div>
         </div>
       </div>
 
-      {selectedEvent && (
+      {!selectedEvent ? (
+        <div className="empty">
+          <p>{t('results.pickEventFirst')}</p>
+        </div>
+      ) : (
         <div className="card mt-2">
           <div className="flex justify-between items-center">
-            <h2>{t('marks.leaderboard')}</h2>
+            <h2>
+              {selected ? selected.name : t('marks.leaderboard')}
+              {/* The stage is always named: the two sheets of one event read
+                  very differently and must never be confused. */}
+              <span className="badge badge-info" style={{ marginLeft: '0.5rem' }}>
+                {stageText}
+              </span>
+            </h2>
             <button
               type="button"
               className="btn btn-sm btn-secondary"
+              /* The PDF covers the whole event, so the heats are enough for it. */
               disabled={downloading !== null || results.length === 0}
               onClick={() => downloadEventPdf(selectedEvent)}
             >
@@ -213,8 +398,12 @@ export default function ResultsPage() {
                 : t('results.downloadEventPdf')}
             </button>
           </div>
-          {results.length === 0 ? (
+          {stageInfoLoading ? (
+            <p className="muted">{t('common.loading')}</p>
+          ) : results.length === 0 ? (
             <p style={{ color: '#888' }}>{t('results.pdfNothingForEvent')}</p>
+          ) : stageResults.length === 0 ? (
+            <p style={{ color: '#888' }}>{t('results.noStageResults', { stage: stageText })}</p>
           ) : (
             <div className="table-wrap">
               <table>
@@ -228,7 +417,7 @@ export default function ResultsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {results.map((result, idx) => {
+                  {stageResults.map((result, idx) => {
                     const mark = resultMark(
                       result.displayMark,
                       result.mark,
@@ -236,10 +425,22 @@ export default function ResultsPage() {
                       lang,
                       label
                     );
+                    // An athlete who was absent or disqualified was not placed;
+                    // the server already lists them after the performances, so
+                    // they only lose the place number here.
+                    const placed = result.outcome !== 'ABS' && result.outcome !== 'DQ';
                     return (
                       <tr key={result.id}>
                         <td>
-                          {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : idx + 1}
+                          {!placed
+                            ? '–'
+                            : idx === 0
+                              ? '🥇'
+                              : idx === 1
+                                ? '🥈'
+                                : idx === 2
+                                  ? '🥉'
+                                  : idx + 1}
                         </td>
                         <td>{result.fullName || result.username}</td>
                         <td>
@@ -432,16 +633,22 @@ export default function ResultsPage() {
                         lang,
                         label
                       );
+                      // Place 0 is an athlete who was absent or disqualified:
+                      // they were not placed and scored nothing, and only their
+                      // line — with ABS / DQ where the mark goes — is shown.
+                      const placed = placing.place > 0;
                       return (
                         <tr key={`${placing.userId}-${placing.place}`}>
                           <td>
-                            {placing.place === 1
-                              ? '🥇'
-                              : placing.place === 2
-                                ? '🥈'
-                                : placing.place === 3
-                                  ? '🥉'
-                                  : placing.place}
+                            {!placed
+                              ? '–'
+                              : placing.place === 1
+                                ? '🥇'
+                                : placing.place === 2
+                                  ? '🥈'
+                                  : placing.place === 3
+                                    ? '🥉'
+                                    : placing.place}
                           </td>
                           <td>
                             {placing.name}
@@ -461,9 +668,7 @@ export default function ResultsPage() {
                               </span>
                             )}
                           </td>
-                          <td>
-                            <strong>{placing.points}</strong>
-                          </td>
+                          <td>{placed ? <strong>{placing.points}</strong> : '–'}</td>
                           <td>
                             <Link href={`/events/${standings.eventId || selectedPastEvent}`}>
                               {t('common.details')}

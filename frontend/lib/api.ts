@@ -17,6 +17,12 @@ export type Grade = 'A' | 'B' | 'C';
  * marks and its own sheet.
  */
 export type MarkStage = 'HEAT' | 'FINAL';
+/**
+ * What a sheet recorded for an athlete: `RESULT` when a mark was produced,
+ * `ABS` when they were absent and `DQ` when they were disqualified. An ABS/DQ
+ * line carries no mark and no attempts, and is exempt from every numeric rule.
+ */
+export type MarkOutcome = 'RESULT' | 'ABS' | 'DQ';
 
 export const CATEGORY_LABELS: Record<EventCategory, string> = {
   TRACK: '徑項 Track',
@@ -489,6 +495,12 @@ export interface EventResultDTO {
   notes?: string;
   /** Which sheet the mark was recorded on. */
   stage?: MarkStage;
+  /**
+   * Always one of the three: `RESULT` when a mark was produced, `ABS` or `DQ`
+   * when the athlete was absent or disqualified. An ABS/DQ result has no mark,
+   * and `displayMark` reads `ABS` / `DQ` in its place.
+   */
+  outcome?: MarkOutcome;
   /** True when this mark set a new school record for its division + grade. */
   newRecord?: boolean;
   recordedAt: string;
@@ -530,6 +542,13 @@ export interface MarkRowDTO {
    */
   attempts?: Array<number | null>;
   notes?: string;
+  /**
+   * What is recorded for this athlete: `RESULT` when a mark was produced, `ABS`
+   * or `DQ` when they were absent or disqualified. Absent altogether — the API
+   * omits a null — when nothing has been recorded yet, which is why a blank row
+   * is not a mark of any kind. An ABS/DQ row has no `mark`.
+   */
+  outcome?: MarkOutcome;
 }
 
 export interface MarkGroupOption {
@@ -598,6 +617,13 @@ export interface MarkEntryInput {
    */
   attempts?: Array<number | null> | null;
   unit?: string | null;
+  /**
+   * What the helper recorded: `RESULT` for a mark (what an omitted value means),
+   * `ABS` for an athlete who did not compete, or `DQ` for one disqualified. An
+   * ABS/DQ row needs no mark — its mark and attempts are cleared and every
+   * numeric rule is skipped.
+   */
+  outcome?: MarkOutcome | null;
   notes?: string | null;
   clear?: boolean;
 }

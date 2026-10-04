@@ -17,6 +17,15 @@ import java.time.LocalDateTime;
  * split can be adopted — the lifecycle hook below always writes
  * {@link EventStage#HEAT} for new rows, and readers go through
  * {@link #getStageOrDefault()}.</p>
+ *
+ * <p>{@code outcome} says whether the athlete produced a mark at all. A helper
+ * recording a sheet can write <strong>ABS</strong> (absent) or <strong>DQ</strong>
+ * (disqualified) instead of a number: the performance is not a performance, so
+ * {@link #mark} and the attempts are left empty and the outcome is the whole
+ * story. {@link Outcome#RESULT} means a mark was recorded, which is what an
+ * athlete who simply has nothing recorded yet still reads as — hence the column is
+ * nullable and readers go through {@link #getOutcomeOrDefault()}, exactly as they
+ * do for {@link #stage}.</p>
  */
 @Entity
 @Table(name = "event_results", uniqueConstraints = {
@@ -46,7 +55,20 @@ public class EventResult {
     @Column(name = "stage", length = 10)
     private EventStage stage;
 
-    @Column(nullable = false, precision = 10, scale = 3)
+    /**
+     * Whether a mark was recorded, or the athlete was absent or disqualified. A
+     * null is read as {@link Outcome#RESULT}, so a row written before the outcome
+     * existed — and a row that simply has nothing recorded yet — is unchanged.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "outcome", length = 10)
+    private Outcome outcome;
+
+    /**
+     * The performance. Null when the athlete was absent or disqualified, because
+     * there is no number to store — {@link #outcome} carries the whole result.
+     */
+    @Column(precision = 10, scale = 3)
     private BigDecimal mark;
 
     /**
@@ -81,6 +103,18 @@ public class EventResult {
     @Transient
     public EventStage getStageOrDefault() {
         return stage == null ? EventStage.HEAT : stage;
+    }
+
+    /** A null is read as {@link Outcome#RESULT}, so older rows keep their meaning. */
+    @Transient
+    public Outcome getOutcomeOrDefault() {
+        return outcome == null ? Outcome.RESULT : outcome;
+    }
+
+    /** True when the athlete was absent or disqualified: no mark, no placing. */
+    @Transient
+    public boolean isAbsentOrDisqualified() {
+        return getOutcomeOrDefault() != Outcome.RESULT;
     }
 
     @Transient
@@ -125,5 +159,62 @@ public class EventResult {
                         : (lowerBetter
                                 ? (candidate.compareTo(best) < 0 ? candidate : best)
                                 : (candidate.compareTo(best) > 0 ? candidate : best)));
+    }
+
+    /**
+     * What the helper recorded instead of a number.
+     *
+     * <p>A sheet has one box per athlete, and sometimes the right answer is not a
+     * mark: the athlete did not turn up, or was disqualified. Neither is a
+     * performance, so neither is placed, scores a point, or can be a school
+     * record — but both are recorded, and both are shown in place of the mark
+     * rather than hidden.</p>
+     */
+    public enum Outcome {
+
+        /** A mark was recorded; {@link EventResult#mark} carries it. */
+        RESULT("Result"),
+
+        /** Absent: the athlete did not compete. */
+        ABS("ABS"),
+
+        /** Disqualified: the performance does not stand. */
+        DQ("DQ");
+
+        private final String label;
+
+        Outcome(String label) {
+            this.label = label;
+        }
+
+        /** How the outcome is written: {@code ABS}, {@code DQ}, {@code Result}. */
+        public String getLabel() {
+            return label;
+        }
+
+        /** True for an outcome that means no mark was produced. */
+        public boolean isNoMark() {
+            return this != RESULT;
+        }
+
+        /**
+         * The outcome a client named, case-insensitively — {@code null} when the
+         * value is blank or is not one of the three, so the caller can say which.
+         */
+        public static Outcome fromCode(String raw) {
+            if (raw == null) {
+                return null;
+            }
+            String value = raw.trim().toUpperCase();
+            if (value.isEmpty()) {
+                return null;
+            }
+            for (Outcome candidate : values()) {
+                if (candidate.name().equals(value)) {
+                    return candidate;
+                }
+            }
+            return null;
+        }
     }
 }

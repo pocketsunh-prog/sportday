@@ -452,4 +452,76 @@ class FinalQualificationServiceTest {
         assertEquals("A5", summary.sheetSize(), "short sprints print on A5");
         assertTrue(summary.shortSprint());
     }
+
+    // --------------------------------------------- absent and disqualified
+
+    /** A heat row for an athlete who produced no mark: ABS or DQ. */
+    private void recordOutcome(long userId, EventResult.Outcome value) {
+        User athlete = user(userId);
+        recorded.add(EventResult.builder()
+                .id(userId).user(athlete).event(event).stage(EventStage.HEAT)
+                .outcome(value).build());
+    }
+
+    @Test
+    @DisplayName("an athlete who was absent or disqualified cannot qualify for the final")
+    void absentAthletesCannotQualify() {
+        record(1, "12.500");
+        record(2, "11.900");
+        record(3, "13.100");
+        recordOutcome(4, EventResult.Outcome.ABS);
+        recordOutcome(5, EventResult.Outcome.DQ);
+        givenHeatMarks();
+
+        var summary = service.preview(EVENT_ID, null);
+
+        assertEquals(3, summary.rankedAthletes(), "only the three who ran are ranked");
+        assertEquals(3, summary.qualified());
+        assertTrue(summary.qualifiers().stream().noneMatch(q -> q.userId() == 4L),
+                "an absent athlete is not in the final");
+        assertTrue(summary.qualifiers().stream().noneMatch(q -> q.userId() == 5L),
+                "and neither is a disqualified one");
+        assertEquals(List.of(2L, 1L, 3L), summary.qualifiers().stream()
+                .map(FinalQualificationService.Qualifier::userId).toList());
+    }
+
+    @Test
+    @DisplayName("an absent athlete does not take a qualifying place from somebody who ran")
+    void absentAthletesDoNotDisplaceTheQualifiers() {
+        // Eight real performances and one absent athlete: the eight go through.
+        for (int i = 1; i <= 8; i++) {
+            record(i, String.format("%.3f", 10.0 + i * 0.1));
+        }
+        recordOutcome(99, EventResult.Outcome.ABS);
+        givenHeatMarks();
+
+        var summary = service.preview(EVENT_ID, null);
+
+        assertEquals(8, summary.rankedAthletes());
+        assertEquals(8, summary.qualified());
+        assertTrue(summary.qualifiers().stream().noneMatch(q -> q.userId() == 99L));
+        assertEquals(8L, summary.qualifiers().get(7).userId(), "the last real time still qualifies");
+    }
+
+    @Test
+    @DisplayName("drawing the final leaves the absent athlete out of the field entirely")
+    void absentAthletesAreNotDrawnIntoTheFinal() {
+        for (int i = 1; i <= 9; i++) {
+            record(i, String.format("%.3f", 10.0 + i * 0.1));
+        }
+        recordOutcome(40, EventResult.Outcome.DQ);
+        givenHeatMarks();
+
+        var summary = service.generate(EVENT_ID, null);
+
+        assertEquals(9, summary.rankedAthletes());
+        assertEquals(8, summary.qualified());
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<FinalEntry>> entries = ArgumentCaptor.forClass(List.class);
+        verify(finalEntryRepository).saveAll(entries.capture());
+        assertTrue(entries.getValue().stream()
+                        .noneMatch(entry -> entry.getUser().getId() == 40L),
+                "a disqualified athlete is not in the final's field");
+    }
 }

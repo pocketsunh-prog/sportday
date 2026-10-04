@@ -39,6 +39,14 @@ public class MarkRowDTO {
     private String notes;
 
     /**
+     * What is recorded for this athlete: {@code RESULT} when a mark was produced,
+     * {@code ABS} or {@code DQ} when they were absent or disqualified, and null
+     * when nothing has been recorded yet. An ABS/DQ row has no {@link #mark}, so
+     * this is what the grid shows in place of one.
+     */
+    private String outcome;
+
+    /**
      * A field athlete's attempts, in order, with a missed one left absent. A
      * track event has a single performance, so this stays null.
      */

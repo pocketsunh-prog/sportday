@@ -32,6 +32,10 @@ public class EventResultService {
     public List<EventResultDTO> getResultsByEvent(Long eventId) {
         Set<Long> recordHolders = recordService.recordResultIds();
         return resultRepository.findByEventIdOrderByMarkAsc(eventId).stream()
+                // An athlete who was absent or disqualified is still listed, but after
+                // the performances: they have no mark, so they have no place.
+                .sorted(java.util.Comparator.comparing(
+                        (EventResult result) -> result.isAbsentOrDisqualified()))
                 .map(result -> {
                     EventResultDTO dto = EventResultDTO.from(result);
                     dto.setNewRecord(recordHolders.contains(result.getId()));
@@ -70,6 +74,8 @@ public class EventResultService {
                 .orElse(null);
 
         if (result != null) {
+            // A mark has been produced, which clears any ABS/DQ recorded before it.
+            result.setOutcome(EventResult.Outcome.RESULT);
             result.setMark(mark);
             result.setUnit(unit);
             result.setNotes(notes);
@@ -80,6 +86,7 @@ public class EventResultService {
                     // The single-result endpoint is the heat/straight-final path; the
                     // final stage is filled in from the mark-entry grid.
                     .stage(EventStage.HEAT)
+                    .outcome(EventResult.Outcome.RESULT)
                     .mark(mark)
                     .unit(unit)
                     .notes(notes)

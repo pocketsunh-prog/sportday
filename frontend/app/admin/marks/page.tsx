@@ -12,6 +12,7 @@ import {
   Grade,
   GRADES,
   MarkEntryInput,
+  MarkOutcome,
   MarkRowDTO,
   MarkSheetDTO,
   MarkStage,
@@ -19,11 +20,15 @@ import {
 import { useAuth } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n';
 
-/** The two units the backend records: `s` on the track, `M` in the field. */
-const UNIT_OPTIONS = ['s', 'M'];
-
 /** The two sheets a short sprint has: the numbered heats and the final. */
 const STAGE_OPTIONS: MarkStage[] = ['HEAT', 'FINAL'];
+
+/**
+ * What the number box can be replaced by: `''` leaves the row a number — which
+ * is what an omitted outcome means to the server — and the other two record an
+ * athlete who did not compete or was disqualified.
+ */
+type DraftOutcome = '' | MarkOutcome;
 
 /**
  * The seconds part of a stopped time has to sit under a whole minute: 2 minutes
@@ -47,6 +52,11 @@ interface MarkDraft {
   attempts: string[];
   notes: string;
   clear: boolean;
+  /**
+   * What the row is recorded as: `''` for a number, or `ABS` / `DQ`, which
+   * stands in place of a mark and leaves every number box empty.
+   */
+  outcome: DraftOutcome;
 }
 
 function errorText(err: unknown, fallback: string): string {
@@ -101,7 +111,15 @@ function serverAttempt(row: MarkRowDTO, index: number): string {
 /** True when the server holds anything at all for this row. */
 function hasServerValue(row: MarkRowDTO): boolean {
   if (serverMark(row) !== '') return true;
+  // ABS / DQ is a record of its own: there is no number behind it, but the
+  // athlete has been marked and the row must not read as untouched.
+  if (row.outcome === 'ABS' || row.outcome === 'DQ') return true;
   return (row.attempts ?? []).some(value => value !== null && value !== undefined);
+}
+
+/** The outcome a row arrived with, in the same shape as a draft. */
+function serverOutcome(row: MarkRowDTO): DraftOutcome {
+  return row.outcome === 'ABS' || row.outcome === 'DQ' ? row.outcome : '';
 }
 
 function draftFrom(row: MarkRowDTO, attemptCount: number): MarkDraft {
@@ -117,6 +135,7 @@ function draftFrom(row: MarkRowDTO, attemptCount: number): MarkDraft {
     attempts,
     notes: row.notes ?? '',
     clear: false,
+    outcome: serverOutcome(row),
   };
 }
 
@@ -212,12 +231,6 @@ export default function MarkEntryPage() {
   const [groupId, setGroupId] = useState(0);
   /** `''` is "All grades". */
   const [grade, setGrade] = useState('');
-  /**
-   * The unit the marks are saved with. It is left empty until the sheet arrives,
-   * so that the event's own `defaultUnit` — `M` or `s` — always wins on a fresh
-   * event, while a reload after a save keeps whatever the user chose.
-   */
-  const [unit, setUnit] = useState('');
 
   const [sheet, setSheet] = useState<MarkSheetDTO | null>(null);
   const [drafts, setDrafts] = useState<Record<number, MarkDraft>>({});
@@ -282,7 +295,6 @@ export default function MarkEntryPage() {
         // Drafts are rebuilt from the server's copy: this only runs on an
         // explicit filter change or after a save.
         setDrafts({});
-        setUnit(prev => prev || data.defaultUnit || 's');
       })
       .catch(err => {
         if (requestRef.current !== requestId) return;
@@ -314,9 +326,10 @@ export default function MarkEntryPage() {
 
   /**
    * The heading over the record column. A stopped time reads `M:S` — the two
-   * boxes are one value — and everything else as before.
+   * boxes are one value — and everything else carries the unit of the event
+   * itself, which is the unit its marks are saved in.
    */
-  const unitHeading = timeInMinutes ? t('unit.M:S') : label('unit', unit);
+  const unitHeading = timeInMinutes ? t('unit.M:S') : label('unit', sheet?.defaultUnit);
 
   const dirty = useMemo(() => {
     if (!sheet) return Object.keys(drafts).length > 0;
@@ -324,6 +337,7 @@ export default function MarkEntryPage() {
       const draft = drafts[row.userId];
       if (!draft) return false;
       if (draft.clear) return true;
+      if (draft.outcome !== serverOutcome(row)) return true;
       if (draft.notes !== (row.notes ?? '')) return true;
       if (fieldEvent) {
         return attemptIndexes.some(
@@ -351,7 +365,8 @@ export default function MarkEntryPage() {
   /**
    * Types into one of the two boxes of a stopped time. The two are one value, so
    * a lone comma is accepted as a decimal point in either, and emptying both
-   * leaves the row with nothing typed — which is what clears the mark.
+   * leaves the row with nothing typed — which is what clears the mark. Typing a
+   * number takes the row back off ABS / DQ: the time is the record again.
    */
   const updateTime = (row: MarkRowDTO, part: 'minutes' | 'seconds', value: string) => {
     setDrafts(prev => ({
@@ -359,6 +374,7 @@ export default function MarkEntryPage() {
       [row.userId]: {
         ...(prev[row.userId] ?? draftFrom(row, attemptCount)),
         [part]: value,
+        outcome: '',
       },
     }));
     setNotice(null);
@@ -370,7 +386,39 @@ export default function MarkEntryPage() {
       const draft = prev[row.userId] ?? draftFrom(row, attemptCount);
       const attempts = [...draft.attempts];
       attempts[index] = value;
-      return { ...prev, [row.userId]: { ...draft, attempts } };
+      // A throw or a jump takes the row back off ABS / DQ.
+      return { ...prev, [row.userId]: { ...draft, attempts, outcome: '' } };
+    });
+    setNotice(null);
+  };
+
+  /**
+   * Records ABS or DQ in place of a mark, or puts the row back to a number.
+   *
+   * ABS and DQ are the whole record for that athlete: there is no number to
+   * keep and none to validate, so the boxes are emptied here — including a field
+   * athlete's three attempts, which is exactly what fouling all three is. The
+   * Clear tick is dropped too, because "remove the record" and "record an
+   * absence" are two different answers for the same row.
+   */
+  const updateOutcome = (row: MarkRowDTO, next: DraftOutcome) => {
+    setDrafts(prev => {
+      const draft = prev[row.userId] ?? draftFrom(row, attemptCount);
+      if (next === '') {
+        return { ...prev, [row.userId]: { ...draft, outcome: '' } };
+      }
+      return {
+        ...prev,
+        [row.userId]: {
+          ...draft,
+          outcome: next,
+          mark: '',
+          minutes: '',
+          seconds: '',
+          attempts: draft.attempts.map(() => ''),
+          clear: false,
+        },
+      };
     });
     setNotice(null);
   };
@@ -396,7 +444,6 @@ export default function MarkEntryPage() {
     setStage('HEAT');
     setGroupId(0);
     setGrade('');
-    setUnit('');
     setDrafts({});
     setResult(null);
     setNotice(null);
@@ -465,6 +512,11 @@ export default function MarkEntryPage() {
    * is checked here before it is sent: the seconds part has to be under 60, or
    * the server would refuse the row. Both empty boxes clear the mark, exactly as
    * one empty box does on every other sheet.
+   *
+   * An athlete recorded as ABS or DQ is the one row with nothing to check: the
+   * outcome is sent on its own, with no mark and no attempts, so it can never
+   * reach the problems list. The unit is never sent either — the event decides
+   * whether its marks are seconds or metres, and the server falls back to it.
    */
   const buildRows = (): { rows: MarkEntryInput[]; problems: string[] } => {
     const rows: MarkEntryInput[] = [];
@@ -485,6 +537,13 @@ export default function MarkEntryPage() {
       }
 
       const notes = draft.notes.trim();
+
+      // ABS / DQ: the outcome is the whole record, so there is no number to
+      // validate and none to send.
+      if (draft.outcome !== '') {
+        rows.push({ userId, outcome: draft.outcome, mark: null, notes: notes || null });
+        return;
+      }
 
       if (fieldEvent) {
         const typed: Array<number | null> = [];
@@ -524,7 +583,7 @@ export default function MarkEntryPage() {
           return;
         }
 
-        rows.push({ userId, attempts: typed, unit: unit || null, notes: notes || null });
+        rows.push({ userId, outcome: 'RESULT', attempts: typed, notes: notes || null });
         return;
       }
 
@@ -537,7 +596,7 @@ export default function MarkEntryPage() {
         const seconds = draftSeconds(draft);
 
         if (minutes === null && seconds === null) {
-          if (row && serverMark(row) !== '') {
+          if (row && hasServerValue(row)) {
             rows.push({ userId, mark: null, clear: true });
           } else if (notes) {
             problems.push(tRef.current('marks.remarkNeedsRecord', { who }));
@@ -557,9 +616,9 @@ export default function MarkEntryPage() {
 
         rows.push({
           userId,
+          outcome: 'RESULT',
           minutes: minutes ?? 0,
           seconds: seconds ?? 0,
-          unit: unit || null,
           notes: notes || null,
         });
         return;
@@ -570,7 +629,7 @@ export default function MarkEntryPage() {
       const typed = normaliseDecimal(raw);
 
       if (typed === '') {
-        if (row && serverMark(row) !== '') {
+        if (row && hasServerValue(row)) {
           rows.push({ userId, mark: null, clear: true });
         } else if (notes) {
           problems.push(tRef.current('marks.remarkNeedsRecord', { who }));
@@ -584,7 +643,7 @@ export default function MarkEntryPage() {
         return;
       }
 
-      rows.push({ userId, mark: parsed, unit: unit || null, notes: notes || null });
+      rows.push({ userId, outcome: 'RESULT', mark: parsed, notes: notes || null });
     });
 
     return { rows, problems };
@@ -670,11 +729,6 @@ export default function MarkEntryPage() {
     [events, eventId]
   );
 
-  const unitOptions = useMemo(() => {
-    const fallback = sheet?.defaultUnit;
-    return fallback && !UNIT_OPTIONS.includes(fallback) ? [...UNIT_OPTIONS, fallback] : UNIT_OPTIONS;
-  }, [sheet?.defaultUnit]);
-
   /** Student ref / name for an error or result line, keyed by user id. */
   const athletes = useMemo(() => {
     const map = new Map<number, MarkRowDTO>();
@@ -692,6 +746,27 @@ export default function MarkEntryPage() {
 
   const stageText = (value: MarkStage) =>
     value === 'HEAT' ? t('marks.stageHeat') : t('marks.stageFinal');
+
+  /** What a recorded outcome reads as: `ABS` / `DQ`, and nothing for a mark. */
+  const outcomeText = (value: MarkOutcome | null | undefined): string =>
+    value === 'ABS' ? t('marks.outcomeAbs') : value === 'DQ' ? t('marks.outcomeDq') : '';
+
+  /**
+   * The ABS / DQ choice that sits beside an athlete's number box, on both the
+   * track and the field sheet: the first option leaves the row a number, the
+   * other two record the outcome with no mark at all.
+   */
+  const outcomeSelect = (row: MarkRowDTO, draft: MarkDraft) => (
+    <select
+      value={draft.outcome}
+      aria-label={`${t('marks.outcome')} ${row.studentRef}`}
+      onChange={e => updateOutcome(row, e.target.value as DraftOutcome)}
+    >
+      <option value="">{t('marks.outcomeResult')}</option>
+      <option value="ABS">{t('marks.outcomeAbs')}</option>
+      <option value="DQ">{t('marks.outcomeDq')}</option>
+    </select>
+  );
 
   if (authLoading || !isStaff) {
     return <p className="muted">{t('common.loading')}</p>;
@@ -835,26 +910,13 @@ export default function MarkEntryPage() {
               ))}
             </select>
           </div>
-
-          <div className="field">
-            <label htmlFor="marks-unit">{t('marks.unit')}</label>
-            <select
-              id="marks-unit"
-              value={unit}
-              disabled={!sheet}
-              onChange={e => setUnit(e.target.value)}
-            >
-              {unitOptions.map(value => (
-                <option key={value} value={value}>
-                  {label('unit', value)}
-                </option>
-              ))}
-            </select>
-          </div>
         </div>
 
         <p className="muted" style={{ marginBottom: 0 }}>
           {isFinal ? t('marks.finalHint') : fieldEvent ? t('marks.fieldHint') : t('marks.filterHint')}
+        </p>
+        <p className="muted" style={{ marginBottom: 0 }}>
+          {t('marks.outcomeHint')}
         </p>
 
         {sheet && (
@@ -945,7 +1007,7 @@ export default function MarkEntryPage() {
                           </th>
                         ))}
                         <th className="col-mark">
-                          {t('marks.best')} ({label('unit', unit)})
+                          {t('marks.best')} ({label('unit', sheet.defaultUnit)})
                         </th>
                       </>
                     ) : (
@@ -988,7 +1050,12 @@ export default function MarkEntryPage() {
                               </td>
                             ))}
                             <td className="col-mark">
-                              <strong>{bestOf(draft.attempts) || '–'}</strong>
+                              <div className="marks-outcome">
+                                <strong>
+                                  {draft.outcome !== '' ? outcomeText(draft.outcome) : bestOf(draft.attempts) || '–'}
+                                </strong>
+                                {outcomeSelect(row, draft)}
+                              </div>
                             </td>
                           </>
                         ) : timeInMinutes ? (
@@ -996,33 +1063,36 @@ export default function MarkEntryPage() {
                              seconds left over. They sit inside the one cell and
                              Tab runs M → S → the next athlete's M. */
                           <td className="col-mark">
-                            <div className="marks-time">
-                              <input
-                                type="number"
-                                min={0}
-                                step={1}
-                                inputMode="numeric"
-                                className="marks-time-part"
-                                value={draft.minutes}
-                                placeholder={t('marks.minutesShort')}
-                                aria-label={`${t('marks.minutes')} — ${row.studentRef}`}
-                                onChange={e => updateTime(row, 'minutes', e.target.value)}
-                              />
-                              <span className="marks-time-colon" aria-hidden="true">
-                                :
-                              </span>
-                              <input
-                                type="number"
-                                min={0}
-                                max={TIME_SECONDS_MAX - 1}
-                                step="any"
-                                inputMode="decimal"
-                                className="marks-time-part"
-                                value={draft.seconds}
-                                placeholder={t('marks.secondsShort')}
-                                aria-label={`${t('marks.seconds')} — ${row.studentRef}`}
-                                onChange={e => updateTime(row, 'seconds', e.target.value)}
-                              />
+                            <div className="marks-outcome">
+                              <div className="marks-time">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step={1}
+                                  inputMode="numeric"
+                                  className="marks-time-part"
+                                  value={draft.minutes}
+                                  placeholder={t('marks.minutesShort')}
+                                  aria-label={`${t('marks.minutes')} — ${row.studentRef}`}
+                                  onChange={e => updateTime(row, 'minutes', e.target.value)}
+                                />
+                                <span className="marks-time-colon" aria-hidden="true">
+                                  :
+                                </span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={TIME_SECONDS_MAX - 1}
+                                  step="any"
+                                  inputMode="decimal"
+                                  className="marks-time-part"
+                                  value={draft.seconds}
+                                  placeholder={t('marks.secondsShort')}
+                                  aria-label={`${t('marks.seconds')} — ${row.studentRef}`}
+                                  onChange={e => updateTime(row, 'seconds', e.target.value)}
+                                />
+                              </div>
+                              {outcomeSelect(row, draft)}
                             </div>
                             {secondsOutOfRange(draft) && (
                               <span className="marks-time-warning">
@@ -1032,14 +1102,19 @@ export default function MarkEntryPage() {
                           </td>
                         ) : (
                           <td>
-                            <input
-                              type="text"
-                              inputMode="decimal"
-                              value={draft.mark}
-                              placeholder={t('results.markPlaceholder')}
-                              aria-label={`${t('marks.record')} ${row.studentRef}`}
-                              onChange={e => updateDraft(row, { mark: e.target.value })}
-                            />
+                            <div className="marks-outcome">
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                value={draft.mark}
+                                placeholder={t('results.markPlaceholder')}
+                                aria-label={`${t('marks.record')} ${row.studentRef}`}
+                                /* A number typed in is a result again, which is
+                                   what takes the row back off ABS / DQ. */
+                                onChange={e => updateDraft(row, { mark: e.target.value, outcome: '' })}
+                              />
+                              {outcomeSelect(row, draft)}
+                            </div>
                           </td>
                         )}
                         <td>
@@ -1112,21 +1187,26 @@ export default function MarkEntryPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {result.results.map((entry, index) => (
-                    <tr key={entry.id}>
-                      <td>{index + 1}</td>
-                      <td>{athletes.get(entry.userId)?.studentRef ?? entry.username}</td>
-                      <td>{athletes.get(entry.userId)?.name ?? entry.fullName}</td>
-                      <td>
-                        {resultMarkText(entry.mark, timeInMinutes)}
-                        {/* The attempts behind a field mark, so the marker can
-                            see how the best was arrived at. */}
-                        {formatAttempts(entry.attempts) && (
-                          <div className="muted">{formatAttempts(entry.attempts)}</div>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                  {result.results.map((entry, index) => {
+                    // An athlete recorded as ABS or DQ has no place and no mark:
+                    // the outcome is what the leaderboard shows in its place.
+                    const outcome = outcomeText(entry.outcome);
+                    return (
+                      <tr key={entry.id}>
+                        <td>{outcome ? '–' : index + 1}</td>
+                        <td>{athletes.get(entry.userId)?.studentRef ?? entry.username}</td>
+                        <td>{athletes.get(entry.userId)?.name ?? entry.fullName}</td>
+                        <td>
+                          {outcome || resultMarkText(entry.mark, timeInMinutes)}
+                          {/* The attempts behind a field mark, so the marker can
+                              see how the best was arrived at. */}
+                          {!outcome && formatAttempts(entry.attempts) && (
+                            <div className="muted">{formatAttempts(entry.attempts)}</div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

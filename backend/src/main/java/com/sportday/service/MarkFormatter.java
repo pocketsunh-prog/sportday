@@ -2,6 +2,7 @@ package com.sportday.service;
 
 import com.sportday.entity.Event;
 import com.sportday.entity.EventCategory;
+import com.sportday.entity.EventResult;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -91,6 +92,29 @@ public final class MarkFormatter {
             return Event.EventType.UNIT_TRACK;
         }
         return Event.EventType.UNIT_FIELD;
+    }
+
+    /**
+     * How an outcome reads in place of a mark: {@code ABS} or {@code DQ}.
+     *
+     * <p>An outcome only replaces a mark when there is no mark to show, which is
+     * exactly {@link EventResult.Outcome#ABS} and {@link EventResult.Outcome#DQ} —
+     * {@link EventResult.Outcome#RESULT} means a number was recorded, so there is
+     * nothing to write and null comes back. A null outcome is null too.</p>
+     */
+    public static String formatOutcome(EventResult.Outcome outcome) {
+        return outcome == null || !outcome.isNoMark() ? null : outcome.getLabel();
+    }
+
+    /**
+     * The result as it reads: the outcome ({@code ABS} / {@code DQ}) when the
+     * athlete produced no mark, otherwise the mark with its unit — {@code 14.123s},
+     * {@code 18.12M}. Null in, null out.
+     */
+    public static String formatWithOutcome(EventResult.Outcome outcome, BigDecimal mark,
+                                           Event.EventType type, String unit) {
+        String label = formatOutcome(outcome);
+        return label != null ? label : formatWithUnit(mark, type, unit);
     }
 
     /**

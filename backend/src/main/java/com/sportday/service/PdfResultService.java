@@ -56,6 +56,12 @@ import java.util.Set;
  * event that ran one straight group, and one whose final has been drawn but not yet
  * run, prints exactly one table as it always has.</p>
  *
+ * <p>An athlete who was <strong>absent or disqualified</strong> is on the sheet
+ * too, in both the heat sub-tables and the final's table: after the ranked
+ * athletes, with no place number, no points and no school-record star, and
+ * {@code ABS} or {@code DQ} in the Result column. Leaving them off would read as
+ * if they had never been entered.</p>
+ *
  * <p>One event fills a page or two; the whole programme keeps flowing, with the
  * column headings repeating at the top of every page so a sheet torn off still
  * makes sense.</p>
@@ -270,18 +276,33 @@ public class PdfResultService {
             table.addCell(headingCell(column));
         }
         for (ChampionsDTO.PlacingDTO placing : standings.getPlacings()) {
-            table.addCell(bodyCell(String.valueOf(placing.getPlace()), Element.ALIGN_CENTER, false));
+            table.addCell(bodyCell(placeText(placing), Element.ALIGN_CENTER, false));
             table.addCell(bodyCell(nullSafe(placing.getStudentRef()), Element.ALIGN_LEFT, false));
             table.addCell(bodyCell(nullSafe(placing.getName()), Element.ALIGN_LEFT, false));
             table.addCell(bodyCell(nullSafe(placing.getGrade()), Element.ALIGN_CENTER, false));
             table.addCell(bodyCell(nullSafe(placing.getClassName()), Element.ALIGN_CENTER, false));
             table.addCell(bodyCell(nullSafe(placing.getHouse()), Element.ALIGN_LEFT, false));
-            // The result reads as the sport writes it: 14.123s, 1.04.123s, 18.12M.
+            // The result reads as the sport writes it: 14.123s, 1.04.123s, 18.12M —
+            // or ABS / DQ for an athlete who was absent or disqualified.
             table.addCell(bodyCell(resultText(placing), Element.ALIGN_RIGHT,
                     placing.isSchoolRecord()));
-            table.addCell(bodyCell(String.valueOf(placing.getPoints()), Element.ALIGN_CENTER, false));
+            table.addCell(bodyCell(pointsText(placing), Element.ALIGN_CENTER, false));
         }
         document.add(table);
+    }
+
+    /**
+     * The place as it prints. An athlete who was absent or disqualified was not
+     * placed, so there is no number to print — the same {@code -} an unmarked heat
+     * athlete gets.
+     */
+    private static String placeText(ChampionsDTO.PlacingDTO placing) {
+        return placing.getPlace() > 0 ? String.valueOf(placing.getPlace()) : "-";
+    }
+
+    /** Points read the same way: no place, no points. */
+    private static String pointsText(ChampionsDTO.PlacingDTO placing) {
+        return placing.getPlace() > 0 ? String.valueOf(placing.getPoints()) : "-";
     }
 
     private void addSectionHeading(Document document, String text, float spacingBefore)
@@ -356,35 +377,59 @@ public class PdfResultService {
         boolean lowerBetter = type != null
                 ? type.isLowerBetter()
                 : !EventCategory.FIELD.name().equalsIgnoreCase(standings.getCategory());
-        List<EventResult> ordered = heatResultsInPerformanceOrder(standings.getEventId(), lowerBetter);
+        List<EventResult> all = resultRepository.findByEventIdAndStageOrderByMarkAsc(
+                standings.getEventId(), EventStage.HEAT);
+        List<EventResult> ranked = heatResultsInPerformanceOrder(all, lowerBetter);
+        // Every heat row, so an athlete who was absent or disqualified can still be
+        // listed — with the outcome where their mark would be.
+        Map<Long, EventResult> heatResults = new HashMap<>();
+        for (EventResult result : all) {
+            if (result.getUser() != null) {
+                heatResults.putIfAbsent(result.getUser().getId(), result);
+            }
+        }
 
         List<HeatSheet> sheets = new ArrayList<>(heats.size());
         for (EventGroupDTO heat : heats) {
-            sheets.add(new HeatSheet(heat.getLabel(), heatRows(heat, ordered, type)));
+            sheets.add(new HeatSheet(heat.getLabel(), heatRows(heat, ranked, heatResults, type)));
         }
         return sheets;
     }
 
     /** Every heat mark of an event, in the event's own performance order. */
-    private List<EventResult> heatResultsInPerformanceOrder(Long eventId, boolean lowerBetter) {
+    private static List<EventResult> heatResultsInPerformanceOrder(List<EventResult> heatResults,
+                                                                   boolean lowerBetter) {
         Comparator<EventResult> performance = lowerBetter
                 ? Comparator.comparing(EventResult::getMark)
                 : Comparator.<EventResult, BigDecimal>comparing(EventResult::getMark).reversed();
-        return resultRepository.findByEventIdAndStageOrderByMarkAsc(eventId, EventStage.HEAT).stream()
+        return heatResults.stream()
                 .filter(result -> result.getUser() != null && result.getMark() != null)
+                // An absent or disqualified athlete has no performance to rank.
+                .filter(result -> !result.isAbsentOrDisqualified())
                 // Ties are broken by athlete id, which needs no extra query and keeps
                 // the same marks producing the same sheet every time.
                 .sorted(performance.thenComparing(result -> result.getUser().getId()))
                 .toList();
     }
 
+    /** Lane order, then student id — the order an unplaced athlete is listed in. */
+    private static final Comparator<EnrollmentDTO> ATHLETE_ORDER = Comparator
+            .comparingInt((EnrollmentDTO athlete) -> athlete.getLane() == null
+                    ? Integer.MAX_VALUE : athlete.getLane())
+            .thenComparing(athlete -> athlete.getStudentRef() == null ? "~" : athlete.getStudentRef());
+
     /**
-     * One heat's athletes, ranked within that heat by their mark.
+     * One heat's athletes: those who ran, ranked within that heat by their mark,
+     * then anyone who was absent or disqualified, then anyone with no mark at all.
      *
-     * <p>An athlete with no mark recorded still ran — they keep their line, with
-     * the result left as {@code -} rather than dropping off the sheet.</p>
+     * <p>An athlete who was absent or disqualified was not placed, so they keep
+     * their line with no place and {@code ABS} / {@code DQ} where the result goes —
+     * hidden, they would read as if they had never been entered. An athlete with no
+     * mark recorded still ran, and keeps their line with the result left as
+     * {@code -} rather than dropping off the sheet.</p>
      */
-    private static List<HeatRow> heatRows(EventGroupDTO heat, List<EventResult> ordered,
+    private static List<HeatRow> heatRows(EventGroupDTO heat, List<EventResult> ranked,
+                                          Map<Long, EventResult> heatResults,
                                           Event.EventType type) {
         List<EnrollmentDTO> athletes = heat.getAthletes();
         Map<Long, EnrollmentDTO> byUser = new HashMap<>();
@@ -395,27 +440,42 @@ public class PdfResultService {
         }
 
         List<HeatRow> rows = new ArrayList<>(athletes.size());
-        Set<Long> placed = new HashSet<>();
+        Set<Long> listed = new HashSet<>();
         int place = 1;
-        for (EventResult result : ordered) {
+        for (EventResult result : ranked) {
             Long userId = result.getUser().getId();
             EnrollmentDTO athlete = byUser.get(userId);
-            if (athlete == null || !placed.add(userId)) {
+            if (athlete == null || !listed.add(userId)) {
                 continue;
             }
             rows.add(new HeatRow(String.valueOf(place++), athlete, heatResult(result, type)));
         }
 
+        List<EnrollmentDTO> outcomes = new ArrayList<>();
+        for (EnrollmentDTO athlete : athletes) {
+            if (athlete.getUserId() == null || listed.contains(athlete.getUserId())) {
+                continue;
+            }
+            EventResult result = heatResults.get(athlete.getUserId());
+            if (result != null && result.isAbsentOrDisqualified()) {
+                outcomes.add(athlete);
+            }
+        }
+        outcomes.sort(ATHLETE_ORDER);
+        for (EnrollmentDTO athlete : outcomes) {
+            listed.add(athlete.getUserId());
+            EventResult result = heatResults.get(athlete.getUserId());
+            rows.add(new HeatRow("-", athlete,
+                    MarkFormatter.formatOutcome(result.getOutcomeOrDefault())));
+        }
+
         List<EnrollmentDTO> unmarked = new ArrayList<>();
         for (EnrollmentDTO athlete : athletes) {
-            if (athlete.getUserId() == null || !placed.contains(athlete.getUserId())) {
+            if (athlete.getUserId() == null || !listed.contains(athlete.getUserId())) {
                 unmarked.add(athlete);
             }
         }
-        unmarked.sort(Comparator
-                .comparingInt((EnrollmentDTO athlete) -> athlete.getLane() == null
-                        ? Integer.MAX_VALUE : athlete.getLane())
-                .thenComparing(athlete -> athlete.getStudentRef() == null ? "~" : athlete.getStudentRef()));
+        unmarked.sort(ATHLETE_ORDER);
         for (EnrollmentDTO athlete : unmarked) {
             rows.add(new HeatRow("-", athlete, "-"));
         }
@@ -424,7 +484,8 @@ public class PdfResultService {
 
     /** The mark with its unit, written as the final's table writes it; {@code -} when none. */
     private static String heatResult(EventResult result, Event.EventType type) {
-        String display = MarkFormatter.formatWithUnit(result.getMark(), type, result.getUnit());
+        String display = MarkFormatter.formatWithOutcome(result.getOutcomeOrDefault(),
+                result.getMark(), type, result.getUnit());
         return display == null ? "-" : display;
     }
 

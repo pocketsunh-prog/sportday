@@ -121,6 +121,13 @@ public class RecordService {
         if (result == null || result.getEvent() == null || result.getUser() == null) {
             return;
         }
+        // An absent or disqualified athlete produced no mark, so the outcome itself
+        // has no say in the record: it cannot take one, beat one, or empty one. When
+        // a stored mark is actually taken away, the save that removes it rebuilds
+        // the record — that is the mark going, not the outcome arriving.
+        if (result.isAbsentOrDisqualified()) {
+            return;
+        }
         Event event = result.getEvent();
         if (event.getType() == null || event.getSex() == null || event.getGrade() == null) {
             return;
@@ -148,7 +155,10 @@ public class RecordService {
         List<EventResult> all = resultRepository.findByEventTypeAndSexAndGrade(type, sex, grade);
         Map<Long, Student> rosters = rostersFor(all);
         List<EventResult> matching = all.stream()
+                // An absent or disqualified row has no mark, and is excluded even if
+                // one were ever stored against it: it is not a performance.
                 .filter(result -> result.getUser() != null && result.getMark() != null)
+                .filter(result -> !result.isAbsentOrDisqualified())
                 .toList();
 
         boolean lowerBetter = type.isLowerBetter();

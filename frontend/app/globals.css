@@ -622,9 +622,10 @@ code {
   gap: 0.2rem;
 }
 
-/* Two boxes and the colon need a little more room than the single mark box. */
-.marks-table .col-mark:has(.marks-time) {
-  width: 9.5rem;
+/* Two boxes and the colon of a stopwatch time need more room than the single
+   mark box; the ABS / DQ choice beside them needs a little more again. */
+.marks-table .col-mark:has(.marks-outcome) {
+  width: 12rem;
 }
 
 .marks-time-part {
@@ -648,6 +649,41 @@ code {
 
 .marks-table .col-remark {
   width: 14rem;
+}
+
+/* The mark and the ABS / DQ choice for it sit on one line inside the mark cell,
+   no taller than the number box they share it with. */
+.marks-outcome {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.marks-outcome input[type='text'],
+.marks-outcome input[type='number'] {
+  flex: 1 1 3rem;
+  width: auto;
+  min-width: 0;
+}
+
+/* The two boxes of a stopwatch time keep their own layout and share the line
+   with the outcome choice. */
+.marks-outcome .marks-time {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* The ABS / DQ choice itself: only as wide as ABS / DQ need, in the same box
+   the mark beside it is typed into. */
+.marks-table .marks-outcome select {
+  flex: 0 0 auto;
+  width: auto;
+  max-width: 5.5rem;
+  border: 1px solid #cfd4de;
+  border-radius: 4px;
+  padding: 0.3rem 0.2rem;
+  font: inherit;
+  background: #fff;
 }
 
 .cell-cleared {

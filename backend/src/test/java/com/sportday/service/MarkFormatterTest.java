@@ -1,6 +1,7 @@
 package com.sportday.service;
 
 import com.sportday.entity.Event;
+import com.sportday.entity.EventResult;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -141,5 +142,38 @@ class MarkFormatterTest {
     @DisplayName("a negative mark is shown as stored rather than given a minutes part")
     void aNegativeMarkIsNotSplit() {
         assertEquals("-5", MarkFormatter.format(new BigDecimal("-5"), HUNDRED, "s"));
+    }
+
+    // ------------------------------------------------------------ outcomes
+
+    @Test
+    @DisplayName("ABS and DQ read as themselves, in place of a mark")
+    void outcomesReadAsThemselves() {
+        assertEquals("ABS", MarkFormatter.formatOutcome(EventResult.Outcome.ABS));
+        assertEquals("DQ", MarkFormatter.formatOutcome(EventResult.Outcome.DQ));
+    }
+
+    @Test
+    @DisplayName("there is nothing to write for a mark that was recorded")
+    void aResultHasNoOutcomeToShow() {
+        assertNull(MarkFormatter.formatOutcome(EventResult.Outcome.RESULT),
+                "RESULT means a number was produced, so the number is what shows");
+        assertNull(MarkFormatter.formatOutcome(null),
+                "and a row from before outcomes existed is a result too");
+    }
+
+    @Test
+    @DisplayName("the outcome stands in for the mark, and a mark is still a mark")
+    void theOutcomeStandsInForTheMark() {
+        assertEquals("ABS", MarkFormatter.formatWithOutcome(
+                EventResult.Outcome.ABS, null, HUNDRED, "s"));
+        assertEquals("DQ", MarkFormatter.formatWithOutcome(
+                EventResult.Outcome.DQ, null, SHOT, "M"));
+        // A recorded performance is formatted exactly as it always was.
+        assertEquals("18.12M", MarkFormatter.formatWithOutcome(
+                EventResult.Outcome.RESULT, new BigDecimal("18.12"), SHOT, "M"));
+        assertEquals("1.04.123s", MarkFormatter.formatWithOutcome(
+                null, new BigDecimal("64.123"), FOUR_HUNDRED, "s"));
+        assertNull(MarkFormatter.formatWithOutcome(null, null, HUNDRED, "s"));
     }
 }

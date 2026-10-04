@@ -220,6 +220,17 @@ const en = {
   'marks.openGroups': 'Go to heats & final',
   'marks.finalQualifiers': '{count} qualifiers in the final',
   'marks.finalSheetHint': 'Final sheet — print on {sheet}',
+  /*
+   * A helper may record that an athlete was absent (ABS) or disqualified (DQ)
+   * instead of a mark. The choice sits beside the number box: the first option
+   * leaves the row a number, the other two record the outcome with no mark.
+   */
+  'marks.outcome': 'Outcome',
+  'marks.outcomeResult': 'Result',
+  'marks.outcomeAbs': 'ABS',
+  'marks.outcomeDq': 'DQ',
+  'marks.outcomeHint':
+    'ABS records an athlete who did not compete and DQ one who was disqualified. Either clears the number and the attempts for that row, and neither is checked against the mark rules.',
 
   /* ---------------- admin ---------------- */
   'admin.title': 'Administration',
@@ -441,6 +452,16 @@ const en = {
   'results.pdfNothingForProgramme':
     'No results have been recorded yet, so there is nothing to print.',
   'results.pdfFailed': 'Failed to download the results PDF',
+  /*
+   * The results of one event are picked through a cascade — sex, grade, event,
+   * then the stage — because an event belongs to a single grade and only a short
+   * sprint that ran a final has a second stage to choose.
+   */
+  'results.stage': 'Stage',
+  'results.choose': 'Choose…',
+  'results.pickEventFirst': 'Choose a sex, a grade and an event to see its results.',
+  'results.noStageResults': 'No {stage} results for this event yet.',
+  'results.noFinal': 'This event was decided by its heats — no final was run.',
 
   /* ---------------- school records ---------------- */
   'records.title': 'School records',
@@ -1079,6 +1100,12 @@ const zh: Record<keyof typeof en, string> = {
   'marks.openGroups': '前往分組及決賽',
   'marks.finalQualifiers': '決賽共 {count} 名選手',
   'marks.finalSheetHint': '決賽成績表 — 列印紙張 {sheet}',
+  'marks.outcome': '結果狀態',
+  'marks.outcomeResult': '成績',
+  'marks.outcomeAbs': 'ABS 缺席',
+  'marks.outcomeDq': 'DQ 取消資格',
+  'marks.outcomeHint':
+    'ABS 表示缺席，DQ 表示取消資格。選擇後會清除該列的成績及試擲紀錄，亦不會進行成績規則檢查。',
 
   'admin.title': '管理',
   'admin.students': '學生名冊',
@@ -1275,6 +1302,11 @@ const zh: Record<keyof typeof en, string> = {
   'results.pdfNothingForEvent': '此項目尚未記錄成績，暫無可列印的內容。',
   'results.pdfNothingForProgramme': '尚未記錄任何成績，暫無可列印的內容。',
   'results.pdfFailed': '無法下載成績 PDF',
+  'results.stage': '階段',
+  'results.choose': '請選擇…',
+  'results.pickEventFirst': '請選擇組別、級別及項目以查看成績。',
+  'results.noStageResults': '此項目尚未記錄{stage}成績。',
+  'results.noFinal': '此項目以初賽定勝負，並無決賽。',
 
   /* ---------------- school records ---------------- */
   'records.title': '學校紀錄',

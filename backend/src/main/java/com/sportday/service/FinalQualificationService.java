@@ -195,7 +195,9 @@ public class FinalQualificationService {
 
     /**
      * The heat results in performance order. Only athletes still entered are
-     * considered, so someone who withdrew cannot qualify.
+     * considered, so someone who withdrew cannot qualify — and neither can an
+     * athlete who was absent or disqualified, because they have no performance to
+     * rank.
      */
     private List<Qualifier> rank(Event event) {
         List<EventResult> heatResults = resultRepository
@@ -220,6 +222,11 @@ public class FinalQualificationService {
 
         List<EventResult> ordered = heatResults.stream()
                 .filter(result -> result.getUser() != null && stillEntered.contains(result.getUser().getId()))
+                // An athlete who was absent or disqualified did not produce a
+                // performance, so they cannot be ranked and cannot qualify for the
+                // final. A row with no mark at all is unrankable for the same reason.
+                .filter(result -> !result.isAbsentOrDisqualified())
+                .filter(result -> result.getMark() != null)
                 // Ties are broken by user id, which needs no extra query and keeps
                 // the same marks producing the same final every time.
                 .sorted(performance.thenComparing(result -> result.getUser().getId()))

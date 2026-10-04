@@ -64,6 +64,15 @@ public class BulkMarkRequest {
 
         private String notes;
 
+        /**
+         * What the helper recorded: {@code RESULT} (the default, and what an
+         * omitted value means — a mark was produced), {@code ABS} for an athlete who
+         * did not compete, or {@code DQ} for one disqualified. Case-insensitive;
+         * anything else is refused. An ABS/DQ row needs no mark, and its mark and
+         * attempts are cleared.
+         */
+        private String outcome;
+
         /** True to remove this athlete's mark instead of setting one. */
         private Boolean clear;
     }

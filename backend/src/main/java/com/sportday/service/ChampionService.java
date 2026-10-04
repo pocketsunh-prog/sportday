@@ -37,7 +37,10 @@ import java.util.Set;
  *   <li>individual places 1/2/3 = 9/6/3 and 4th–8th = 1, by default;</li>
  *   <li>relays on their own scale — 30/20/10 and 1 from 4th to 8th;</li>
  *   <li><strong>relay points count for the house only</strong>, so the personal
- *       championship is decided on individual events.</li>
+ *       championship is decided on individual events;</li>
+ *   <li>an athlete who was <strong>absent or disqualified</strong> is not placed
+ *       and scores nothing — they are listed after the placed athletes, with no
+ *       place number and the outcome where the mark would be.</li>
  * </ul>
  *
  * <p>Every number here comes from the settings, so an administrator can change the
@@ -139,13 +142,26 @@ public class ChampionService {
 
         List<EventResult> ranked = results.stream()
                 .filter(result -> result.getUser() != null && result.getMark() != null)
+                .filter(result -> !result.isAbsentOrDisqualified())
                 .sorted(order.thenComparing(result -> result.getUser().getId()))
                 .toList();
 
-        boolean relay = type != null && type.isRelay();
-        Map<Long, Student> rosters = rostersFor(ranked);
+        // An athlete who was absent or disqualified is not placed: they are listed
+        // after the placed athletes, without a place and without points, and the
+        // outcome stands in place of the mark.
+        List<EventResult> notPlaced = results.stream()
+                .filter(result -> result.getUser() != null)
+                .filter(result -> result.isAbsentOrDisqualified() || result.getMark() == null)
+                .sorted(Comparator.comparing(result -> result.getUser().getId()))
+                .toList();
 
-        List<ChampionsDTO.PlacingDTO> placings = new ArrayList<>(ranked.size());
+        boolean relay = type != null && type.isRelay();
+        List<EventResult> listed = new ArrayList<>(ranked.size() + notPlaced.size());
+        listed.addAll(ranked);
+        listed.addAll(notPlaced);
+        Map<Long, Student> rosters = rostersFor(listed);
+
+        List<ChampionsDTO.PlacingDTO> placings = new ArrayList<>(ranked.size() + notPlaced.size());
         int place = 1;
         for (EventResult result : ranked) {
             Student roster = rosters.get(result.getUser().getId());
@@ -165,6 +181,27 @@ public class ChampionService {
                     .schoolRecord(recordResultIds.contains(result.getId()))
                     .build());
             place++;
+        }
+        // Place 0, no points, and the outcome where the mark would be — but the
+        // athlete keeps their name, student id, grade, class and house, because a
+        // sheet that omits them would read as if they never competed.
+        for (EventResult result : notPlaced) {
+            Student roster = rosters.get(result.getUser().getId());
+            placings.add(ChampionsDTO.PlacingDTO.builder()
+                    .place(0)
+                    .userId(result.getUser().getId())
+                    .studentRef(roster != null ? roster.getStudentId() : result.getUser().getUsername())
+                    .name(roster != null ? roster.getName() : result.getUser().getFullName())
+                    .grade(roster != null && roster.getGrade() != null ? roster.getGrade().name() : null)
+                    .className(roster != null ? roster.getClassName() : null)
+                    .house(roster != null ? roster.getHouse() : null)
+                    .mark(null)
+                    .unit(null)
+                    .displayMark(MarkFormatter.formatOutcome(result.getOutcomeOrDefault()))
+                    .points(0)
+                    // An absent or disqualified performance can never hold a record.
+                    .schoolRecord(false)
+                    .build());
         }
 
         return ChampionsDTO.EventStandingsDTO.builder()

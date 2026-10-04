@@ -28,10 +28,18 @@ public class EventResultDTO {
     private String unit;
 
     /**
+     * {@code RESULT} when a mark was recorded, {@code ABS} or {@code DQ} when the
+     * athlete was absent or disqualified — so a client can style the row as well as
+     * read it.
+     */
+    private String outcome;
+
+    /**
      * The mark as it reads, with its unit: {@code 14.123s}, {@code 1.04.123s},
-     * {@code 18.12M}. {@link #mark} and {@link #unit} stay as they are — this is the
-     * same value written the way a person reads it, so a client does not have to
-     * rework the number to show it.
+     * {@code 18.12M} — or {@code ABS} / {@code DQ} where there is no mark.
+     * {@link #mark} and {@link #unit} stay as they are; this is the same value
+     * written the way a person reads it, so a client does not have to rework the
+     * number to show it.
      */
     private String displayMark;
     private String notes;
@@ -58,7 +66,9 @@ public class EventResultDTO {
                 .stage(result.getStageOrDefault().name())
                 .mark(result.getMark())
                 .unit(result.getUnit())
-                .displayMark(com.sportday.service.MarkFormatter.formatWithUnit(
+                .outcome(result.getOutcomeOrDefault().name())
+                .displayMark(com.sportday.service.MarkFormatter.formatWithOutcome(
+                        result.getOutcomeOrDefault(),
                         result.getMark(),
                         result.getEvent() == null ? null : result.getEvent().getType(),
                         result.getUnit()))

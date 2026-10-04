@@ -124,6 +124,16 @@ class PdfResultServiceTest {
                 .build();
     }
 
+    /** A heat row for an athlete who produced no mark: ABS or DQ. */
+    private static EventResult heatOutcome(long userId, EventResult.Outcome outcome) {
+        return EventResult.builder()
+                .id(userId * 10 + 2)
+                .user(User.builder().id(userId).username("U" + userId).fullName("Athlete " + userId).build())
+                .stage(EventStage.HEAT)
+                .outcome(outcome)
+                .build();
+    }
+
     private static ChampionsDTO.EventStandingsDTO standings(String eventName,
                                                             Event.EventType type,
                                                             String scoringStage, boolean hasFinal,
@@ -158,6 +168,24 @@ class PdfResultServiceTest {
                 .unit("s")
                 .displayMark(display)
                 .points(points)
+                .build();
+    }
+
+    /** A finalist who was absent or disqualified: no place, no points, no mark. */
+    private static ChampionsDTO.PlacingDTO outcomePlacing(long userId, String outcome) {
+        return ChampionsDTO.PlacingDTO.builder()
+                .place(0)
+                .userId(userId)
+                .studentRef("F%04d".formatted(userId))
+                .name("Finalist " + userId)
+                .grade("A")
+                .className("5A")
+                .house("Red")
+                .mark(null)
+                .unit(null)
+                .displayMark(outcome)
+                .points(0)
+                .schoolRecord(false)
                 .build();
     }
 
@@ -411,5 +439,86 @@ class PdfResultServiceTest {
         String order = readingOrderOf(pdf);
         assertTrue(order.indexOf("初賽Heats") < order.indexOf("Boys800MAGrade"),
                 "the sprint's two parts stay together, in programme order");
+    }
+
+    // --------------------------------------------- absent and disqualified
+
+    @Test
+    @DisplayName("an ABS/DQ athlete is printed after the heat's placed athletes, with no place")
+    void absentHeatAthletesFollowThePlacedOnes() throws Exception {
+        when(eventGroupService.getGroupsWithAthletes(SPRINT_ID)).thenReturn(List.of(
+                heat(1, List.of(
+                        athlete(11, "S0011", "Fast Runner", "A", "5A", "Red", 1),
+                        athlete(12, "S0012", "Absent Runner", "A", "5A", "Blue", 2),
+                        athlete(13, "S0013", "Disqualified", "A", "5B", "Green", 3))),
+                finalGroup()));
+        when(resultRepository.findByEventIdAndStageOrderByMarkAsc(SPRINT_ID, EventStage.HEAT))
+                .thenReturn(List.of(
+                        heatResult(11, "7.100", "s"),
+                        heatOutcome(12, EventResult.Outcome.ABS),
+                        heatOutcome(13, EventResult.Outcome.DQ)));
+        finalWasRun(List.of(placing(1, 11, "7.050s", 9)));
+
+        byte[] pdf = service.renderEventResults(SPRINT_ID);
+
+        String text = textOf(pdf);
+        String absent = lineContaining(text, "S0012");
+        String disqualified = lineContaining(text, "S0013");
+        assertNotNull(absent, "an absent athlete is not hidden");
+        assertNotNull(disqualified, "and neither is a disqualified one");
+        assertTrue(absent.trim().startsWith("- S0012"), "no place number: " + absent.trim());
+        assertTrue(absent.trim().endsWith("ABS"), "and ABS where the result goes: " + absent.trim());
+        assertTrue(disqualified.trim().startsWith("- S0013"), "no place number: " + disqualified.trim());
+        assertTrue(disqualified.trim().endsWith("DQ"), "and DQ where the result goes: " + disqualified.trim());
+
+        // Ranked first, then the two who produced no performance.
+        String order = readingOrderOf(pdf);
+        assertTrue(order.indexOf("1S0011") < order.indexOf("-S0012"),
+                "the ranked athlete comes before the absent one");
+        assertTrue(order.indexOf("-S0012") < order.indexOf("-S0013"),
+                "and the unplaced athletes follow in lane order");
+        assertFalse(order.contains("ABS★"), "an absent athlete can never hold the school record");
+    }
+
+    @Test
+    @DisplayName("an ABS/DQ finalist is printed after the placed finalists, with no place and no points")
+    void absentFinalistsFollowThePlacedOnes() throws Exception {
+        when(eventGroupService.getGroupsWithAthletes(SPRINT_ID)).thenReturn(List.of(
+                heat(1, List.of(athlete(21, "S0021", "Winner", "A", "5A", "Red", 1))),
+                finalGroup()));
+        when(resultRepository.findByEventIdAndStageOrderByMarkAsc(SPRINT_ID, EventStage.HEAT))
+                .thenReturn(List.of(heatResult(21, "7.050", "s")));
+        finalWasRun(List.of(
+                placing(1, 21, "7.010s", 9),
+                outcomePlacing(22, "ABS"),
+                outcomePlacing(23, "DQ")));
+
+        byte[] pdf = service.renderEventResults(SPRINT_ID);
+
+        String text = textOf(pdf);
+        // The final's rows carry the placing DTOs' own student refs (F…), so the
+        // winner is found by the result it printed rather than by its name.
+        String winner = lineContaining(text, "7.010s");
+        String absent = lineContaining(text, "F0022");
+        String disqualified = lineContaining(text, "F0023");
+        assertNotNull(winner, "the winner's final row is printed");
+        assertNotNull(absent, "an absent finalist is not hidden");
+        assertNotNull(disqualified, "and neither is a disqualified one");
+        assertTrue(winner.trim().startsWith("1 "), "the winner keeps place 1: " + winner.trim());
+        assertTrue(absent.trim().startsWith("- F0022"),
+                "no place number for an absent finalist: " + absent.trim());
+        assertTrue(absent.trim().endsWith("ABS -"),
+                "and no points after the result: " + absent.trim());
+        assertTrue(disqualified.trim().startsWith("- F0023"),
+                "no place number for a disqualified finalist: " + disqualified.trim());
+        assertTrue(disqualified.trim().endsWith("DQ -"),
+                "and no points either: " + disqualified.trim());
+
+        String order = readingOrderOf(pdf);
+        assertTrue(order.indexOf("1F0021") < order.indexOf("-F0022"),
+                "the finalists who ran are placed before the ones who did not");
+        assertTrue(order.indexOf("-F0022") < order.indexOf("-F0023"));
+        assertFalse(order.contains("ABS★") || order.contains("DQ★"),
+                "and neither can carry the school-record star");
     }
 }

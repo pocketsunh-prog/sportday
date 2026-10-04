@@ -333,4 +333,96 @@ class ChampionServiceTest {
         assertEquals(30, champions.getSettings().getRelayPointsFirst());
         assertEquals(2, champions.getSettings().getTrackMaxEntries());
     }
+
+    // --------------------------------------------- absent and disqualified
+
+    /** A recorded outcome for an athlete who produced no mark at all. */
+    private EventResult outcome(Event event, long userId, EventResult.Outcome value) {
+        return EventResult.builder()
+                .id(userId * 100 + event.getId())
+                .user(rosters.get(userId).getUser())
+                .event(event)
+                .stage(EventStage.HEAT)
+                .outcome(value)
+                .build();
+    }
+
+    @Test
+    @DisplayName("an absent or disqualified athlete is not placed and scores nothing")
+    void absentAthletesAreNotPlaced() {
+        roster(4, "Green");
+        roster(5, "Blue");
+        when(studentRepository.findWithUserByUserIdIn(any()))
+                .thenReturn(new ArrayList<>(rosters.values()));
+        when(resultRepository.findByEventIdAndStageOrderByMarkAsc(1L, EventStage.HEAT))
+                .thenReturn(List.of(
+                        result(hundred, 1, "12.000"),
+                        result(hundred, 2, "11.500"),
+                        outcome(hundred, 4, EventResult.Outcome.ABS),
+                        outcome(hundred, 5, EventResult.Outcome.DQ)));
+
+        var placings = standingsFor(1L).getPlacings();
+
+        assertEquals(4, placings.size(), "they are listed, not hidden");
+        // The two who ran are placed as they always were.
+        assertEquals(1, placings.get(0).getPlace());
+        assertEquals(2L, placings.get(0).getUserId());
+        assertEquals(9, placings.get(0).getPoints());
+        assertEquals(2, placings.get(1).getPlace());
+        assertEquals(6, placings.get(1).getPoints());
+
+        // And the two who did not come after them, with no place and no points.
+        var absent = placings.get(2);
+        assertEquals(0, absent.getPlace(), "no place number");
+        assertEquals(0, absent.getPoints(), "and nothing scored");
+        assertEquals("ABS", absent.getDisplayMark(), "the outcome stands in for the mark");
+        assertNull(absent.getMark());
+        assertFalse(absent.isSchoolRecord(), "and it can never be a record");
+        assertEquals("Athlete 4", absent.getName(), "the athlete is still named");
+        assertEquals("S0004", absent.getStudentRef());
+        assertEquals("B", absent.getGrade());
+        assertEquals("3A", absent.getClassName());
+        assertEquals("Green", absent.getHouse());
+
+        assertEquals("DQ", placings.get(3).getDisplayMark());
+        assertEquals(0, placings.get(3).getPlace());
+        assertEquals(0, placings.get(3).getPoints());
+    }
+
+    @Test
+    @DisplayName("an absent athlete never reaches either championship table")
+    void absentAthletesScoreNothingInTheTables() {
+        roster(4, "Green");
+        when(studentRepository.findWithUserByUserIdIn(any()))
+                .thenReturn(new ArrayList<>(rosters.values()));
+        when(resultRepository.findByEventIdAndStageOrderByMarkAsc(1L, EventStage.HEAT))
+                .thenReturn(List.of(
+                        result(hundred, 1, "12.000"),
+                        outcome(hundred, 4, EventResult.Outcome.ABS)));
+
+        ChampionsDTO champions = service.calculate();
+
+        assertTrue(champions.getPersonal().stream().noneMatch(p -> p.getUserId() == 4L),
+                "no points means no line in the personal table");
+        assertTrue(champions.getHouses().stream().noneMatch(h -> "Green".equals(h.getHouse())),
+                "and none in the house table either");
+        assertEquals(2, champions.getPersonal().size(), "the two placed athletes are still there");
+    }
+
+    @Test
+    @DisplayName("an event where everybody was absent has no scoring places at all")
+    void anEventOfAbsentAthletesScoresNothing() {
+        roster(4, "Green");
+        when(studentRepository.findWithUserByUserIdIn(any()))
+                .thenReturn(new ArrayList<>(rosters.values()));
+        when(resultRepository.findByEventIdAndStageOrderByMarkAsc(1L, EventStage.HEAT))
+                .thenReturn(List.of(outcome(hundred, 4, EventResult.Outcome.ABS)));
+
+        var placings = standingsFor(1L).getPlacings();
+
+        assertEquals(1, placings.size());
+        assertEquals(0, placings.get(0).getPlace());
+        assertEquals(0, placings.get(0).getPoints());
+        assertEquals("ABS", placings.get(0).getDisplayMark());
+    }
 }

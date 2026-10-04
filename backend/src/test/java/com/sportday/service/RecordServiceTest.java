@@ -507,4 +507,76 @@ class RecordServiceTest {
         verify(recordRepository).detachResultsForEvent(2L);
         verify(recordRepository, never()).delete(any(EventRecord.class));
     }
+
+    // --------------------------------------------- absent and disqualified
+
+    /** An athlete who was absent — or disqualified — produced no mark at all. */
+    private EventResult outcome(long userId, Grade grade, Event.EventType type,
+                                EventResult.Outcome value) {
+        User athlete = User.builder().id(userId).username("S000" + userId)
+                .fullName("Athlete " + userId).build();
+        return EventResult.builder()
+                .id(userId)
+                .user(athlete)
+                .event(event(type, grade))
+                .stage(EventStage.HEAT)
+                .outcome(value)
+                .build();
+    }
+
+    @Test
+    @DisplayName("an ABS/DQ result has no say in the record — it neither takes nor beats one")
+    void anAbsentResultHasNoSay() {
+        result(9, "11.800", Grade.B, HUNDRED);
+        givenResultsFor(HUNDRED, Grade.B);
+        EventRecord existing = existingRecord(HUNDRED, Grade.B, "11.800", 9L);
+
+        service.considerResult(outcome(1, Grade.B, HUNDRED, EventResult.Outcome.ABS));
+
+        assertEquals(new BigDecimal("11.800"), existing.getMark(), "the record stands");
+        assertEquals(9L, existing.getHolder().getId(), "and so does its holder");
+        verify(resultRepository, never()).findByEventTypeAndSexAndGrade(any(), any(), any());
+        verify(recordRepository, never()).save(any(EventRecord.class));
+    }
+
+    @Test
+    @DisplayName("an ABS/DQ result does not empty a record either — a rebuild keeps the typed-in mark")
+    void anAbsentResultDoesNotEmptyARecord() {
+        EventResult absent = outcome(4, Grade.B, HUNDRED, EventResult.Outcome.DQ);
+        givenResultsFor(HUNDRED, Grade.B, List.of(absent));
+        EventRecord record = EventRecord.builder()
+                .id(5L).eventType(HUNDRED).sex(SEX).grade(Grade.B)
+                .manualMark(new BigDecimal("11.200")).manualUnit("seconds")
+                .manualHolderName("Chan Tai Man (2019)")
+                .manualAchievedOn(LocalDate.of(2019, 10, 4))
+                .hasPrevious(false)
+                .build();
+        when(recordRepository.findByEventTypeAndSexAndGrade(HUNDRED, SEX, Grade.B))
+                .thenReturn(Optional.of(record));
+
+        service.recomputeFor(HUNDRED, SEX, Grade.B);
+
+        assertEquals(new BigDecimal("11.200"), record.getMark(),
+                "a disqualified athlete cannot take a school record away from the school");
+        assertEquals(EventRecord.Source.BASELINE, record.getSource());
+        assertNull(record.getHolder());
+    }
+
+    @Test
+    @DisplayName("an ABS/DQ result is never the mark a record is built from")
+    void anAbsentResultNeverBecomesTheRecord() {
+        result(3, "12.400", Grade.B, HUNDRED);
+        EventResult disqualified = outcome(1, Grade.B, HUNDRED, EventResult.Outcome.DQ);
+        givenResultsFor(HUNDRED, Grade.B, List.of(disqualified, results.get(0)));
+        when(recordRepository.findByEventTypeAndSexAndGrade(HUNDRED, SEX, Grade.B))
+                .thenReturn(Optional.empty());
+
+        service.recomputeFor(HUNDRED, SEX, Grade.B);
+
+        ArgumentCaptor<EventRecord> saved = ArgumentCaptor.forClass(EventRecord.class);
+        verify(recordRepository, org.mockito.Mockito.atLeastOnce()).save(saved.capture());
+        assertEquals(new BigDecimal("12.400"), saved.getValue().getMark(),
+                "the only recorded performance takes the record");
+        assertEquals(3L, saved.getValue().getHolder().getId());
+    }
 }
