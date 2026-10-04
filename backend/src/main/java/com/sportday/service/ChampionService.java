@@ -3,7 +3,6 @@ package com.sportday.service;
 import com.sportday.dto.ChampionsDTO;
 import com.sportday.dto.SportDaySettingsDTO;
 import com.sportday.entity.Event;
-import com.sportday.entity.EventGroup;
 import com.sportday.entity.EventResult;
 import com.sportday.entity.EventStage;
 import com.sportday.entity.Student;

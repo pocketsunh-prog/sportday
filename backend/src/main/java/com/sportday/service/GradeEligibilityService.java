@@ -246,8 +246,4 @@ public class GradeEligibilityService {
         return ordered;
     }
 
-    /** The grades, for callers that need the order. */
-    public List<Grade> gradeOrder() {
-        return GRADE_ORDER;
-    }
 }

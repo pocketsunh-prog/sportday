@@ -1,7 +1,6 @@
 package com.sportday.service;
 
 import com.sportday.dto.EventResultDTO;
-import com.sportday.entity.Enrollment;
 import com.sportday.entity.EventResult;
 import com.sportday.entity.User;
 import com.sportday.entity.Event;

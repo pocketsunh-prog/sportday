@@ -41,6 +41,12 @@ public class MarkSheetDTO {
     /** True for a field event, so the grid knows to take the best attempt. */
     private Boolean fieldEvent;
 
+    /**
+     * True for a race longer than 400M, where a time is typed as minutes and seconds
+     * rather than as a bare count of seconds — a helper writes 2:15, not 135.
+     */
+    private Boolean timeInMinutes;
+
     /** {@code HEAT} or {@code FINAL} — which stage this grid is for. */
     private String stage;
 

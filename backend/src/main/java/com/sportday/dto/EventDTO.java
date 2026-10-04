@@ -61,6 +61,18 @@ public class EventDTO {
     private Boolean mayHaveFinal;
 
     /**
+     * True when the system set {@link #directToFinal} because the field is no bigger
+     * than a final would be, so the school can see it was not its own choice.
+     */
+    private Boolean directToFinalAutomatic;
+
+    /**
+     * True for a race longer than 400M, whose time is typed as minutes and seconds.
+     * The event list says so rather than making the entry page work it out.
+     */
+    private Boolean timeInMinutes;
+
+    /**
      * The grades that may enter this event, e.g. {@code ["A", "B"]} for a 1500M. Lets
      * the entry page leave out what a student's grade cannot enter.
      */
@@ -108,7 +120,9 @@ public class EventDTO {
                 .shortSprint(event.isShortSprint())
                 .sheetSize(event.isShortSprint() ? "A5" : "A4")
                 .defaultUnit(type == null ? null : type.getDefaultUnit())
-                .directToFinal(event.isDirectToFinal())                .mayHaveFinal(event.mayHaveFinal())
+                .directToFinal(event.isDirectToFinal())
+                .directToFinalAutomatic(Boolean.TRUE.equals(event.getDirectToFinalAuto()))
+                .timeInMinutes(event.usesMinutesAndSeconds())                .mayHaveFinal(event.mayHaveFinal())
                 .enabled(event.getEnabled())
                 .createdAt(event.getCreatedAt())
                 .seasonId(event.getSeason() == null ? null : event.getSeason().getId())

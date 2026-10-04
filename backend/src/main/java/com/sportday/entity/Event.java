@@ -80,6 +80,23 @@ public class Event {
     private Boolean directToFinal;
 
     /**
+     * True when the system switched {@link #directToFinal} on rather than the school.
+     *
+     * <p>A sprint with only a group's worth of entries runs straight to a final,
+     * because a final would be the same athletes as the heat. The system sets this
+     * whenever entries change and the field is that small, so a school that untickes
+     * the box is overruled on the next entry change — deliberately, since the final
+     * would be pointless.</p>
+     *
+     * <p>What the flag protects is the other direction: once entries rise above a
+     * final's worth, the system puts the final back only if it was the one that took
+     * it away. An event the school chose to run straight to a final stays that way
+     * however large the field becomes.</p>
+     */
+    @Column(name = "direct_to_final_auto")
+    private Boolean directToFinalAuto;
+
+    /**
      * The school year this event belongs to. Null on events created before
      * seasons existed; the bootstrap assigns them to the year their date falls in.
      */
@@ -160,6 +177,12 @@ public class Event {
     @Transient
     public boolean runsAFinal() {
         return mayHaveFinal() && !isDirectToFinal();
+    }
+
+    /** True when this race is timed in minutes and seconds rather than in seconds alone. */
+    @Transient
+    public boolean usesMinutesAndSeconds() {
+        return type != null && type.usesMinutesAndSeconds();
     }
 
     @Transient
@@ -286,6 +309,15 @@ public class Event {
          */
         public boolean isLowerBetter() {
             return category == EventCategory.TRACK;
+        }
+
+        /**
+         * True for a race longer than 400M, where a time reads better as minutes and
+         * seconds than as a bare count of them — a helper writes 2:15, not 135. The
+         * mark is still stored in seconds, so nothing downstream changes.
+         */
+        public boolean usesMinutesAndSeconds() {
+            return this == RUN_800M || this == RUN_1500M || this == RUN_5000M;
         }
 
         /**

@@ -1,7 +1,6 @@
 package com.sportday.controller;
 
 import com.sportday.dto.EventResultDTO;
-import com.sportday.entity.EventResult;
 import com.sportday.service.EventResultService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;

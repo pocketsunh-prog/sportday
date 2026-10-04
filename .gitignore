@@ -4,6 +4,13 @@
 /backend/target/
 /frontend/.next/
 /frontend/out/
+# A Next build run from the repository root writes here rather than under frontend/.
+/.next/
+/frontend/next-env.d.ts
+
+# Compiled Python. The sample generator and the smoke test are scripts, not a package.
+__pycache__/
+*.pyc
 
 # Local run artefacts
 /artifacts/

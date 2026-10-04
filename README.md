@@ -34,6 +34,9 @@ Spring Boot 4.1 (Java 25) backend, Next.js 16 web app, MySQL 8.
 | 20 | A field event gives **three attempts**, and the best of them is the result | `EventResult.attempt1..3`, `MarkEntryService` |
 | 21 | An event runs **direct to a final** by default; only 60/100/200/400 can be split into heats and a final | `Event.directToFinal`, `FinalQualificationService` |
 | 22 | **Which grades may enter which events**, assigned on a page — by default C does not run the 1500M/5000M, nor B the 5000M | `EventGradeRule`, `GradeEligibilityService` |
+| 23 | A sprint with **8 or fewer entered** switches itself to direct to final — a final would be the same athletes as the heat | `FinalQualificationService.syncFinalFormat` |
+| 24 | A race **longer than 400M** is timed in **minutes and seconds**; the mark is still stored in seconds | `EventType.usesMinutesAndSeconds` |
+| 25 | Mark entry lists only events with **more than one athlete** entered | `app/admin/marks` |
 
 Events are also split by **sex division** (Boys / Girls), so each event is
 contested in exactly one division.
@@ -343,6 +346,48 @@ by doing it for them:
 Changing a rule affects **who may enter from then on**. It does not remove entries
 already made, which is deliberate: a withdrawal is a decision for the school, not a
 side effect of editing a grid.
+
+### Timed in minutes and seconds
+
+A race longer than 400M — the 800M, 1500M and 5000M — is timed on a stopwatch, so
+the grid asks for **minutes and seconds**, and a helper writes `2 : 15`, not `135`.
+The marking sheet's Record column reads **M:S** for those events.
+
+The mark is still **stored in seconds**: `mark` stays the total, which is what the
+placings, the records and the championship points all use. Only the way it is typed
+and read changes.
+
+```
+{ "userId": 105, "minutes": 2, "seconds": 15 }   # sent
+{ "mark": 135, "minutes": 2, "seconds": 15, "unit": "s" }   # stored and read back
+```
+
+The seconds box must be **under 60**. `1 minute 75 seconds` is how a helper mistypes
+2:15, so that row is refused with a plain explanation rather than silently carried
+into a time nobody ran — and the good time already saved is left alone.
+
+### A field too small for a final
+
+A sprint with **8 or fewer** athletes entered — one group's worth — runs straight to
+a final, because a final would be the same athletes as the heat. The system switches
+the event itself whenever entries are added, withdrawn or cancelled, and marks it as
+its own doing so the event list can say **"Direct to final · set automatically"**
+rather than passing it off as the school's choice.
+
+Entries rising again bring the final back, but only if the system was the one that
+took it away. An event the school chose to run straight to a final stays that way
+however large the field becomes.
+
+The rule is deliberately one-sided: a school that untickes the box with six entered
+is overruled on the next entry change, because the final really would be pointless.
+What the flag protects is the *other* direction.
+
+### Mark entry lists what is worth marking
+
+The event picker on the mark-entry page shows only events with **more than one
+athlete entered**. An event with nobody, or with one, is not worth a sheet — in the
+live register that is 36 of 38 events — so they are left out and the page says how
+many were hidden.
 
 ### School records
 
@@ -783,7 +828,8 @@ mvn clean compile     # wipe and build main sources
 mvn test              # run the tests against what was just built
 ```
 
-238 tests covering the grade bands and their boundaries, the password rule, thegroup sizes, sheet sizes and default units for every event type, the register
+272 tests covering the grade bands and their boundaries, the password rule, the
+group sizes, sheet sizes and default units for every event type, the register
 reader (headings, encodings, date spellings, BOM, quoted fields, bad rows), the
 sample generator's invariants, the marking-sheet PDFs — page size, page count, the
 five columns and glyph accuracy — the heat/final draw (track ranked fastest first,
@@ -821,7 +867,7 @@ With the backend running:
 python backend/scripts/smoke_test.py
 ```
 
-367 checks over real HTTP: admin login, season reset, the event catalogue and its
+389 checks over real HTTP: admin login, season reset, the event catalogue and its
 group/sheet sizes, the event filters, the 600-student import, student login with
 the derived password, the 2-track/1-field quota including the refusals, heat
 allocation at 8 and 24 per group, CSV **and** XLSX register upload with row-level
@@ -852,9 +898,19 @@ the whole set), the direct-to-final default (only the four sprints splittable, a
 event direct, a final refused until the box is unticked, an existing split left
 alone), grade eligibility (the C grade refused the 1500M and 5000M, the B grade the
 5000M, each grade's event count, an administrator bound by the same rule, reopening
-a cell letting the entry through, and the reset restoring the defaults), and the
-whole-school print run. It resets the season first and cleans up after itself, so it
-can be run repeatedly. Artifacts go to `artifacts/`.
+a cell letting the entry through, and the reset restoring the defaults), the
+small-field rule (8 or fewer switches to direct and says it was automatic, an admin's
+untick, and the rule re-applying after the next entry change), and a long race timed
+as 2 minutes 15 seconds (stored as 135 seconds, read back as 2:15, and 1 minute 75
+seconds refused without disturbing the time already saved), and the whole-school
+print run. It resets the season first and cleans up after itself, so it can be run
+repeatedly. Artifacts go to `artifacts/`.
+
+The register checks pin the grade reference date (`GRADE_REFERENCE_DATE`), because a
+grade comes from a date of birth **as at a date**: the shipped 600-strong register
+splits 240/198/162 as at 2026-10-03 but 239/199/162 one day later, when a single
+student turns fifteen and moves from the C grade to B. Without the pin the check
+would fail on a birthday rather than on a change.
 
 ---
 
@@ -968,6 +1024,17 @@ everything to every grade except the long distances. The application seeds the s
 rules on start, so this script is only needed where `ddl-auto` is validate, or to
 apply the schema ahead of a deploy. Note the column names differ either side of the
 join: an event's type is `events.type` but `event_grade_rules.event_type`.
+
+The small-field rule needs a ninth, which only adds a column:
+
+```bash
+docker exec -i sportday-mysql mysql -usportday -psportday123 -D sportday \
+  < backend/db/migration/small-field-final-migration.sql
+```
+
+`events.direct_to_final_auto` records that the system switched an event to direct to
+final because the field is no bigger than a final would be. It needs no backfill:
+NULL is exactly right for "the school's own setting".
 
 A brand new database needs none of this.
 

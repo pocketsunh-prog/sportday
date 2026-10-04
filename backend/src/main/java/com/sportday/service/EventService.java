@@ -114,25 +114,6 @@ public class EventService {
                 .collect(Collectors.toList());
     }
 
-    public List<EventDTO> getEnabledEvents() {
-        return eventRepository.findByEnabledTrue().stream()
-                .map(this::describe)
-                .collect(Collectors.toList());
-    }
-
-    /** Enabled events in one sex division — what a student sees on the entry page. */
-    public List<EventDTO> getEnabledEventsForSex(Sex sex) {
-        return eventRepository.findByEnabledTrueAndSex(sex).stream()
-                .map(this::describe)
-                .collect(Collectors.toList());
-    }
-
-    public List<EventDTO> getEnabledEventsByCategory(EventCategory category) {
-        return eventRepository.findByEnabledTrueAndCategoryOrderByTypeAsc(category).stream()
-                .map(this::describe)
-                .collect(Collectors.toList());
-    }
-
     public EventDTO getEventById(Long id) {
         return describe(requireEvent(id));
     }
@@ -217,6 +198,8 @@ public class EventService {
             // Changing the type and the final flag together must be judged on the
             // type the event will end up with, which is set above.
             event.setDirectToFinal(!requestedFinal(eventDTO, event.getType()));
+            // The school has spoken, so the automatic switch must not undo it.
+            event.setDirectToFinalAuto(false);
         }
 
         event.applyTypeDefaults();

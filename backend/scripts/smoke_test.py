@@ -35,6 +35,10 @@ from datetime import date
 CHECKS = 0
 FAILURES = 0
 
+# A student's grade comes from their date of birth as at a reference date, so any
+# check on the register's grade split has to name the date it is true for.
+GRADE_REFERENCE_DATE = "2026-10-03"
+
 
 def check(condition: bool, message: str, detail: str = "") -> bool:
     global CHECKS, FAILURES
@@ -438,7 +442,13 @@ def main() -> int:
         if not os.path.isfile(path):
             check(False, f"shipped {field} register present at {path}")
             continue
-        status, uploaded = api.upload("/admin/students/upload", path, token=admin_token)
+        # A grade is derived from the date of birth as at a reference date, so the
+        # expected split below only holds for one date: pinned here, or the check
+        # would drift every time a student has a birthday. (On 2026-10-04 exactly one
+        # student in the shipped register turns 15 and moves from the C grade to B.)
+        status, uploaded = api.upload(
+            f"/admin/students/upload?referenceDate={GRADE_REFERENCE_DATE}", path,
+            token=admin_token)
         check(status == 200, f"{field} register uploads", f"status={status} body={uploaded}")
         if isinstance(uploaded, dict):
             check(uploaded.get("failed") == 0, f"{field} upload had no bad rows",
@@ -448,7 +458,8 @@ def main() -> int:
                   f"created={uploaded.get('created')} updated={uploaded.get('updated')}")
             counts = uploaded.get("gradeCounts", {})
             check(counts.get("C") == 240 and counts.get("B") == 198 and counts.get("A") == 162,
-                  f"{field} upload regenerated the right grade split", f"got {counts}")
+                  f"{field} upload regenerated the grade split for {GRADE_REFERENCE_DATE}",
+                  f"got {counts}")
 
     # A register with a deliberate mistake should report the bad row, not fail.
     broken = b"\xef\xbb\xbfstudentId,name,dob,sex,className,classNumber,house\r\n" \
@@ -478,7 +489,7 @@ def main() -> int:
           "the register is back to exactly the imported students",
           f"total={after.get('total') if isinstance(after, dict) else after}")
     check(isinstance(after, dict) and after.get("byGrade", {}).get("B") == 198,
-          "grade counts are back to 240/198/162 after cleanup",
+          f"grade counts are back to 240/198/162 as at {GRADE_REFERENCE_DATE} after cleanup",
           f"byGrade={after.get('byGrade') if isinstance(after, dict) else after}")
 
     # ------------------------------------------------------- 10. mark entry
@@ -2007,6 +2018,143 @@ def main() -> int:
           f"1500M C={restored_1500['allowed']['C']}, 5000M B={restored_5000['allowed']['B']}")
     check(restored_grid.get("allowedEventCounts") == counts,
           "leaving the counts as they were", f"got {restored_grid.get('allowedEventCounts')}")
+
+    # ---------------- 19. a small field, and races timed in minutes
+    section("19. A small field, and races timed in minutes and seconds")
+
+    status, catalogue_now = api.request("GET", "/events", token=admin_token)
+    timed_in_minutes = {e["type"] for e in catalogue_now if e.get("timeInMinutes")}
+    check(timed_in_minutes == {"RUN_800M", "RUN_1500M", "RUN_5000M"},
+          "only races longer than 400M are timed in minutes",
+          f"got {sorted(timed_in_minutes)}")
+    check(not any(e.get("timeInMinutes") for e in catalogue_now
+                  if e["type"] in ("RUN_60M", "RUN_100M", "RUN_200M", "RUN_400M")),
+          "a sprint of 400M or less is a plain number of seconds")
+    check(not any(e.get("timeInMinutes") for e in catalogue_now if e["category"] == "FIELD"),
+          "and no field event is timed at all")
+
+    # ---- the grid asks for the time the way a stopwatch reads it
+    e800 = next(e for e in catalogue_now if e["type"] == "RUN_800M")
+    status, e800_groups = api.request("GET", f"/events/{e800['id']}/groups", token=admin_token)
+    heat = next(g for g in e800_groups if g.get("stage") == "HEAT")
+    status, sheet = api.request("GET", f"/events/{e800['id']}/marks?groupId={heat['id']}",
+                                token=admin_token)
+    check(sheet.get("timeInMinutes") is True, "the 800M grid asks in minutes and seconds",
+          f"got {sheet.get('timeInMinutes')}")
+    check(sheet.get("fieldEvent") is False, "and it is a track event, so one time not three")
+
+    status, sprint_sheet = api.request("GET", f"/events/{e60['id']}/marks?stage=HEAT",
+                                       token=admin_token)
+    check(sprint_sheet.get("timeInMinutes") in (False, None),
+          "while a 60M grid is a single number of seconds",
+          f"got {sprint_sheet.get('timeInMinutes')}")
+
+    # ---- a time typed as minutes and seconds is stored as the total
+    runner = next(r for r in sheet["rows"] if r.get("userId"))
+    status, saved = api.request(
+        "POST", f"/events/{e800['id']}/marks",
+        {"stage": "HEAT",
+         "rows": [{"userId": runner["userId"], "minutes": 2, "seconds": 15}]},
+        token=admin_token)
+    check(status == 200 and saved.get("saved") == 1, "a helper can type 2 minutes 15 seconds",
+          f"status={status} body={saved}")
+    status, after = api.request("GET", f"/events/{e800['id']}/marks?groupId={heat['id']}",
+                                token=admin_token)
+    written = next(r for r in after["rows"] if r.get("userId") == runner["userId"])
+    check(written.get("minutes") == 2 and float(written.get("seconds") or 0) == 15.0,
+          "and it reads back as 2 and 15", f"got {written.get('minutes')}:{written.get('seconds')}")
+    check(float(written.get("mark") or 0) == 135.0,
+          "stored as the total of 135 seconds, which is what the placings use",
+          f"got {written.get('mark')}")
+    check(written.get("unit") == "s", "still a time in seconds underneath",
+          f"got {written.get('unit')}")
+
+    # ---- 1 minute 75 seconds is refused rather than silently carried
+    status, refused_time = api.request(
+        "POST", f"/events/{e800['id']}/marks",
+        {"stage": "HEAT", "rows": [{"userId": runner["userId"], "minutes": 1, "seconds": 75}]},
+        token=admin_token)
+    check(status == 200 and refused_time.get("failed") == 1,
+          "1 minute 75 seconds is refused rather than carried into 2:15",
+          f"status={status} body={refused_time}")
+    check(any("under 60" in str(e) for e in refused_time.get("errors", [])),
+          "and the helper is told what is wrong", f"got {refused_time.get('errors')}")
+    status, unchanged = api.request("GET", f"/events/{e800['id']}/marks?groupId={heat['id']}",
+                                    token=admin_token)
+    still = next(r for r in unchanged["rows"] if r.get("userId") == runner["userId"])
+    check(float(still.get("mark") or 0) == 135.0,
+          "and the good time already saved is left alone", f"got {still.get('mark')}")
+
+    # Put the grid back as it was.
+    api.request("POST", f"/events/{e800['id']}/marks",
+                {"stage": "HEAT", "rows": [{"userId": runner["userId"], "mark": None}]},
+                token=admin_token)
+
+    # ---- the mark-entry list: an event with one entrant is not worth marking
+    thin = [e for e in catalogue_now if (e.get("enrolledCount") or 0) <= 1]
+    check(bool(thin), "some events have one entrant or none",
+          f"got {len(thin)} of {len(catalogue_now)}")
+
+    # ---- a field no bigger than a final runs straight to a final
+    status, roster = api.request("GET", "/admin/students", token=admin_token)
+    girls = [s for s in roster if s.get("sex") == "FEMALE"]
+    check(bool(girls), "there are girls on the register to enter", f"got {len(girls)}")
+
+    status, small = api.request(
+        "POST", "/events",
+        {"type": "RUN_100M", "sex": "FEMALE", "name": "Smoke Small Field 100M",
+         "eventDate": "2027-10-02", "directToFinal": False},
+        token=admin_token)
+    check(status == 200 and small.get("directToFinal") is False,
+          "a sprint can be set to heats and a final", f"status={status} body={small}")
+
+    entered = None
+    for candidate in girls[:10]:
+        status, entries = api.request(
+            "GET", f"/admin/students/{candidate['studentId']}/enrollments", token=admin_token)
+        quota = entries.get("quota", {}) if isinstance(entries, dict) else {}
+        if quota.get("trackRemaining", 0) <= 0:
+            continue
+        status, _ = api.request(
+            "POST", f"/admin/students/{candidate['studentId']}/enrollments/{small['id']}",
+            token=admin_token)
+        if status == 200:
+            entered = candidate
+            break
+    check(entered is not None, "and a girl can be entered in it")
+
+    if entered:
+        status, after_entry = api.request("GET", "/events", token=admin_token)
+        now = next(e for e in after_entry if e["id"] == small["id"])
+        check(now.get("directToFinal") is True and now.get("directToFinalAutomatic") is True,
+              "with one entrant the system switches it to direct to final, and says so",
+              f"directToFinal={now.get('directToFinal')} auto={now.get('directToFinalAutomatic')}")
+
+        # The school overrides it, and the flag says the choice is now theirs.
+        status, overridden = api.request("PUT", f"/events/{small['id']}",
+                                         {"directToFinal": False}, token=admin_token)
+        check(overridden.get("directToFinal") is False
+              and not overridden.get("directToFinalAutomatic"),
+              "an admin can untick it, which puts the choice back in the school's hands",
+              f"got {overridden.get('directToFinal')}/{overridden.get('directToFinalAutomatic')}")
+        # Withdrawing is an entry change, and with one entrant or fewer the rule
+        # applies again — a final would be the same runners as the heat.
+        api.request("DELETE",
+                    f"/admin/students/{entered['studentId']}/enrollments/{small['id']}",
+                    token=admin_token)
+        status, after_withdrawal = api.request("GET", "/events", token=admin_token)
+        closed = next(e for e in after_withdrawal if e["id"] == small["id"])
+        check(closed.get("directToFinal") is True
+              and closed.get("directToFinalAutomatic") is True,
+              "and the next entry change re-applies it, still flagged as automatic",
+              f"got {closed.get('directToFinal')}/{closed.get('directToFinalAutomatic')}")
+
+    # Tidy up.
+    status, _ = api.request("DELETE", f"/events/{small['id']}", token=admin_token)
+    check(status in (200, 204), "the test event is removed", f"status={status}")
+    status, restored_catalogue = api.request("GET", "/events", token=admin_token)
+    check(len(restored_catalogue) == len(catalogue_now), "leaving the catalogue as it was",
+          f"got {len(restored_catalogue)} of {len(catalogue_now)}")
 
     # ------------------------------------------------------------------ summary
     section("Summary")

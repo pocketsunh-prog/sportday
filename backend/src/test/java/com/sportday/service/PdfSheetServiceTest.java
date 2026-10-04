@@ -365,4 +365,40 @@ class PdfSheetServiceTest {
             assertTrue(Files.size(target) > 1000, "preview " + fileName + " looks empty");
         }
     }
+
+    @Test
+    @DisplayName("a race over 400M is headed M:S, because that is how it is timed")
+    void aLongRaceIsHeadedInMinutesAndSeconds() {
+        assertEquals("M:S", PdfSheetService.unitFor(group("RUN_800M", "TRACK")));
+        assertEquals("M:S", PdfSheetService.unitFor(group("RUN_1500M", "TRACK")));
+        assertEquals("M:S", PdfSheetService.unitFor(group("RUN_5000M", "TRACK")));
+    }
+
+    @Test
+    @DisplayName("everything else keeps the unit it had")
+    void everythingElseKeepsItsUnit() {
+        assertEquals("s", PdfSheetService.unitFor(group("RUN_60M", "TRACK")));
+        assertEquals("s", PdfSheetService.unitFor(group("RUN_400M", "TRACK")));
+        assertEquals("s", PdfSheetService.unitFor(group("HURDLES_400M", "TRACK")));
+        assertEquals("s", PdfSheetService.unitFor(group("RELAY_4X100M", "TRACK")));
+        assertEquals("M", PdfSheetService.unitFor(group("SHOT_PUT", "FIELD")));
+        assertEquals("M", PdfSheetService.unitFor(group("LONG_JUMP", "FIELD")));
+    }
+
+    @Test
+    @DisplayName("a group with no event type falls back to its category")
+    void aGroupWithoutATypeFallsBack() {
+        assertEquals("s", PdfSheetService.unitFor(group(null, "TRACK")));
+        assertEquals("M", PdfSheetService.unitFor(group(null, "FIELD")));
+        assertNull(PdfSheetService.unitFor(group(null, null)));
+    }
+
+    private static EventGroupDTO group(String eventType, String category) {
+        return EventGroupDTO.builder()
+                .id(1L).eventId(1L).eventName("Boys 800M")
+                .eventType(eventType).category(category)
+                .groupNumber(1).label("Heat 1").stage("HEAT")
+                .athletes(new ArrayList<>())
+                .build();
+    }
 }

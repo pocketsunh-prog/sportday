@@ -46,4 +46,12 @@ public class MarkRowDTO {
 
     /** True when this performance is the current school record for its event. */
     private Boolean newRecord;
+
+    /**
+     * The mark the way a stopwatch reads it, for a race longer than 400M: the whole
+     * minutes and the seconds left over. {@link #mark} still carries the total in
+     * seconds, which is what everything downstream uses.
+     */
+    private Integer minutes;
+    private BigDecimal seconds;
 }

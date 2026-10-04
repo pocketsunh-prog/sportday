@@ -196,6 +196,23 @@ export interface EventDTO {
    */
   mayHaveFinal: boolean;
   /**
+   * True when the *system* set `directToFinal` rather than the school: a short
+   * sprint with eight or fewer athletes entered has no room for a final, so it
+   * is switched to direct to final for as long as the field stays that small.
+   *
+   * Absent (the API omits a null) or false means either the school chose the
+   * format or the event was always direct, and it must be rendered as before.
+   * The system puts the final back by itself once entries rise again, but never
+   * undoes a format the school set — unticking the box clears this flag.
+   */
+  directToFinalAutomatic?: boolean;
+  /**
+   * True for a race longer than 400M (800M / 1500M / 5000M), whose time a helper
+   * reads off a stopwatch: it is written as minutes and seconds, not as a bare
+   * count of seconds.
+   */
+  timeInMinutes?: boolean;
+  /**
    * How the event is measured: `M` in the field, `s` on the track. Populated on
    * every event, and always rendered through `label('unit', …)`.
    */
@@ -470,6 +487,13 @@ export interface MarkRowDTO {
   resultId?: number;
   /** The best mark. For a field event that is the best of `attempts`. */
   mark?: number;
+  /**
+   * A race longer than 400M's time the way a stopwatch reads it: the whole
+   * minutes and the seconds left over. `mark` still carries the total in
+   * seconds, which is what the rest of the app uses.
+   */
+  minutes?: number;
+  seconds?: number;
   /** `M` in the field, `s` on the track. */
   unit?: string;
   /**
@@ -511,6 +535,12 @@ export interface MarkSheetDTO {
   finalSize: number;
   /** `M` in the field, `s` on the track. */
   defaultUnit?: string;
+  /**
+   * True for a race longer than 400M, where a time is typed as minutes and
+   * seconds — a helper writes 2:15, not 135. The rows then carry `minutes` and
+   * `seconds` beside `mark`.
+   */
+  timeInMinutes?: boolean;
   /** How many attempts a row on this sheet carries: 3 in the field, 1 on the track. */
   attemptCount?: number;
   /** True when this is a field event, i.e. when the three attempts count. */
@@ -527,6 +557,14 @@ export interface MarkEntryInput {
   userId: number;
   /** The single mark a track row is recorded with. */
   mark?: number | null;
+  /**
+   * A race longer than 400M may send its time as whole minutes and the seconds
+   * left over instead of `mark`; the seconds part has to be under 60. When both
+   * shapes are sent, these two win and the server works `mark` out as the total
+   * in seconds.
+   */
+  minutes?: number | null;
+  seconds?: number | null;
   /**
    * A field row's attempts, in order, of which the server keeps the best. A miss
    * is `null`, and the last attempt may simply be left off rather than padded.

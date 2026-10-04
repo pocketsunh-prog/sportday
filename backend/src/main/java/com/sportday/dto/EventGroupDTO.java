@@ -22,6 +22,9 @@ public class EventGroupDTO {
     private Long eventId;
     private String eventName;
     private String eventTypeLabel;
+
+    /** The event type code, e.g. {@code RUN_800M} — what decides the time format. */
+    private String eventType;
     private String category;
     private String categoryLabel;
     private String sex;
@@ -51,6 +54,7 @@ public class EventGroupDTO {
                 .id(group.getId())
                 .eventId(event == null ? null : event.getId())
                 .eventName(event == null ? null : event.getName())
+                .eventType(event == null || event.getType() == null ? null : event.getType().name())
                 .eventTypeLabel(event == null || event.getType() == null ? null : event.getType().getDisplayName())
                 .category(event == null ? null : event.getCategoryOrDefault().name())
                 .categoryLabel(event == null ? null : event.getCategoryOrDefault().getLabel())

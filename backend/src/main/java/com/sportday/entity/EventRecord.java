@@ -153,18 +153,6 @@ public class EventRecord {
         return manualMark == null ? Source.NONE : Source.BASELINE;
     }
 
-    /** True when an administrator has entered a baseline. */
-    @Transient
-    public boolean hasBaseline() {
-        return manualMark != null;
-    }
-
-    /** True when {@code candidate} would beat the mark that stands. */
-    @Transient
-    public boolean isBeatenBy(BigDecimal candidate) {
-        return candidate != null && (mark == null || isBetter(candidate, mark));
-    }
-
     /** True when {@code a} is the better of two marks for this event. */
     @Transient
     public boolean isBetter(BigDecimal a, BigDecimal b) {

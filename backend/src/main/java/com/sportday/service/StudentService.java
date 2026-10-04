@@ -342,12 +342,6 @@ public class StudentService {
         return StudentDTO.from(student, gradeCalculator.referenceDate());
     }
 
-    /** The roster record behind a login account, or empty for staff logins. */
-    @Transactional(readOnly = true)
-    public java.util.Optional<Student> findRosterForUser(Long userId) {
-        return studentRepository.findWithUserByUserId(userId);
-    }
-
     @Transactional(readOnly = true)
     public Map<String, Long> gradeCounts() {
         Map<String, Long> counts = new LinkedHashMap<>();

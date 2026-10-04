@@ -181,6 +181,8 @@ public class MarkEntryService {
                     .newRecord(result != null && recordHolders.contains(result.getId()))
                     .attempts(result != null && result.hasAttempts()
                             ? new ArrayList<>(result.getAttempts()) : null)
+                    .minutes(minutesOf(result == null ? null : result.getMark()))
+                    .seconds(secondsOf(result == null ? null : result.getMark()))
                     .build());
         }
 
@@ -206,6 +208,8 @@ public class MarkEntryService {
                 // A field athlete gets three attempts; a track athlete one time.
                 .attemptCount(field ? Event.EventType.FIELD_ATTEMPTS : 1)
                 .fieldEvent(field)
+                // A race over 400M is typed as minutes and seconds.
+                .timeInMinutes(event.usesMinutesAndSeconds())
                 .stage(effectiveStage.name())
                 .stageLabel(effectiveStage.getLabelEn() + " " + effectiveStage.getLabelZh())
                 .finalDrawn(finalDrawn)
@@ -312,10 +316,25 @@ public class MarkEntryService {
                 continue;
             }
 
-            // A field event gives three attempts and counts the best of them; a
-            // track event is a single performance.
+            // A field event gives three attempts and counts the best of them; a race
+            // over 400M is typed as minutes and seconds; anything else is one mark.
             List<BigDecimal> attempts = field ? fieldAttempts(row) : null;
-            BigDecimal value = field ? bestAttempt(attempts) : row.getMark();
+            BigDecimal value;
+            if (field) {
+                value = bestAttempt(attempts);
+            } else if (event.usesMinutesAndSeconds()
+                    && (row.getMinutes() != null || row.getSeconds() != null)) {
+                BigDecimal asSeconds = totalSeconds(row.getMinutes(), row.getSeconds());
+                if (asSeconds == null) {
+                    outcome.setFailed(outcome.getFailed() + 1);
+                    outcome.addError(userId, "The seconds part of a time must be under 60 — "
+                            + "write 2 minutes 15 seconds as 2 and 15, not as 1 and 75.");
+                    continue;
+                }
+                value = asSeconds;
+            } else {
+                value = row.getMark();
+            }
 
             if (value == null) {
                 // Nothing typed for this athlete: leave whatever is stored alone.
@@ -426,6 +445,33 @@ public class MarkEntryService {
             }
         }
         return null;
+    }
+
+    /**
+     * A stopwatch time as a total in seconds. Returns null when the seconds part is
+     * not a real part — 1 minute 75 seconds is how a helper mistypes 2:15.
+     */
+    static BigDecimal totalSeconds(Integer minutes, BigDecimal seconds) {
+        int whole = minutes == null ? 0 : minutes;
+        if (whole < 0) {
+            return null;
+        }
+        BigDecimal part = seconds == null ? BigDecimal.ZERO : seconds;
+        if (part.signum() < 0 || part.compareTo(BigDecimal.valueOf(60)) >= 0) {
+            return null;
+        }
+        return BigDecimal.valueOf(whole).multiply(BigDecimal.valueOf(60)).add(part);
+    }
+
+    /** The whole minutes in a mark, for a race timed on a stopwatch. */
+    static Integer minutesOf(BigDecimal mark) {
+        return mark == null ? null
+                : mark.divideToIntegralValue(BigDecimal.valueOf(60)).intValue();
+    }
+
+    /** The seconds left over after the whole minutes. */
+    static BigDecimal secondsOf(BigDecimal mark) {
+        return mark == null ? null : mark.remainder(BigDecimal.valueOf(60));
     }
 
     private Event requireEvent(Long eventId) {

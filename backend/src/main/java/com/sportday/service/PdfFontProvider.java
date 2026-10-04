@@ -77,12 +77,6 @@ public class PdfFontProvider {
         return font;
     }
 
-    /** True when the resolved font can encode Chinese text. */
-    public boolean isUnicodeCapable() {
-        baseFont();
-        return unicodeCapable;
-    }
-
     /** Where the font came from, for the admin diagnostics view. */
     public String getResolvedFrom() {
         baseFont();

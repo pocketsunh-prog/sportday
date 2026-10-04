@@ -45,6 +45,12 @@ export default function EditEventPage() {
    * still be changed, but a programme that has already been run is at stake.
    */
   const [hasDrawings, setHasDrawings] = useState(false);
+  /**
+   * True when the *system* set `directToFinal` rather than the school — a short
+   * sprint the field is too small for a final to improve on. The box stays
+   * unticked-able: unticking it forces heats and a final and clears the flag.
+   */
+  const [directToFinalAutomatic, setDirectToFinalAutomatic] = useState(false);
 
   const eventId = Number(params.id);
 
@@ -77,6 +83,10 @@ export default function EditEventPage() {
         });
         // `groupCount` counts the heats and, where one was drawn, the final.
         setHasDrawings((event.groupCount || 0) > 0);
+        // Absent, like every optional field this API omits when it has nothing
+        // to say, means the school chose the format — or the event was always
+        // direct — so nothing is said about an automatic choice.
+        setDirectToFinalAutomatic(event.directToFinalAutomatic === true);
       })
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
@@ -100,6 +110,10 @@ export default function EditEventPage() {
       }
       return next;
     });
+    // Once the school moves the format box itself, the choice is the school's
+    // and the note about the system's own choice no longer applies. Changing
+    // the type is not that: the box follows the type on its own.
+    if (name === 'directToFinal') setDirectToFinalAutomatic(false);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -288,6 +302,17 @@ export default function EditEventPage() {
             </label>
             <p className="muted">{t('events.directToFinalHint')}</p>
             {!mayHaveFinal && <p className="muted">{t('events.directToFinalForced')}</p>}
+            {/* The system decided this, not the school: the field is small
+                enough that a final would be the same runners as the heat. The
+                box above stays unticked-able, which forces heats and a final. */}
+            {form.directToFinal && directToFinalAutomatic && (
+              <p className="muted">
+                <span className="badge badge-warning">
+                  {t('events.directToFinalAutomatic')}
+                </span>{' '}
+                {t('events.directToFinalAutomaticHint')}
+              </p>
+            )}
           </div>
           {/* Unticking the box on an event whose heats or final are already
               drawn changes a programme that may already have been run. */}

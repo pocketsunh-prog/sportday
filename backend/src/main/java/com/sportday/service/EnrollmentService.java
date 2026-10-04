@@ -19,7 +19,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -43,6 +42,7 @@ public class EnrollmentService {
     private final SettingsService settingsService;
     private final SeasonService seasonService;
     private final GradeEligibilityService gradeEligibilityService;
+    private final FinalQualificationService finalQualificationService;
 
     /** How many entries a student still has available, per category. */
     public record Quota(
@@ -117,6 +117,8 @@ public class EnrollmentService {
                 .status(Enrollment.EnrollmentStatus.CONFIRMED)
                 .build();
         Enrollment saved = enrollmentRepository.save(enrollment);
+        // A sprint that has only a group's worth of entries runs straight to a final.
+        finalQualificationService.syncFinalFormat(event);
         log.info("User {} entered event {} ({}, {})", userId, eventId, category, event.getSex());
         return EnrollmentDTO.from(saved, roster);
     }
@@ -133,6 +135,8 @@ public class EnrollmentService {
         enrollment.setEventGroup(null);
         enrollment.setLane(null);
         enrollmentRepository.save(enrollment);
+        // Fewer entries may mean the event no longer needs heats and a final.
+        finalQualificationService.syncFinalFormat(eventId);
     }
 
     /**
@@ -185,6 +189,8 @@ public class EnrollmentService {
         }
         enrollment.setStatus(Enrollment.EnrollmentStatus.CONFIRMED);
         Enrollment saved = enrollmentRepository.save(enrollment);
+        // Reviving an entry may take the event back over a group's worth.
+        finalQualificationService.syncFinalFormat(event);
         return EnrollmentDTO.from(saved, roster);
     }
 
@@ -251,17 +257,6 @@ public class EnrollmentService {
         int fieldMax = settingsService.maxEntriesFor(EventCategory.FIELD);
         return new Quota(trackUsed, trackMax, Math.max(0, trackMax - trackUsed),
                 fieldUsed, fieldMax, Math.max(0, fieldMax - fieldUsed));
-    }
-
-    /** Category -> number of entries held, for every category. */
-    @Transactional(readOnly = true)
-    public Map<String, Long> getUsage(Long userId) {
-        Map<String, Long> usage = new LinkedHashMap<>();
-        for (EventCategory category : EventCategory.values()) {
-            usage.put(category.name(), enrollmentRepository.countByUserAndCategory(
-                    userId, Enrollment.EnrollmentStatus.CONFIRMED, category));
-        }
-        return usage;
     }
 
     private List<EnrollmentDTO> toDto(List<Enrollment> enrollments) {

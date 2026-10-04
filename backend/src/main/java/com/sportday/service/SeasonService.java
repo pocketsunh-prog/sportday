@@ -236,13 +236,6 @@ public class SeasonService {
                 .orElseThrow(() -> new ResourceNotFoundException("Sport day year not found: " + id));
     }
 
-    /** The open year's id, or null — used to default the event list to this year. */
-    @Transactional(readOnly = true)
-    public Long currentSeasonId() {
-        Season season = currentSeason();
-        return season == null ? null : season.getId();
-    }
-
     @Transactional(readOnly = true)
     public Optional<Season> find(Long id) {
         return seasonRepository.findById(id);

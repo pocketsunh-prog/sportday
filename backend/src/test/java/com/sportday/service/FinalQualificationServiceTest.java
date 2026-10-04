@@ -102,6 +102,66 @@ class FinalQualificationServiceTest {
 
     private final List<EventResult> recorded = new ArrayList<>();
 
+    // ------------------------------------- a field no bigger than a final
+
+    @Test
+    @DisplayName("a sprint with a group's worth or fewer runs straight to a final")
+    void aSmallFieldRunsStraightToAFinal() {
+        event.setDirectToFinal(false);
+        when(enrollmentRepository.countByEventIdAndStatus(
+                EVENT_ID, Enrollment.EnrollmentStatus.CONFIRMED)).thenReturn(8L);
+
+        assertTrue(service.syncFinalFormat(EVENT_ID), "the format changed");
+        assertTrue(event.isDirectToFinal(), "eight entrants fit a final exactly");
+        assertTrue(event.getDirectToFinalAuto(), "and the school can see the system did it");
+    }
+
+    @Test
+    @DisplayName("one more than a final's worth keeps the heats and final")
+    void aFullFieldKeepsItsHeats() {
+        event.setDirectToFinal(false);
+        when(enrollmentRepository.countByEventIdAndStatus(
+                EVENT_ID, Enrollment.EnrollmentStatus.CONFIRMED)).thenReturn(9L);
+
+        assertFalse(service.syncFinalFormat(EVENT_ID), "nothing to change");
+        assertFalse(event.isDirectToFinal());
+    }
+
+    @Test
+    @DisplayName("entries rising again bring the final back, when the system removed it")
+    void theFinalComesBackWhenEntriesRise() {
+        event.setDirectToFinal(true);
+        event.setDirectToFinalAuto(true);   // the system closed it
+        when(enrollmentRepository.countByEventIdAndStatus(
+                EVENT_ID, Enrollment.EnrollmentStatus.CONFIRMED)).thenReturn(20L);
+
+        assertTrue(service.syncFinalFormat(EVENT_ID));
+        assertFalse(event.isDirectToFinal(), "heats and a final are back on");
+        assertFalse(event.getDirectToFinalAuto());
+    }
+
+    @Test
+    @DisplayName("a format the school chose is never undone by the entry count")
+    void theSchoolsOwnChoiceStands() {
+        event.setDirectToFinal(true);
+        event.setDirectToFinalAuto(false);  // the school closed it, deliberately
+        when(enrollmentRepository.countByEventIdAndStatus(
+                EVENT_ID, Enrollment.EnrollmentStatus.CONFIRMED)).thenReturn(40L);
+
+        assertFalse(service.syncFinalFormat(EVENT_ID), "left alone");
+        assertTrue(event.isDirectToFinal(), "the school wanted a straight final");
+    }
+
+    @Test
+    @DisplayName("an event that cannot have a final is not touched")
+    void anEventWithoutAFinalIsNotTouched() {
+        event.setType(Event.EventType.RUN_800M);
+        event.setDirectToFinal(true);
+
+        assertFalse(service.syncFinalFormat(EVENT_ID));
+        verify(enrollmentRepository, never()).countByEventIdAndStatus(any(), any());
+    }
+
     /** Wires up the mocks from everything handed to {@link #record}. */
     private void givenHeatMarks() {
         when(resultRepository.findByEventIdAndStageOrderByMarkAsc(EVENT_ID, EventStage.HEAT))

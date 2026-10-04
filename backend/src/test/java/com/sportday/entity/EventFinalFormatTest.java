@@ -79,4 +79,22 @@ class EventFinalFormatTest {
         assertFalse(event(Event.EventType.RUN_800M, false).runsAFinal(),
                 "an 800M cannot have a final however it is set");
     }
+
+    @Test
+    @DisplayName("a race over 400M is timed in minutes and seconds")
+    void longRacesAreTimedInMinutes() {
+        assertTrue(event(Event.EventType.RUN_800M, null).usesMinutesAndSeconds());
+        assertTrue(event(Event.EventType.RUN_1500M, null).usesMinutesAndSeconds());
+        assertTrue(event(Event.EventType.RUN_5000M, null).usesMinutesAndSeconds());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = Event.EventType.class,
+            names = {"RUN_800M", "RUN_1500M", "RUN_5000M"},
+            mode = EnumSource.Mode.EXCLUDE)
+    @DisplayName("400M and below, and every field event, is not")
+    void shortRacesAndFieldEventsAreNot(Event.EventType type) {
+        assertFalse(event(type, null).usesMinutesAndSeconds(),
+                type + " is recorded as a plain number");
+    }
 }

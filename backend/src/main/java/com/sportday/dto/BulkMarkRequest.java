@@ -51,6 +51,14 @@ public class BulkMarkRequest {
          */
         private List<BigDecimal> attempts;
 
+        /**
+         * For a race longer than 400M, the time as a stopwatch reads it — whole
+         * minutes and the seconds left over. Sent instead of {@code mark}, which the
+         * server works out as the total in seconds.
+         */
+        private Integer minutes;
+        private BigDecimal seconds;
+
         /** Blank falls back to the event's default unit (s or M). */
         private String unit;
 

@@ -248,7 +248,18 @@ public class PdfSheetService {
     }
 
     /** The unit this group's marks are recorded in, for the Record heading. */
-    private static String unitFor(EventGroupDTO group) {
+    static String unitFor(EventGroupDTO group) {
+        // A race over 400M is timed on a stopwatch, so its sheet reads M:S rather
+        // than a bare count of seconds.
+        if (group.getEventType() != null) {
+            try {
+                if (Event.EventType.valueOf(group.getEventType()).usesMinutesAndSeconds()) {
+                    return "M:S";
+                }
+            } catch (IllegalArgumentException ignored) {
+                // An event type this build does not know — fall back to the category.
+            }
+        }
         if ("FIELD".equals(group.getCategory())) {
             return Event.EventType.UNIT_FIELD;
         }

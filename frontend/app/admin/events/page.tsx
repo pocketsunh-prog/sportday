@@ -440,6 +440,21 @@ export default function AdminEventsPage() {
                           ? t('events.directToFinal')
                           : t('events.heatsAndFinal')}
                       </span>
+                      {/* The system, not the school, decided the format: a short
+                          sprint with eight or fewer entered has no room for a
+                          final. It is marked so it is never read as the school's
+                          own setting — and the box is left unticked-able on the
+                          edit page, which clears the flag server-side. */}
+                      {event.directToFinal === true && event.directToFinalAutomatic === true && (
+                        <>
+                          <div className="mt-2">
+                            <span className="badge badge-warning">
+                              {t('events.directToFinalAutomatic')}
+                            </span>
+                          </div>
+                          <div className="muted">{t('events.directToFinalAutomaticHint')}</div>
+                        </>
+                      )}
                     </td>
                     <td>
                       {label('unit', event.defaultUnit || defaultUnitForCategory(event.category))}

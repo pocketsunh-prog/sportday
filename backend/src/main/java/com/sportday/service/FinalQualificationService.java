@@ -290,6 +290,52 @@ public class FinalQualificationService {
                 note);
     }
 
+    /**
+     * Keeps a sprint's format in step with how many have entered.
+     *
+     * <p>A final with only a group's worth of entries would be the same athletes as
+     * the heat, so such an event runs straight to a final. When entries rise again
+     * the final comes back — but only if the system was the one that took it away; a
+     * format the school chose is never undone behind its back.</p>
+     *
+     * @return true when the event's format was changed
+     */
+    @Transactional
+    public boolean syncFinalFormat(Long eventId) {
+        return syncFinalFormat(requireEvent(eventId));
+    }
+
+    @Transactional
+    public boolean syncFinalFormat(Event event) {
+        if (event == null || event.getId() == null || !event.mayHaveFinal()) {
+            return false;
+        }
+        int finalSize = resolveSize(event, null);
+        long entered = enrollmentRepository.countByEventIdAndStatus(
+                event.getId(), Enrollment.EnrollmentStatus.CONFIRMED);
+        boolean tooFewToSplit = entered <= finalSize;
+
+        if (tooFewToSplit && !event.isDirectToFinal()) {
+            event.setDirectToFinal(true);
+            event.setDirectToFinalAuto(true);
+            eventRepository.save(event);
+            log.info("{} has {} entrant(s), which fits a final — running it straight to a final",
+                    event.getName(), entered);
+            return true;
+        }
+        if (!tooFewToSplit && event.isDirectToFinal()
+                && Boolean.TRUE.equals(event.getDirectToFinalAuto())) {
+            // The system closed it, so the system opens it again.
+            event.setDirectToFinal(false);
+            event.setDirectToFinalAuto(false);
+            eventRepository.save(event);
+            log.info("{} now has {} entrants, so heats and a final are back on",
+                    event.getName(), entered);
+            return true;
+        }
+        return false;
+    }
+
     private Event requireEvent(Long eventId) {
         return eventRepository.findById(eventId)
                 .orElseThrow(() -> new ResourceNotFoundException("Event not found with id: " + eventId));
