@@ -10,6 +10,7 @@ import com.sportday.service.EventService;
 import com.sportday.service.FinalQualificationService;
 import com.sportday.service.FinalStageGuard;
 import com.sportday.service.PdfSheetService;
+import com.sportday.service.RelayReadiness;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -39,6 +40,7 @@ public class EventGroupController {
     private final PdfSheetService pdfSheetService;
     private final FinalQualificationService finalQualificationService;
     private final FinalStageGuard finalStageGuard;
+    private final RelayReadiness relayReadiness;
 
     // --------------------------------------------------------------- groups
 
@@ -128,7 +130,9 @@ public class EventGroupController {
     @Operation(summary = "Download one group's marking sheet",
             description = "A5 for 60/100/200/400 (8 athletes), A4 otherwise (24 athletes). "
                     + "Columns: student id, name, grade, record, remark. A final's sheet is refused "
-                    + "until the final has been drawn from the heat results (ADMIN, MANAGER or HELPER).")
+                    + "until the final has been drawn from the heat results, and a relay's until the "
+                    + "relay is ready — two teams, each holding its four runners (ADMIN, MANAGER or "
+                    + "HELPER).")
     @GetMapping("/groups/{groupId}/sheet.pdf")
     @PreAuthorize("hasAnyRole('ADMIN','MANAGER','HELPER')")
     public ResponseEntity<byte[]> groupSheet(@PathVariable Long groupId) {
@@ -139,6 +143,11 @@ public class EventGroupController {
             // for before it is drawn is this, which says when to come back.
             finalStageGuard.requireDrawnFinal(group.getEvent());
         }
+        // A sheet asked for by name is asked for on purpose, so a relay that is not
+        // ready is refused with the reason rather than handed over: the sheet would be
+        // a race with one team on it, which no helper can mark. The whole-programme run
+        // skips such a relay instead.
+        relayReadiness.requireRelayIsReadyToMark(group.getEvent());
         byte[] pdf = pdfSheetService.renderGroupSheet(groupId);
         return pdfResponse(pdf, sheetFileName(group));
     }
@@ -146,7 +155,8 @@ public class EventGroupController {
     @Operation(summary = "Download every marking sheet of an event",
             description = "One page per group, all at the event's paper size. An event that runs "
                     + "heats and a final refuses the whole run until the final has been drawn, so a "
-                    + "print run can never be missing its last sheet (ADMIN, MANAGER or HELPER).")
+                    + "print run can never be missing its last sheet, and a relay refuses it until "
+                    + "the relay is ready (ADMIN, MANAGER or HELPER).")
     @GetMapping("/events/{eventId}/sheets.pdf")
     @PreAuthorize("hasAnyRole('ADMIN','MANAGER','HELPER')")
     public ResponseEntity<byte[]> eventSheets(@PathVariable Long eventId) {
@@ -183,17 +193,25 @@ public class EventGroupController {
     }
 
     /**
-     * Refuses an event's print run while a final it will run has not been drawn.
+     * Refuses a print run that names an event whose sheets are not all there yet.
      *
      * <p>An event that runs straight to a final, and one that cannot be split at
      * all, are refused nothing: every sheet they have is already in the run. Only an
-     * event whose final is still to come is held back.</p>
+     * event whose final is still to come is held back — and a relay that is not ready,
+     * which has no markable sheet at all. This run names one event, so a half-built
+     * relay in it cannot be skipped past: there is nothing else in the run to hand
+     * over, and a document with no sheets on it would be the silently empty page the
+     * school must be spared. The reason is therefore the answer, in the same words the
+     * marking grid uses. The whole-programme run is the one that skips a not-ready
+     * relay, and it does so as it gathers the groups
+     * ({@link EventGroupService#getGroupsWithAthletesFiltered}).</p>
      */
     private void requireSheetsArePrintable(Long eventId) {
         Event event = eventService.requireEvent(eventId);
         if (event.runsAFinal()) {
             finalStageGuard.requireDrawnFinal(event);
         }
+        relayReadiness.requireRelayIsReadyToMark(event);
     }
 
     private ResponseEntity<byte[]> pdfResponse(byte[] pdf, String filename) {

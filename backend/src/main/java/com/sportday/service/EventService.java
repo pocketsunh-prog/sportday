@@ -1,6 +1,8 @@
 package com.sportday.service;
 
+import com.sportday.dto.DraftRelayTeamRequest;
 import com.sportday.dto.EventDTO;
+import com.sportday.dto.RelayTeamCreateRequest;
 import com.sportday.entity.Enrollment;
 import com.sportday.entity.Event;
 import com.sportday.entity.EventCategory;
@@ -8,6 +10,7 @@ import com.sportday.entity.EventGroup;
 import com.sportday.entity.Grade;
 import com.sportday.entity.RelayTeamKind;
 import com.sportday.entity.Sex;
+import com.sportday.entity.Student;
 import com.sportday.exception.ResourceNotFoundException;
 import com.sportday.repository.EnrollmentRepository;
 import com.sportday.repository.EventGroupRepository;
@@ -19,8 +22,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -86,6 +92,12 @@ public class EventService {
      * The event list with any combination of filters applied. Every filter is
      * optional and they compose — asking for the enabled boys' field events
      * returns exactly those.
+     *
+     * <p><strong>A draft is never on this list.</strong> It is a relay event made to
+     * hold teams the school is still building, not a race the school has entered, so
+     * it must not appear in the programme, offer entry, or be countable as part of a
+     * sport day. The one list it does belong on is an administrator's
+     * {@link #getDraftEvents()}.</p>
      */
     public List<EventDTO> searchEvents(boolean onlyEnabled, Sex sex, EventCategory category) {
         return searchEvents(onlyEnabled, sex, category, null);
@@ -109,6 +121,7 @@ public class EventService {
                                        java.time.LocalDate date, Long seasonId) {
         List<Event> base = onlyEnabled ? eventRepository.findByEnabledTrue() : eventRepository.findAll();
         return base.stream()
+                .filter(event -> !event.isDraft())
                 .filter(event -> sex == null || event.getSex() == sex)
                 .filter(event -> category == null || event.getCategoryOrDefault() == category)
                 .filter(event -> date == null || date.equals(event.getEventDate()))
@@ -122,9 +135,14 @@ public class EventService {
     /**
      * The dates the programme runs on, with how many events fall on each — what the
      * date picker offers. Most recent first.
+     *
+     * <p>A draft is not on the programme, so it does not put a date on the picker and
+     * is not counted on one. A date whose only events are drafts therefore has no row
+     * at all, rather than a row reading "0 events".</p>
      */
     public List<Map<String, Object>> getEventDates() {
         return eventRepository.findAll().stream()
+                .filter(event -> !event.isDraft())
                 .filter(event -> event.getEventDate() != null)
                 .collect(Collectors.groupingBy(Event::getEventDate, java.util.TreeMap::new, Collectors.counting()))
                 .descendingMap()
@@ -157,6 +175,14 @@ public class EventService {
      * <p>A grade is required, and it must be one the type is run by: an event
      * without a grade would put A, B and C athletes into one ranking, and a
      * C-grade 5000M is a race that grade does not run.</p>
+     *
+     * <p>A relay may also be given a <strong>form</strong> — {@code 1} for a "Form 1
+     * 4x100M" whose teams are {@code 1A}, {@code 1B}, {@code 1C} and {@code 1D} drawn
+     * from every class of Form 1 <em>whatever grade its students are in</em>. Only a
+     * {@code FORM} relay may be scoped to a form: a sprint or a house relay that asked
+     * for one is refused, because nothing would be divided by it. Leaving it out is
+     * normal — an event with no form is scoped by its grade, exactly as every event
+     * was before the form existed, so the live relays are untouched.</p>
      */
     @Transactional
     public EventDTO createEvent(EventDTO eventDTO) {
@@ -170,14 +196,181 @@ public class EventService {
         // is normal: an undivided relay is how the relay events already behave.
         RelayTeamKind relayTeamKind = parseRelayTeamKind(eventDTO.getRelayTeamKind());
         requireRelayKindAllowed(type, relayTeamKind);
+        // The form scope, if one was sent. A create has nothing to leave alone, so a
+        // blank here is simply no scope at all.
+        String form = requireFormScopeAllowed(type, relayTeamKind, parseForm(eventDTO.getForm()));
 
-        Event event = Event.builder()
+        Event saved = eventRepository.save(buildEvent(eventDTO, type, sex, grade, relayTeamKind, form));
+        // Every event has a record from the start — the event is one grade now, so
+        // that is one record row.
+        recordService.seedForEvent(saved);
+        log.info("Created event '{}' ({} {} {} {}) enabled={} groupSize={}",
+                saved.getName(), saved.getType(), saved.getSex(), saved.getGrade(), saved.getCategory(),
+                saved.getEnabled(), saved.getGroupSize());
+        return describe(saved);
+    }
+
+    /**
+     * Creates a <strong>draft</strong> relay event — the event a school builds its
+     * relay teams on before the race itself exists.
+     *
+     * <h2>Why a draft event at all</h2>
+     * <p>The school's requirement: "create relay event base on selected relay team".
+     * The teams come first, and a team cannot exist without an event:
+     * {@code RelayTeam.event} is a non-null foreign key, and both the marking sheet
+     * and the mark grid reach a team <em>through</em> its event, so a team with no
+     * event could hold no mark and print no sheet. A draft is the honest way to give
+     * the selections somewhere to live.</p>
+     *
+     * <h2>What it refuses</h2>
+     * <ul>
+     *   <li>anything that is not a relay: a draft only ever exists to hold relay
+     *       teams, and the two relays the programme runs are the 4x100M and the
+     *       4x400M;</li>
+     *   <li>a draft without a kind — the school must say whether the teams are one
+     *       per class or one per house, because that is what the board and the
+     *       runners' own eligibility are judged against;</li>
+     *   <li>a grade the type is not run by, exactly as an ordinary create does.</li>
+     * </ul>
+     *
+     * <h2>The teams may be given with it</h2>
+     * <p>{@code teams} is the students the school has already chosen, grouped and
+     * named. Every one of them is created through
+     * {@link RelayTeamService#createTeam} — the very call a team made by hand on its
+     * own goes through — so the name rule, the four-plus-one cap, the division and
+     * grade, one leg per athlete and the class rule a teacher is held to are all the
+     * same rules, with no second copy. Every team is judged before any is written, so
+     * a request naming an ineligible student in its last team leaves nothing
+     * behind.</p>
+     *
+     * <p>A draft is <strong>not</strong> on the programme: it is excluded from every
+     * listing and count the school reads (see {@link #searchEvents} and
+     * {@link #getDraftEvents}).</p>
+     */
+    @Transactional
+    public EventDTO createDraftEvent(DraftRelayTeamRequest request) {
+        if (request == null || request.getType() == null || request.getType().isBlank()) {
+            throw new IllegalArgumentException("An event type is required. A draft relay event is a "
+                    + "4x100M or a 4x400M, so send one of those as the type.");
+        }
+        Event.EventType type = parseType(request.getType());
+        if (!type.isRelay()) {
+            throw new IllegalArgumentException(type.getDisplayName() + " is not a relay event, so a "
+                    + "draft of it could hold no relay teams. A draft relay event is a 4x100M or a "
+                    + "4x400M.");
+        }
+        RelayTeamKind relayTeamKind = parseRelayTeamKind(request.getRelayTeamKind());
+        if (relayTeamKind == null) {
+            throw new IllegalArgumentException("A draft relay event needs its kind: FORM for one team "
+                    + "per class, or HOUSE for one per house. The teams cannot be judged against the "
+                    + "register without it.");
+        }
+        Sex sex = resolveSex(request.getSex());
+        Grade grade = requireGradeFor(type, parseGrade(request.getGrade()));
+        // A draft may be scoped to a form too — a "Form 1 4x100M" built by hand before
+        // the race exists — and only on a FORM draft: a house draft is divided by grade
+        // and house, so a form on it is refused rather than stored and ignored.
+        String form = requireFormScopeAllowed(type, relayTeamKind, parseForm(request.getForm()));
+
+        Event event = buildEvent(draftFields(request, type), type, sex, grade, relayTeamKind, form);
+        event.setDraft(true);
+        Event saved = eventRepository.save(event);
+        // The draft's record row is created too, so the race has its record the moment
+        // its teams are moved onto a real event — a record is per type, division and
+        // grade, and is kept in step by RecordService either way.
+        recordService.seedForEvent(saved);
+        log.info("Created DRAFT relay event {} ('{}', {} {} {} {})", saved.getId(), saved.getName(),
+                saved.getType(), saved.getSex(), saved.getGrade(), relayTeamKind);
+
+        List<RelayTeamCreateRequest> teams = request.getTeams() == null
+                ? List.of() : request.getTeams();
+        // Every team is judged before any is written: the name a draft may not hand
+        // out twice is checked here, and createTeam does the rest of the rule book.
+        // Nothing is written unless all of them pass, so a refused request leaves no
+        // half-built draft behind for the rollback to tidy up.
+        Set<String> names = new LinkedHashSet<>();
+        for (RelayTeamCreateRequest team : teams) {
+            if (team == null) {
+                continue;
+            }
+            String name = team.getName() == null ? "" : team.getName().trim();
+            if (!name.isEmpty() && !names.add(name.toUpperCase(Locale.ROOT))) {
+                throw new IllegalArgumentException("\"" + name + "\" is named twice among the teams "
+                        + "of this draft relay event. Two teams of one race cannot share a name — a "
+                        + "marking sheet lists them by it.");
+            }
+        }
+        int created = 0;
+        for (RelayTeamCreateRequest team : teams) {
+            if (team == null) {
+                continue;
+            }
+            relayTeamService.createTeam(saved.getId(), team);
+            created++;
+        }
+        log.info("Draft relay event {} holds {} team(s)", saved.getId(), created);
+
+        EventDTO dto = describe(saved);
+        dto.setTeamCount(created);
+        return dto;
+    }
+
+    /**
+     * The administrator's list of the drafts — the relay events whose teams are still
+     * being collected, which the programme deliberately does not show.
+     *
+     * <p>This is the one listing a draft belongs in. Without it a draft would be
+     * invisible the moment its board was navigated away from, and there would be no
+     * way to find the one being filled, or the one whose teams are ready to move.
+     * In programme order, like the programme itself.</p>
+     */
+    @Transactional(readOnly = true)
+    public List<EventDTO> getDraftEvents() {
+        return eventRepository.findAll().stream()
+                .filter(Event::isDraft)
+                .sorted(EVENT_ORDER)
+                .map(this::describe)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * The fields a draft shares with an ordinary event, from the draft's own request.
+     * The season follows the ordinary create: the year the school is working on.
+     */
+    private static EventDTO draftFields(DraftRelayTeamRequest request, Event.EventType type) {
+        return EventDTO.builder()
+                .name(request.getName())
+                .description(request.getDescription())
+                .eventDate(request.getEventDate())
+                .location(request.getLocation())
+                .maxParticipants(request.getMaxParticipants())
+                .groupSize(request.getGroupSize())
+                .relayTeamSize(request.getRelayTeamSize())
+                .relayReservesAllowed(request.getRelayReservesAllowed())
+                .seasonId(request.getSeasonId())
+                .build();
+    }
+
+    /**
+     * The event a create is about to store, whichever kind of create it is.
+     *
+     * <p>One builder rather than two, so a draft and an ordinary event cannot drift
+     * apart on the fields they share — the category and group size from the type, the
+     * season, and the two relay settings that are only ever set on a relay. The
+     * caller decides whether what comes back is a draft.</p>
+     */
+    private Event buildEvent(EventDTO eventDTO, Event.EventType type, Sex sex, Grade grade,
+                             RelayTeamKind relayTeamKind, String form) {
+        return Event.builder()
                 .name(resolveName(eventDTO, type, sex, grade))
                 .description(eventDTO.getDescription())
                 .type(type)
                 .category(type.getCategory())
                 .sex(sex)
                 .grade(grade)
+                // The form the event is scoped to, or null for one scoped by its grade.
+                // Checked by the caller against the kind the event ends up with.
+                .form(form)
                 .eventDate(eventDTO.getEventDate() != null ? eventDTO.getEventDate() : java.time.LocalDate.now())
                 .location(eventDTO.getLocation())
                 .maxParticipants(eventDTO.getMaxParticipants() != null
@@ -207,15 +400,6 @@ public class EventService {
                         ? seasonService.find(eventDTO.getSeasonId()).orElse(null)
                         : seasonService.currentSeason())
                 .build();
-
-        Event saved = eventRepository.save(event);
-        // Every event has a record from the start — the event is one grade now, so
-        // that is one record row.
-        recordService.seedForEvent(saved);
-        log.info("Created event '{}' ({} {} {} {}) enabled={} groupSize={}",
-                saved.getName(), saved.getType(), saved.getSex(), saved.getGrade(), saved.getCategory(),
-                saved.getEnabled(), saved.getGroupSize());
-        return describe(saved);
     }
 
     /**
@@ -272,6 +456,7 @@ public class EventService {
             event.setDirectToFinalAuto(false);
         }
         applyRelayTeamSettings(event, eventDTO, id);
+        applyFormScope(event, eventDTO);
         // Moving an event to another type or grade renames it only while it still
         // carries its own default name; a title the school chose is left alone.
         if (previousDefaultName != null && previousDefaultName.equals(event.getName())) {
@@ -335,6 +520,73 @@ public class EventService {
     }
 
     /**
+     * Applies the event's <strong>form scope</strong> — the form a form relay's teams
+     * are drawn from, which is what lets a "Form 1 4x100M" take {@code 1A}, {@code 1B},
+     * {@code 1C} and {@code 1D} from every class of Form 1 whatever grade its students
+     * are in.
+     *
+     * <p>Two rules, and the same reading of an absent value as the relay kind uses:</p>
+     * <ul>
+     *   <li>{@code null} means <em>not supplied</em>, so the event's form is left
+     *       alone; an <strong>empty string clears it</strong>, which is how a form relay
+     *       becomes a graded one again;</li>
+     *   <li>a value may only be left on a relay whose kind is {@code FORM}. A sprint, an
+     *       undivided relay and a house relay are all refused, judged on the event the
+     *       update would leave behind — so changing a form relay into a house relay has
+     *       to clear the form in the same request, and is refused with that way out
+     *       named if it does not.</li>
+     * </ul>
+     */
+    private void applyFormScope(Event event, EventDTO eventDTO) {
+        if (eventDTO.getForm() != null) {
+            // A blank string is the caller clearing the scope; anything else must name
+            // a form, which is a plain number — the leading digits of a class name.
+            event.setForm(parseForm(eventDTO.getForm()));
+        }
+        // Judged on what the event will be, not on what it came in as: the kind may
+        // have just changed under it.
+        requireFormScopeAllowed(event.getType(), event.getRelayTeamKind(), event.getForm());
+    }
+
+    /**
+     * Refuses a form scope the event cannot carry, and hands the form back so a caller
+     * can use it directly.
+     *
+     * <p>The one rule, asked by a create, a draft and an update: a form only ever means
+     * something to a relay divided into {@code FORM} teams. A sprint has no teams at
+     * all; an undivided relay has no class teams to draw from; and a house relay is one
+     * team per house within a grade, so a form on it would divide the race by one rule
+     * while its runners were judged by another. {@code null} — no form — is always
+     * allowed, because that is every event scoped by its grade.</p>
+     *
+     * @param form the form, already parsed; null when there is none
+     * @return the same form, so a caller can use it directly
+     * @throws IllegalArgumentException when the event could not be scoped to it
+     */
+    private static String requireFormScopeAllowed(Event.EventType type, RelayTeamKind kind,
+                                                  String form) {
+        if (form == null) {
+            return null;
+        }
+        if (type == null || !type.isRelay()) {
+            throw new IllegalArgumentException((type == null ? "This event" : type.getDisplayName())
+                    + " is not a relay, so it cannot be scoped to a form. Only a relay has teams "
+                    + "to draw from the classes of a form. Clear it by sending form as an empty "
+                    + "string.");
+        }
+        if (kind != RelayTeamKind.FORM) {
+            throw new IllegalArgumentException(type.getDisplayName() + " is "
+                    + (kind == null
+                            ? "not divided into form teams, so it cannot be scoped to a form. Send "
+                                    + "relayTeamKind as FORM to run it by class."
+                            : "a house relay, so it cannot be scoped to a form: a house relay is "
+                                    + "one team per house within the event's grade.")
+                    + " Clear the form by sending form as an empty string.");
+        }
+        return form;
+    }
+
+    /**
      * Refuses a change to what kind of relay an event is while it already has teams.
      *
      * <p>Those teams hold real selections — somebody decided which students run — so
@@ -367,10 +619,23 @@ public class EventService {
     /**
      * Deletes an event and everything hanging off it. Entries and results are
      * removed first so the foreign keys stay valid.
+     *
+     * <h2>A draft's teams are not deleted as a side effect</h2>
+     * <p>Deleting an event takes its relay teams with it
+     * ({@link RelayTeamService#removeTeamsForEvent}), which is right for a race the
+     * school is abandoning — but a <strong>draft</strong> event exists for no other
+     * reason than to hold the teams somebody built by hand, so deleting it would
+     * destroy exactly the selections it was made to keep. That delete is therefore
+     * refused while the draft still has teams: the administrator moves them onto the
+     * real event first, or removes them deliberately through
+     * {@code DELETE /api/admin/events/{id}/relay-teams} and then deletes the empty
+     * draft. Removing an event is a normal thing to do, so this is one clear refusal
+     * rather than a silent rescue.</p>
      */
     @Transactional
     public void deleteEvent(Long id) {
         Event event = requireEvent(id);
+        requireDraftWithoutTeamsToDelete(event);
 
         // A record is not owned by one event — it spans every edition of that type
         // and division — so let it go of this event's results and rebuild it, rather
@@ -394,6 +659,34 @@ public class EventService {
         recordService.recomputeAll();
         log.info("Deleted event {} ('{}') with {} entries, {} groups and {} relay team(s)",
                 id, event.getName(), enrollments.size(), groups.size(), relayTeams);
+    }
+
+    /**
+     * Refuses to delete a draft event that still holds teams.
+     *
+     * <p>The guard the school's selections need: a draft's whole purpose is the teams
+     * it carries, and {@link #deleteEvent} would take them with the event, through the
+     * very call that exists to clear a race's teams. Nothing else in the codebase
+     * deletes an event — {@code SeasonResetService} clears entries, heats and marks
+     * and leaves the programme alone, and {@code SeasonService} refuses to delete a
+     * year that still has events — so this is the one place the guard is needed, and
+     * it is stated here rather than hidden in
+     * {@link RelayTeamService#removeTeamsForEvent}, which an administrator uses quite
+     * legitimately to start an event's selections again.</p>
+     */
+    private void requireDraftWithoutTeamsToDelete(Event event) {
+        if (!event.isDraft()) {
+            return;
+        }
+        long teams = relayTeamService.countTeamsForEvent(event.getId());
+        if (teams > 0) {
+            throw new IllegalStateException(event.getName() + " is a draft relay event and still "
+                    + "holds " + teams + " relay team(s) with their runners. A draft exists to "
+                    + "carry those teams, so deleting it would destroy them. Move the teams onto "
+                    + "the real event first, or remove them deliberately with "
+                    + "DELETE /api/admin/events/" + event.getId() + "/relay-teams, then delete the "
+                    + "empty draft.");
+        }
     }
 
     /**
@@ -503,11 +796,15 @@ public class EventService {
      * Events that have already been held, most recent first. "Past" means the event
      * date is today or earlier, so on the day itself the events being run are
      * included — which is when staff most want to look back at them.
+     *
+     * <p>A draft is excluded: looking back at a sport day must not show a relay whose
+     * teams are still being collected as though it had been run.</p>
      */
     @Transactional(readOnly = true)
     public List<EventDTO> getPastEvents() {
         java.time.LocalDate today = java.time.LocalDate.now();
         return eventRepository.findAll().stream()
+                .filter(event -> !event.isDraft())
                 .filter(event -> event.getEventDate() != null && !event.getEventDate().isAfter(today))
                 .sorted(EVENT_ORDER.reversed())
                 .map(this::describe)
@@ -564,6 +861,49 @@ public class EventService {
             }
         }
         throw new IllegalArgumentException("Unknown grade: " + raw + " — use A, B or C.");
+    }
+
+    /**
+     * The longest form the schema stores: {@code events.form} is a four-character
+     * column, so anything longer is refused here rather than by the database.
+     */
+    private static final int MAX_FORM_LENGTH = 4;
+
+    /**
+     * Reads the <strong>form</strong> a relay is scoped to from a request.
+     *
+     * <p>A form is the number a class belongs to — {@code 1} for {@code 1A}, {@code 10}
+     * for {@code 10B} — so it is written as digits and nothing else: {@code Form 1},
+     * {@code 1A} and {@code A} are all refused rather than stored as a scope no student
+     * could ever match. Leading zeros are dropped by {@link Student#formOf(String)}, the
+     * one place a form is read off a class name, so a caller sending {@code 01} scopes
+     * the event to the same Form 1 the register reads and the teams still appear.</p>
+     *
+     * <p>{@code null} means "not supplied"; a blank string is the way a caller
+     * <em>clears</em> the scope, and reads as null here exactly as an empty
+     * {@code relayTeamKind} does.</p>
+     *
+     * @return the canonical form — {@code 1}, {@code 10} — or null when there is none
+     * @throws IllegalArgumentException when a value was sent that names no form
+     */
+    private static String parseForm(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String value = raw.trim();
+        if (value.isEmpty()) {
+            return null;
+        }
+        if (!value.chars().allMatch(Character::isDigit)) {
+            throw new IllegalArgumentException("Unknown form: " + raw + " — a form is the number "
+                    + "its classes belong to, written in digits: 1 for Form 1, 10 for Form 10.");
+        }
+        String form = Student.formOf(value);
+        if (form == null || form.length() > MAX_FORM_LENGTH) {
+            throw new IllegalArgumentException("Unknown form: " + raw + " — a form is at most "
+                    + MAX_FORM_LENGTH + " digits, e.g. 1 for Form 1.");
+        }
+        return form;
     }
 
     /**

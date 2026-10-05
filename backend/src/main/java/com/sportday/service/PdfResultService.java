@@ -116,12 +116,17 @@ public class PdfResultService {
     /**
      * Every event that has results, in programme order, as one document.
      *
+     * <p>A draft relay event is skipped: it is not on the programme, so it is not in
+     * the programme's results — and it can hold no result anyway, since its teams are
+     * collected on it rather than raced.</p>
+     *
      * @param sex      restrict to one division, or null for both
      * @param category restrict to track or field, or null for both
      */
     @Transactional(readOnly = true)
     public byte[] renderProgrammeResults(Sex sex, EventCategory category) {
         List<Event> events = eventRepository.findAll().stream()
+                .filter(event -> !event.isDraft())
                 .sorted(EventService.EVENT_ORDER)
                 .filter(event -> sex == null || event.getSex() == sex)
                 .filter(event -> category == null || event.getCategoryOrDefault() == category)

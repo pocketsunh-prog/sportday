@@ -71,6 +71,8 @@ class MarkEntryFinalHeatRecordTest {
     @Mock private FinalEntryRepository finalEntryRepository;
     @Mock private EventGroupService eventGroupService;
     @Mock private RecordService recordService;
+    /** The relay gate: never asked anything here, because every event is an individual one. */
+    @Mock private RelayReadiness relayReadiness;
 
     @InjectMocks private MarkEntryService service;
 

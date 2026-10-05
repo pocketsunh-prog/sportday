@@ -40,7 +40,15 @@ public class UserDTO {
 
     private String className;
     private Integer classNumber;
+
+    /** The form the class belongs to — {@code 5} for {@code 5A}; null when it names none. */
+    private String form;
+
+    /** The house, in full, as the register stores it — {@code Red}. */
     private String house;
+
+    /** The house's short code — {@code R}, {@code Y}, {@code B}, {@code G}; null for another house. */
+    private String houseCode;
 
     public static UserDTO from(User user) {
         return UserDTO.builder()
@@ -75,6 +83,8 @@ public class UserDTO {
         }
         dto.setClassName(student.getClassName());
         dto.setClassNumber(student.getClassNumber());
+        dto.setForm(student.getForm());
         dto.setHouse(student.getHouse());
+        dto.setHouseCode(student.getHouseCode());
     }
 }

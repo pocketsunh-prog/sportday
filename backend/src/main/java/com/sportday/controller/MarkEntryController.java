@@ -19,7 +19,9 @@ import org.springframework.web.bind.annotation.*;
  */
 @Tag(name = "Mark entry",
         description = "Grid mark entry filtered by event group and grade (ADMIN, MANAGER or HELPER). "
-                + "A FINAL grid is refused with 409 until the final has been drawn from the heat marks.")
+                + "A FINAL grid is refused with 409 until the final has been drawn from the heat marks, "
+                + "and a relay's grid until the relay is ready — at least two teams, each holding its "
+                + "four runners.")
 @SecurityRequirement(name = "Bearer Authentication")
 @RestController
 @RequestMapping("/api")
@@ -37,7 +39,9 @@ public class MarkEntryController {
                     + "dropdowns stay stable. `stage=FINAL` is refused with 409 while the event has no final "
                     + "drawn: the final is drawn from the heat marks, so record those and draw it first. The "
                     + "response carries `finalState` so a client can gate its own final button — `NONE` (the "
-                    + "event has no final stage), `DIRECT` (it runs straight to one), `NOT_DRAWN` or `DRAWN`.")
+                    + "event has no final stage), `DIRECT` (it runs straight to one), `NOT_DRAWN` or `DRAWN`. "
+                    + "A relay's grid is refused with 409 until the relay is ready: at least two teams, and "
+                    + "every team holding its four runners. The message names what is missing.")
     @GetMapping("/events/{eventId}/marks")
     public ResponseEntity<MarkSheetDTO> getMarkSheet(
             @PathVariable Long eventId,
@@ -65,7 +69,8 @@ public class MarkEntryController {
             description = "Rows carrying a mark are inserted or updated, rows flagged clear have the mark "
                     + "removed, and rows with no mark are left untouched. Set `stage` to FINAL to record the "
                     + "final, which keeps its own marks — refused with 409 while the final has not been "
-                    + "drawn, because there is no final field to write against yet. A bad row is reported "
+                    + "drawn, because there is no final field to write against yet. A save into a relay "
+                    + "that is not ready is refused with the same reason its grid is. A bad row is reported "
                     + "in errors without losing the rest of the batch.")
     @PostMapping("/events/{eventId}/marks")
     public ResponseEntity<BulkMarkRequest.Result> saveMarks(

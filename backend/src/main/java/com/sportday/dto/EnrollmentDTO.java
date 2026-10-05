@@ -61,7 +61,15 @@ public class EnrollmentDTO {
     private String grade;
     private String className;
     private Integer classNumber;
+
+    /** The form the class belongs to — {@code 5} for {@code 5A}; null when it names none. */
+    private String form;
+
+    /** The house, in full, as the register stores it — {@code Red}. */
     private String house;
+
+    /** The house's short code — {@code R}, {@code Y}, {@code B}, {@code G}; null for another house. */
+    private String houseCode;
 
     // ---- entry ----
     private String status;
@@ -91,6 +99,17 @@ public class EnrollmentDTO {
      * there is a heat record; null with {@link #heatOutcome} when there is none.
      */
     private String heatDisplayMark;
+
+    /**
+     * The relay team this athlete runs for — {@code 1A}, {@code C Grade Yellow} — or
+     * null when the event is not a relay, or is a relay whose teams have not been
+     * derived yet.
+     *
+     * <p>A relay is run by teams, so its marking sheet has to say which team each line
+     * belongs to; without it a 4x100M sheet is sixty-odd athletes with no way to tell
+     * who is running with whom.</p>
+     */
+    private String relayTeamLabel;
 
     public static EnrollmentDTO from(Enrollment enrollment) {
         return from(enrollment, null);
@@ -139,7 +158,9 @@ public class EnrollmentDTO {
                     .grade(roster.getGrade() == null ? null : roster.getGrade().name())
                     .className(roster.getClassName())
                     .classNumber(roster.getClassNumber())
-                    .house(roster.getHouse());
+                    .form(Student.formOf(roster.getClassName()))
+                    .house(roster.getHouse())
+                    .houseCode(Student.houseCodeOf(roster.getHouse()));
         } else if (user != null) {
             builder.studentRef(user.getUsername()).name(user.getFullName());
         }

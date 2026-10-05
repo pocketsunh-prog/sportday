@@ -188,6 +188,73 @@ class PdfSheetServiceTest {
     }
 
     @Test
+    @DisplayName("a relay sheet prints the team's name, and none of its runners' names")
+    void aRelaySheetPrintsTheTeamAndNotItsRunners() throws Exception {
+        // Four runners, two teams: the school confirmed that on a relay a line IS the
+        // team, so the sheet prints the team's name once and the runners not at all.
+        EventGroupDTO relay = relayTeamGroup();
+
+        byte[] pdf = service.renderSheets(List.of(relay));
+
+        try (PDDocument document = load(pdf)) {
+            assertEquals(1, document.getNumberOfPages());
+            var box = document.getPage(0).getMediaBox();
+            assertEquals(421f, box.getWidth(), 2f, "a relay sheet's paper is unchanged: A5");
+            String text = new PDFTextStripper().getText(document);
+            assertTrue(text.contains("5A") && text.contains("5B"), "one line per team: " + text);
+            for (String runner : List.of("Chan Tai Man", "Lee Siu Ming", "Wong Ka Yan", "Ho Cheuk Yiu")) {
+                assertFalse(text.contains(runner),
+                        "a runner's name must not be printed, and " + runner + " is: " + text);
+            }
+            // The columns, their headings and the count are exactly what they were.
+            assertEquals(5, PdfSheetService.columnCount(relay), "a track heat's five columns");
+            assertTrue(text.contains("學號") && text.contains("姓名") && text.contains("級別")
+                            && text.contains("成績") && text.contains("備註"),
+                    "and the five headings: " + text);
+        }
+    }
+
+    /** An athlete entered in a relay, carrying the team they run for. */
+    private static EnrollmentDTO relayRunner(String id, String name, String grade, String team) {
+        return EnrollmentDTO.builder()
+                .studentRef(id)
+                .name(name)
+                .grade(grade)
+                .relayTeamLabel(team)
+                .build();
+    }
+
+    /**
+     * A relay heat: four runners in two teams, {@code 5A} and {@code 5B}. The sheet a
+     * group like this prints has one line per team, and the line is the team.
+     */
+    private static EventGroupDTO relayTeamGroup() {
+        List<EnrollmentDTO> teams = List.of(
+                relayRunner("S0001", "Chan Tai Man", "A", "5A"),
+                relayRunner("S0002", "Lee Siu Ming", "A", "5A"),
+                relayRunner("S0003", "Wong Ka Yan", "A", "5B"),
+                relayRunner("S0004", "Ho Cheuk Yiu", "A", "5B"));
+        return EventGroupDTO.builder()
+                .id(11L)
+                .eventId(5L)
+                .eventName("Boys 4x100M Relay · A Grade")
+                .eventType("RELAY_4X100M")
+                .eventTypeLabel("4x100M Relay")
+                .category("TRACK")
+                .categoryLabel("徑項 Track")
+                .sex("MALE")
+                .sexLabel("男 Boys")
+                .groupNumber(1)
+                .label("Heat 1")
+                .stage("HEAT")
+                .capacity(24)
+                .athleteCount(teams.size())
+                .sheetSize("A5")
+                .athletes(teams)
+                .build();
+    }
+
+    @Test
     @DisplayName("the event, division and heat number head the sheet")
     void headsTheSheet() throws Exception {
         byte[] pdf = service.renderSheets(List.of(group("A5", 8, 3, sprintHeat())));
@@ -497,12 +564,19 @@ class PdfSheetServiceTest {
         writePreview("marking-sheet-final-A5.png",
                 service.renderSheets(List.of(finalGroup(finalists()))));
 
+        // A relay sheet, so the team's line — the team's name in the Name column, every
+        // other cell blank for the team's one time — can be eyeballed.
+        writePreview("marking-sheet-relay-A5.png",
+                service.renderSheets(List.of(relayTeamGroup())));
+
         assertTrue(Files.exists(PREVIEW_DIR.resolve("marking-sheet-A5.png")));
         assertTrue(Files.exists(PREVIEW_DIR.resolve("marking-sheet-A4.png")));
         assertTrue(Files.exists(PREVIEW_DIR.resolve("marking-sheet-field-A4.png")),
                 "a field sheet preview, so the three attempts can be checked");
         assertTrue(Files.exists(PREVIEW_DIR.resolve("marking-sheet-final-A5.png")),
                 "a final sheet preview, so the heat column can be checked");
+        assertTrue(Files.exists(PREVIEW_DIR.resolve("marking-sheet-relay-A5.png")),
+                "a relay sheet preview, so the team's line can be checked");
     }
 
     static boolean rendererAvailable() {

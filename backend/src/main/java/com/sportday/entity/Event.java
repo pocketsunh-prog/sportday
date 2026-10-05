@@ -70,6 +70,38 @@ public class Event {
     @Column(nullable = false, length = 4)
     private Grade grade;
 
+    /**
+     * The <strong>form</strong> a form relay is scoped to - {@code 1} for a
+     * "Form 1 4x100M" whose teams are 1A, 1B, 1C and 1D - or null for every event
+     * that is scoped by grade, which is all of them today.
+     *
+     * <p>A form event admits students of <em>any</em> grade so long as they are in
+     * that form and the event's division; a grade-scoped event admits only its own
+     * grade. Null is therefore the whole of the old behaviour, so nothing already on
+     * file changes.</p>
+     */
+    @Column(name = "form", length = 4)
+    private String form;
+
+    /** True when this event is scoped to a form rather than a grade. */
+    @Transient
+    public boolean isFormScoped() {
+        return form != null && !form.isBlank();
+    }
+
+    /**
+     * The form scope as the school writes it — {@code Form 1} — or {@code null} for
+     * every event that is scoped by grade.
+     *
+     * <p>Written here, beside {@link #isFormScoped()}, rather than in each DTO that
+     * carries it, so the event list and the relay board cannot spell the same scope
+     * two ways.</p>
+     */
+    @Transient
+    public String getFormLabel() {
+        return isFormScoped() ? "Form " + form.trim() : null;
+    }
+
     @Column(nullable = false)
     private LocalDate eventDate;
 
@@ -120,7 +152,7 @@ public class Event {
     private Boolean directToFinalAuto;
 
     /**
-     * How a relay event's teams are divided — one team per form, or one per house
+     * How a relay event's teams are divided — one team per class, or one per house
      * within the event's grade. <strong>Nullable and optional</strong>: a relay with
      * no kind is simply undivided, which is how the relay events already in the
      * programme behave, so this feature adds a choice without taking one away. A
@@ -157,6 +189,35 @@ public class Event {
     private Boolean relayReservesAllowed;
 
     /**
+     * True when this event is a <strong>draft</strong> — a relay event made to hold
+     * teams the school is building by hand, before the race itself is real.
+     *
+     * <p>The school's requirement: "create relay event base on selected relay team".
+     * A relay team cannot exist without an event ({@code RelayTeam.event} is a
+     * non-null foreign key, and a mark and a marking sheet both reach a team
+     * <em>through</em> its event), so the teams are collected on a draft event and
+     * moved onto the real event when it is created
+     * ({@code RelayTeamService.moveTeamsToEvent}).</p>
+     *
+     * <p><strong>A draft must not look like a real event to the school.</strong> It
+     * is deliberately not a status enum and carries no extra machinery: one flag, and
+     * every place that lists or counts events decides explicitly whether a draft
+     * belongs there. The programme, the date picker, the past-events list, the
+     * results print run and the year's event count all exclude drafts; the relay
+     * board of the draft itself of course includes it, and an administrator can list
+     * the drafts ({@code EventService.getDraftEvents}) to find the one they are
+     * filling.</p>
+     *
+     * <p>Nullable on purpose, exactly like {@link #directToFinal}: null reads as
+     * false through {@link #isDraft()}, so every event already on file — and every
+     * event created without the flag — is a real event and behaves as it always
+     * did.</p>
+     */
+    @Builder.Default
+    @Column(name = "is_draft")
+    private Boolean draft = Boolean.FALSE;
+
+    /**
      * The school year this event belongs to. Null on events created before
      * seasons existed; the bootstrap assigns them to the year their date falls in.
      */
@@ -175,18 +236,18 @@ public class Event {
     public static final int DEFAULT_MAX_PARTICIPANTS = 512;
 
     /**
-     * How many reserves a team may name when the event allows them, as a multiple of
-     * the race's own legs: a 4x100M that allows reserves may put down eight runners
-     * — four legs and four reserves — and no more. Generous on purpose, because it
-     * is a ceiling rather than a requirement: a school that wants two reserves names
-     * six and simply stops there.
+     * How many reserves a team may name when the event allows them: <strong>one</strong>.
+     *
+     * <p>The school enters four runners and one backup, so a team is four strong or
+     * five. A reserve is there to replace somebody who cannot run; a team that could
+     * name four of them is a second squad, not the team the school entered.</p>
      */
-    public static final int RESERVE_ALLOWANCE_MULTIPLIER = 2;
+    public static final int RESERVE_ALLOWANCE = 1;
 
     /**
-     * The largest team a relay may be given. Four is the race, and the reserve
-     * allowance doubles it; this is only a sanity bound so a typo — {@code 400} legs —
-     * is refused rather than stored.
+     * The largest team a relay may be given. Four is the race and the backup makes
+     * five; this is only a sanity bound so a typo — {@code 400} legs — is refused
+     * rather than stored.
      */
     public static final int MAX_RELAY_LEGS = 16;
 
@@ -237,6 +298,22 @@ public class Event {
     }
 
     /**
+     * True when this event is a <strong>draft</strong>: a relay event made to hold
+     * teams the school is building by hand, before the race itself is real. Null — a
+     * row from before the flag existed, or an event created without it — reads as
+     * false, so every event already on file is a real event.
+     *
+     * <p>One place decides it, so nothing downstream has to ask the column directly:
+     * the programme and everything that offers entry exclude a draft
+     * ({@code EventService}), and {@code RelayTeamService.moveTeamsToEvent} is what
+     * carries its teams onto the real event.</p>
+     */
+    @Transient
+    public boolean isDraft() {
+        return Boolean.TRUE.equals(draft);
+    }
+
+    /**
      * True when this event <em>may</em> be run as heats and a final. Only
      * 60/100/200/400 can: everything else, including every field event, is decided
      * by its own run.
@@ -283,8 +360,13 @@ public class Event {
     }
 
     /**
-     * How many runners one team of this event may hold: the race's legs, plus the
-     * same number again of reserves when the school has allowed them.
+     * How many runners one team of this event may hold: the race's legs, plus
+     * <strong>one</strong> reserve when the school has allowed them.
+     *
+     * <p>The school's rule is four runners and one backup, so a team is four or five
+     * strong. One reserve, not a second squad: a reserve is there to replace somebody
+     * who cannot run, and a team that could name two or four of them is not the team
+     * the school enters.</p>
      */
     @Transient
     public int getRelayMemberCap() {
@@ -292,7 +374,7 @@ public class Event {
         if (legs <= 0) {
             return 0;
         }
-        return isRelayReservesAllowed() ? legs * RESERVE_ALLOWANCE_MULTIPLIER : legs;
+        return isRelayReservesAllowed() ? legs + RESERVE_ALLOWANCE : legs;
     }
 
     /**

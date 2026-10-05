@@ -44,6 +44,7 @@ const en = {
   'nav.language': 'Language',
   'nav.teachers': 'Teacher accounts',
   'nav.helpStudents': 'Help a student',
+  'nav.relayEvents': 'Relay events',
 
   /* ---------------- common ---------------- */
   'common.loading': 'Loading…',
@@ -198,6 +199,10 @@ const en = {
   'marks.name': 'Name',
   'marks.grade': 'Grade',
   'marks.class': 'Class',
+  /* The form a class belongs to, and the house with its short code, so a row of
+     the mark grid reads `Form 5 · 5D 8 · Red (R)` exactly as the register does. */
+  'marks.form': 'Form',
+  'marks.house': 'House',
   'marks.heat': 'Heat',
   'marks.lane': 'Lane',
   'marks.record': 'Record',
@@ -299,6 +304,13 @@ const en = {
   'students.colDob': 'Date of birth',
   'students.colAge': 'Age',
   'students.colHouse': 'House',
+  /* The form a class belongs to — `5D` is Form 5 — and the house with its short
+     code. `formValue` is the one wording of "Form 5" used wherever a student is
+     listed, so the register, the relay board and the mark grid cannot disagree. */
+  'students.form': 'Form',
+  'students.formValue': 'Form {form}',
+  'students.houseCodeHint':
+    'A house’s short code — R, Y, B, G. A house the school has not given a code is shown by its name alone.',
   'students.importResult': 'Import result',
   'students.created': 'Created',
   'students.updated': 'Updated',
@@ -1107,10 +1119,13 @@ const en = {
     'With reserves allowed a team may name up to twice its legs — four runners and four reserves for a 4x100M.',
   'relay.undividedTitle': 'This relay is undivided',
   'relay.undividedHint':
-    'An undivided relay has no teams. Set the relay kind on the event to Form or House, then come back and derive the teams from the roster.',
+    'An undivided relay has no derived teams. Set the relay kind on the event to Form or House to derive the roster’s class or house teams — or leave it undivided and build teams by hand from the applicants below, naming each one yourself.',
   'relay.setKind': 'Set the relay kind on the event',
-  'relay.derive': 'Derive the teams from the roster',
+  'relay.derive': 'Derive the roster’s class or house teams',
   'relay.deriving': 'Deriving…',
+  'relay.deriveTitle': 'Derive the class or house teams from the roster',
+  'relay.deriveExplanation':
+    'This makes the roster’s own teams and nothing else: one team per class on a form relay, one team per house on a house relay, taken from the register — not from anybody you tick. It is how a form or house relay gets its teams. To make one team out of the students you tick, under a name you type, use “Create the team from the ticked students” on the applicant list below. A team made that way is left alone by a derive: it is not one class’s and not one house’s, so it is never matched, renamed or dropped here.',
   'relay.derivePrune': 'Also drop empty teams that are no longer on the roster',
   'relay.derived':
     'Derived — {created} team(s) created, {kept} kept, {pruned} dropped, from {eligible} eligible students.',
@@ -1155,7 +1170,159 @@ const en = {
   'relay.orderFailed': 'Failed to save the running order',
   'relay.openBoard': 'Relay teams',
   'relay.backToGroups': 'Back to heats & sheets',
+  'relay.backToTeacher': 'Back to my students',
   'relay.studentsLoadFailed': 'Failed to load the student register',
+
+  /*
+   * Making a team out of the students who applied. The school confirmed the flow:
+   * a teacher ticks any applicants, **types the team's own name** and creates that
+   * team in one action — a team that is not a class and not a house. The roster's
+   * class and house teams are still made by a derive, which is a separate thing and
+   * is labelled as such.
+   */
+  'relay.applicantsTitle': 'Students who applied',
+  'relay.applicantsHint':
+    'Every student with a confirmed entry in this relay, in register order — form, then class, then class number, then name. Tick the ones who make up a team, type that team’s name below and create it; the team does not have to be one class or one house. A student already running for another team of this event cannot be ticked: their box is disabled and the reason is beside them.',
+  'relay.applicantCount': '{count} applicant(s)',
+  'relay.placedCount': '{count} already on a team',
+  'relay.unplacedCount': '{count} still unplaced',
+  'relay.noApplicants': 'No student has applied to this relay event yet.',
+  'relay.noApplicantsMine':
+    'None of your own classes has a student entered in this relay, so there is nobody here for you to place. An administrator sees the whole event.',
+  'relay.unplacedOnly': 'Show only the unplaced',
+  'relay.noUnplaced': 'Every applicant is already on a team.',
+  'relay.tickedCount': '{count} ticked',
+  'relay.clearSelection': 'Clear the ticks',
+
+  /* making one team by hand, out of exactly the ticked students */
+  'relay.createTitle': 'Create a team from the ticked students',
+  'relay.createFlow':
+    'This makes one team out of exactly the students you tick, under the name you type — a team that is not one class’s and not one house’s, which is what a derived team cannot be. Tick them in running order (the first ticked runs leg 1), type the team’s own name as free text and press create. A team of fewer than four is allowed and reported as incomplete; the server refuses more than its legs plus one reserve, and every refusal below is its own wording, word for word. The ticks are kept when a create is refused, so a name can be fixed and the create tried again.',
+  'relay.createNameLabel': 'Team name on the sheet (typed by you)',
+  'relay.createNamePlaceholder': 'e.g. 1A or B Grade Yellow',
+  'relay.createTeam': 'Create the team from the ticked students',
+  'relay.creating': 'Creating the team…',
+  'relay.createOrderHint':
+    'The team is built in the order you ticked, so the first student ticked runs leg 1.',
+  'relay.createOverCap':
+    '{count} students are ticked, and one team of this event holds at most {cap} — {legs} legs and at most one reserve. Untick some of them before creating.',
+  'relay.createConflict':
+    '{names} already run in another team of this event, so they cannot be ticked into a new one. Remove them from that team first.',
+  'relay.createRefused': 'The server refused this team, in its own words:',
+  'relay.createTicksKept':
+    'Nothing was created and your ticks are exactly as they were — fix the name or the selection and press create again.',
+  'relay.createNeedsName': 'Type the team’s name first — the server refuses a blank one.',
+  'relay.createNeedsTicks': 'Tick at least one student — a team needs runners.',
+  'relay.createDone': 'Created “{team}” with {count} runner(s).',
+  'relay.createFailed': 'Could not create the team',
+  'relay.handMade': 'Hand-made team',
+  'relay.handMadeHint':
+    'This team was made by hand, not derived from the register: it is not one class’s and not one house’s, so it carries no form or house key. A later derive never touches it — it is never matched, renamed or dropped by one.',
+  'relay.derivedForm': 'Derived class team',
+  'relay.derivedHouse': 'Derived house team',
+  'relay.tickBlockedPlaced':
+    'Already runs for {team} in this event — one athlete runs one team, so they cannot be ticked into another.',
+  'relay.tickBlockedRunning':
+    'Already on a team of this event — one athlete runs one team, so they cannot be ticked into another.',
+  'relay.tick': 'Pick',
+  'relay.tickGroup': 'Tick this class',
+  'relay.untickGroup': 'Untick this class',
+  'relay.form': 'Form',
+  'relay.team': 'Team',
+  'relay.placed': 'Already on a team',
+  'relay.noTeamYet': 'No team yet',
+  'relay.teamsTitle': 'The teams',
+  'relay.noTeams':
+    'No team has been made for this event yet. Derive the roster’s class or house teams above, or tick applicants and create a team of your own.',
+  'relay.undividedTeamsHint':
+    'An undivided relay has no derived teams, so a derive has nothing to make here. The applicants above can still be grouped: tick them and create a team under a name you type. To get the roster’s own teams as well, an administrator sets the event’s relay kind to Form or House.',
+  'relay.undividedTeacherHint':
+    'You can still make teams here: tick the applicants above, type the team’s name and create it. The roster’s own class or house teams need an administrator to set this event’s relay kind to Form or House first.',
+  'relay.shortTeams': '{count} team(s) short of a full relay',
+  'relay.shortTeamsWarn':
+    'These teams cannot run as they stand — {names}. A relay team must end up with four runners; a team with fewer is saved but incomplete, and its sheet is not a relay that can be run.',
+  'relay.shortOfLegs': 'Short — {missing} runner(s) needed',
+  'relay.incompleteWarn':
+    'This team has {filled} of its {legs} runners, so it cannot run yet. Tick its students on the applicant list — or add them one at a time below — until all {legs} legs are filled.',
+  'relay.allComplete': 'Every team is complete',
+  'relay.reserveCount': '{count} reserve(s)',
+  'relay.unnamed': 'Unnamed team',
+  'relay.named': 'Named by hand',
+  'relay.rename': 'Rename the team',
+  'relay.teamName': 'Team name on the sheet',
+  'relay.saveName': 'Save the name',
+  'relay.renamed': 'The team is now called {team}.',
+  'relay.renameFailed': 'Could not rename the team',
+  'relay.renameHint':
+    'This is the name the marking sheet and the mark grid are keyed on. Two teams of one race cannot share a name, and a name of more than 40 characters is refused.',
+
+  /* ---------------- every relay event, and one-click teams ---------------- */
+  'relayEvents.title': 'Relay events',
+  'relayEvents.subtitle':
+    'Every relay event of the programme, and the two rules a relay’s teams can be made by. Pick a rule here and the teams are made for that event in one step; open the event’s board to place the runners.',
+  'relayEvents.loading': 'Loading the relay events…',
+  'relayEvents.loadFailed': 'Failed to load the relay events',
+  'relayEvents.listTitle': 'The programme’s relay events',
+  'relayEvents.listHint':
+    'A relay with no teams yet is the normal starting state: it has simply not been divided. Reading each event’s board is what tells us how many teams it holds.',
+  'relayEvents.eventCount': '{count} relay event(s)',
+  'relayEvents.readingBoards': 'Reading each event’s teams…',
+  'relayEvents.boardFailed': 'Failed to read this event’s relay board',
+  'relayEvents.boardFailedTitle': 'This event’s teams could not be read:',
+  'relayEvents.countUnknown': 'unknown',
+  'relayEvents.rulesTitle': 'The two ways a relay is divided',
+  'relayEvents.rulesHint':
+    'The division belongs to the event, not to this page, so the buttons below set the event’s own setting before they make anything.',
+  'relayEvents.formRule': 'one team per class of the event’s grade — 5A, 5B, 5C and so on.',
+  'relayEvents.houseRule':
+    'one team per house within the event’s grade — for example C Grade Yellow.',
+  'relayEvents.kindIsStoredOnTheEvent':
+    'Both rules are the event’s relay kind, held on the event itself — the same setting the event form and the per-event board show.',
+  'relayEvents.adminClearHint':
+    'Making the teams by one rule after the other leaves the first rule’s teams in place: the server refuses to change an event’s kind while it still has teams, and says so. This page offers to remove them, as a second confirmed step, when that happens.',
+  'relayEvents.teacherLimits':
+    'A teacher may make the teams of a relay that is already divided, and open any event’s board. Setting an event’s relay kind and printing marking sheets are administrator actions, so those controls are held back here.',
+  'relayEvents.teacherUndivided':
+    'This relay is not divided yet, so there is nothing for a teacher to make here. An administrator sets the kind — by form and class, or by grade and house — and the teams follow.',
+  'relayEvents.teacherDeriveOnly':
+    'The teams of this relay can be refreshed from the roster. Changing an event’s relay kind is an administrator action.',
+  'relayEvents.teacherPrintLimit':
+    'Printing a marking sheet is an administrator action, so it is not offered here.',
+  'relayEvents.actionsTitle': 'Make this event’s teams',
+  'relayEvents.makeForm': 'Make the teams by form and class',
+  'relayEvents.makeHouse': 'Make the teams by grade and house',
+  'relayEvents.refreshForm': 'Refresh the class teams from the roster',
+  'relayEvents.refreshHouse': 'Refresh the house teams from the roster',
+  'relayEvents.working': 'Working…',
+  'relayEvents.kindWillBeSet':
+    'Pressing a rule sets this event’s relay kind to it, then makes the teams.',
+  'relayEvents.kindAlreadySet':
+    'This event is already divided, so a press below only refreshes or replaces its teams under the same rule.',
+  'relayEvents.noTeamsYet':
+    'No teams yet — that is the starting state, not a fault. Choose a rule above and the teams appear.',
+  'relayEvents.makeFailed': 'Failed to make the relay teams',
+  'relayEvents.refused': 'The server refused this, in its own words:',
+  'relayEvents.refusedWhat': 'This was the attempt to make {kind} teams.',
+  'relayEvents.clearOffer':
+    'Its teams are in the way, so removing them is the step the server asks for.',
+  'relayEvents.clearAndMake': 'Remove this event’s teams, then make them by {kind}',
+  'relayEvents.clearConfirm':
+    'Remove every team of “{name}”, with the runners named on them? This frees the event to be divided by the other rule. Every team of the event goes, not only the empty ones.',
+  'relayEvents.clearFailed': 'Failed to remove the relay teams',
+  'relayEvents.clearedFirst': 'Removed {count} team(s) first, then made them again as below.',
+  'relayEvents.done': 'Made the teams by {kind}.',
+  'relayEvents.teamsMade': 'The teams now standing:',
+  'relayEvents.currentTeams': 'The teams of this event',
+  'relayEvents.printSheets': 'Print the marking sheets',
+  'relayEvents.printRun': 'Open the print run',
+  'relayEvents.printFailed': 'Failed to print the marking sheets',
+
+  /* ---------------- the teacher's way into a relay board ---------------- */
+  'teacher.relayTitle': 'Relay events',
+  'teacher.relayHint':
+    'Open a relay event to see the students who applied to it — with their form, class and house — and group them into that event’s teams. A relay is either a class relay (one team per class) or a house relay (one team per house of the event’s grade); you may place your own classes’ students, while every team of the event is shown so you can see who is running with whom.',
+  'teacher.relayEmpty': 'The programme has no relay event yet.',
+  'teacher.relayAll': 'See every relay event',
 
   /* ---------------- backups ---------------- */
   'backups.title': 'Backups',
@@ -1214,6 +1381,7 @@ const zh: Record<keyof typeof en, string> = {
   'nav.language': '語言',
   'nav.teachers': '教師帳戶',
   'nav.helpStudents': '協助學生報名',
+  'nav.relayEvents': '接力項目',
 
   'common.loading': '載入中…',
   'common.saving': '儲存中…',
@@ -1336,6 +1504,8 @@ const zh: Record<keyof typeof en, string> = {
   'marks.name': '姓名',
   'marks.grade': '級別',
   'marks.class': '班別',
+  'marks.form': '級別',
+  'marks.house': '社',
   'marks.heat': '組別',
   'marks.lane': '線道',
   'marks.record': '成績',
@@ -1416,6 +1586,10 @@ const zh: Record<keyof typeof en, string> = {
   'students.colDob': '出生日期',
   'students.colAge': '年齡',
   'students.colHouse': '社',
+  /* 班別所屬的級別 — 5D 即 Form 5 — 以及社及其簡寫。 */
+  'students.form': '級別',
+  'students.formValue': 'Form {form}',
+  'students.houseCodeHint': '社的簡寫 — R、Y、B、G。學校未設定簡寫的社只顯示社名。',
   'students.importResult': '匯入結果',
   'students.created': '新增',
   'students.updated': '更新',
@@ -2141,10 +2315,13 @@ const zh: Record<keyof typeof en, string> = {
   'relay.reservesHint': '容許後備時，每隊最多可安排棒數兩倍的人數 — 4x100M 即四名跑手及四名後備。',
   'relay.undividedTitle': '此接力項目尚未分隊',
   'relay.undividedHint':
-    '不分隊的接力項目沒有隊伍。請先在項目設定中選擇班際或社際，然後回來由名冊產生隊伍。',
+    '未分隊的接力項目沒有由名冊產生的隊伍。若要在項目設定中選擇班際或社際，即可由名冊產生班際或社際隊伍；亦可保持未分隊，直接在下方報名學生中自建隊伍並自行命名。',
   'relay.setKind': '在項目設定中選擇接力類別',
-  'relay.derive': '由名冊產生隊伍',
+  'relay.derive': '由名冊產生班際或社際隊伍',
   'relay.deriving': '產生中…',
+  'relay.deriveTitle': '由名冊產生班際或社際隊伍',
+  'relay.deriveExplanation':
+    '此按鈕只會產生名冊本身的隊伍：班際接力每班一隊，社際接力每社一隊，全部取自名冊 — 與您勾選的學生無關。班際或社際接力就是這樣產生隊伍的。若要由您勾選的學生另組一隊並自行輸入隊名，請使用下方報名學生清單中的「以已勾選學生建立隊伍」。以此方式建立的隊伍不會被產生功能觸及：它不屬於任何班別或社，因此永遠不會被配對、改名或刪除。',
   'relay.derivePrune': '同時刪除名冊上已不存在且沒有成員的空隊伍',
   'relay.derived': '已產生 — 新增 {created} 隊、保留 {kept} 隊、刪除 {pruned} 隊，合資格學生 {eligible} 人。',
   'relay.derivedKeptWithRunners': ' 另有 {count} 隊因已有成員而保留。',
@@ -2187,7 +2364,145 @@ const zh: Record<keyof typeof en, string> = {
   'relay.orderFailed': '無法儲存接力次序',
   'relay.openBoard': '接力隊伍',
   'relay.backToGroups': '返回分組及點名表',
+  'relay.backToTeacher': '返回我的學生',
   'relay.studentsLoadFailed': '無法載入學生名冊',
+
+  /* 把報名接力的學生編成隊伍。伺服器沒有「以指定學生開設一隊」的端點，因此本頁的流程是：
+     先由名冊產生班際或社際隊伍，再把已勾選的學生加入其所屬隊伍，最後為隊伍命名。 */
+  'relay.applicantsTitle': '報名學生',
+  'relay.applicantsHint':
+    '所有已確認報名此接力項目的學生，按名冊次序排列 — 先級別、後班別、再班號、最後姓名。勾選要組成隊伍的學生，在下方輸入該隊隊名並建立隊伍；隊伍不一定要屬於同一班別或同一社。已代表此項目其他隊伍出賽的學生不能勾選：其方格會停用，原因顯示在旁。',
+  'relay.applicantCount': '{count} 名報名學生',
+  'relay.placedCount': '已有隊伍 {count} 人',
+  'relay.unplacedCount': '尚未編隊 {count} 人',
+  'relay.noApplicants': '此接力項目暫時未有學生報名。',
+  'relay.noApplicantsMine': '您任教班別沒有學生報名此接力項目，因此沒有可由您編隊的學生。管理員可看到整個項目。',
+  'relay.unplacedOnly': '只顯示尚未編隊的學生',
+  'relay.noUnplaced': '所有報名學生均已編入隊伍。',
+  'relay.tickedCount': '已勾選 {count} 人',
+  'relay.clearSelection': '清除勾選',
+
+  /* 以勾選的學生親手建立一隊 */
+  'relay.createTitle': '以已勾選學生建立隊伍',
+  'relay.createFlow':
+    '此功能會以您勾選的學生組成一支隊伍，隊名由您輸入 — 該隊不屬於任何班別或社，這正是產生功能做不到的。請按接力次序勾選（第一位勾選的跑第一棒），以自由文字輸入隊名，然後按建立。不足四人的隊伍可以建立，只會顯示為尚未齊人；超過棒數加一名後備時伺服器會拒絕，下方所有拒絕訊息均為伺服器原文。建立被拒時勾選會保留，修正隊名後可直接再按建立。',
+  'relay.createNameLabel': '點名表上的隊名（由您輸入）',
+  'relay.createNamePlaceholder': '例如 1A 或 B Grade Yellow',
+  'relay.createTeam': '以已勾選學生建立隊伍',
+  'relay.creating': '建立隊伍中…',
+  'relay.createOrderHint': '隊伍按您勾選的次序組成，第一位勾選的學生跑第一棒。',
+  'relay.createOverCap':
+    '已勾選 {count} 名學生，而此項目的每隊最多 {cap} 人 — {legs} 棒加最多一名後備。請先取消部分勾選再建立。',
+  'relay.createConflict': '{names} 已代表此項目的另一支隊伍出賽，因此不能勾選加入新隊伍。請先把他們從該隊移除。',
+  'relay.createRefused': '伺服器拒絕此隊伍，以下是其原文訊息：',
+  'relay.createTicksKept': '並未建立任何隊伍，勾選亦完全保留 — 請修正隊名或人選後再按建立。',
+  'relay.createNeedsName': '請先輸入隊名 — 伺服器不接受空白隊名。',
+  'relay.createNeedsTicks': '請至少勾選一名學生 — 隊伍需要跑手。',
+  'relay.createDone': '已建立「{team}」，共 {count} 名跑手。',
+  'relay.createFailed': '無法建立隊伍',
+  'relay.handMade': '自建隊伍',
+  'relay.handMadeHint':
+    '此隊為自建隊伍，並非由名冊產生：它不屬於任何班別或社，因此沒有班別或社的識別值。日後再按產生隊伍時不會影響此隊 — 它永遠不會被配對、改名或刪除。',
+  'relay.derivedForm': '由名冊產生的班際隊伍',
+  'relay.derivedHouse': '由名冊產生的社際隊伍',
+  'relay.tickBlockedPlaced': '已代表此項目的 {team} 出賽 — 一名運動員只跑一隊，因此不能勾選加入其他隊伍。',
+  'relay.tickBlockedRunning': '已代表此項目的隊伍出賽 — 一名運動員只跑一隊，因此不能勾選加入其他隊伍。',
+  'relay.tick': '選取',
+  'relay.tickGroup': '全選此班',
+  'relay.untickGroup': '取消此班',
+  'relay.form': '級別',
+  'relay.team': '隊伍',
+  'relay.placed': '已有隊伍',
+  'relay.noTeamYet': '尚未有隊伍',
+  'relay.teamsTitle': '隊伍',
+  'relay.noTeams': '此項目尚未有任何隊伍。可在上方由名冊產生班際或社際隊伍，或勾選報名學生自建隊伍。',
+  'relay.undividedTeamsHint':
+    '未分隊的接力項目沒有由名冊產生的隊伍。上方報名學生仍可編隊：勾選他們並自行輸入隊名建立隊伍。名冊本身的班際或社際隊伍，則需管理員先把此項目的接力類別設為班際或社際。',
+  'relay.undividedTeacherHint':
+    '您仍可在此建立隊伍：勾選上方報名學生，輸入隊名後建立。名冊本身的班際或社際隊伍，則需管理員先把此項目的接力類別設為班際或社際。',
+  'relay.shortTeams': '{count} 隊人數不足',
+  'relay.shortTeamsWarn':
+    '以下隊伍按現狀不能出賽 — {names}。接力隊伍必須有四位跑手；人數不足的隊伍會獲儲存但尚未齊人，其點名表不能作接力賽使用。',
+  'relay.shortOfLegs': '尚欠 {missing} 名跑手',
+  'relay.incompleteWarn':
+    '此隊現有 {legs} 棒中的 {filled} 名跑手，尚未能出賽。請在報名學生清單勾選其學生 — 或在下方逐一加入 — 直至 {legs} 棒全部齊人。',
+  'relay.allComplete': '所有隊伍均已齊人',
+  'relay.reserveCount': '{count} 名後備',
+  'relay.unnamed': '未命名隊伍',
+  'relay.named': '自訂名稱',
+  'relay.rename': '更改隊名',
+  'relay.teamName': '點名表上的隊名',
+  'relay.saveName': '儲存隊名',
+  'relay.renamed': '隊伍現名為 {team}。',
+  'relay.renameFailed': '無法更改隊名',
+  'relay.renameHint':
+    '此名稱是點名表及成績輸入表所依據的名稱。同一賽事不能有兩隊同名，亦不接受超過 40 字的名稱。',
+
+  /* ---------------- 教師前往接力編隊的入口 ---------------- */
+  /* ---------------- every relay event, and one-click teams ---------------- */
+  'relayEvents.title': '接力項目',
+  'relayEvents.subtitle':
+    '本年度所有接力項目，以及接力隊的兩種編隊規則。在此選擇規則，即可為該項目一次編好隊伍；安排跑手請開啟該項目的接力隊伍編排頁。',
+  'relayEvents.loading': '載入接力項目…',
+  'relayEvents.loadFailed': '無法載入接力項目',
+  'relayEvents.listTitle': '本年度接力項目',
+  'relayEvents.listHint':
+    '尚未有隊伍的接力項目屬正常起始狀態，只是尚未分隊。讀取每個項目的編排頁，才知道它已有多少隊伍。',
+  'relayEvents.eventCount': '{count} 個接力項目',
+  'relayEvents.readingBoards': '正在讀取各項目的隊伍…',
+  'relayEvents.boardFailed': '無法讀取此項目的接力隊伍',
+  'relayEvents.boardFailedTitle': '無法讀取此項目的隊伍：',
+  'relayEvents.countUnknown': '未能確定',
+  'relayEvents.rulesTitle': '接力的兩種分隊方式',
+  'relayEvents.rulesHint':
+    '分隊方式屬於項目本身而非本頁，因此下方按鈕會先設定項目自己的設定，然後才編隊。',
+  'relayEvents.formRule': '該項目年級的每班一隊 — 5A、5B、5C 等。',
+  'relayEvents.houseRule':
+    '該項目年級內每社一隊 — 例如 C Grade Yellow。',
+  'relayEvents.kindIsStoredOnTheEvent':
+    '兩種規則就是項目的接力類別，儲存在項目本身 — 與項目設定頁及該項目的編排頁所顯示的是同一個設定。',
+  'relayEvents.adminClearHint':
+    '以一種規則編隊後再改用另一種，原有隊伍會成為阻礙：伺服器在項目仍有隊伍時拒絕更改類別，並會說明原因。屆時本頁會提供另一個已確認的步驟，先移除隊伍再重新編隊。',
+  'relayEvents.teacherLimits':
+    '教師可為已分隊的接力項目編隊，並可開啟任何項目的編排頁。設定項目的接力類別及列印記錄表屬管理員權限，因此本頁不提供該等操作。',
+  'relayEvents.teacherUndivided':
+    '此接力項目尚未分隊，教師在此沒有可編的隊伍。由管理員設定類別 — 班際或社際 — 隊伍便會產生。',
+  'relayEvents.teacherDeriveOnly':
+    '可由此項目名冊重新整理隊伍。更改項目的接力類別屬管理員權限。',
+  'relayEvents.teacherPrintLimit': '列印記錄表屬管理員權限，因此本頁不提供。',
+  'relayEvents.actionsTitle': '為此項目編隊',
+  'relayEvents.makeForm': '按班別編隊（班際）',
+  'relayEvents.makeHouse': '按年級及社編隊（社際）',
+  'relayEvents.refreshForm': '由名冊重新整理班際隊伍',
+  'relayEvents.refreshHouse': '由名冊重新整理社際隊伍',
+  'relayEvents.working': '處理中…',
+  'relayEvents.kindWillBeSet':
+    '按下規則後，會先把此項目的接力類別設為該規則，然後編隊。',
+  'relayEvents.kindAlreadySet':
+    '此項目已分隊，因此按下後只會在同一規則下重新整理或取代其隊伍。',
+  'relayEvents.noTeamsYet': '尚未有隊伍 — 這是起始狀態，並非故障。在上方選擇規則，隊伍便會出現。',
+  'relayEvents.makeFailed': '無法編排接力隊伍',
+  'relayEvents.refused': '伺服器拒絕此操作，以下是其原文訊息：',
+  'relayEvents.refusedWhat': '這次是嘗試編排{kind}隊伍。',
+  'relayEvents.clearOffer':
+    '此項目的隊伍造成阻礙，移除它們正是伺服器要求的步驟。',
+  'relayEvents.clearAndMake':
+    '移除此項目的隊伍，然後按{kind}重新編隊',
+  'relayEvents.clearConfirm':
+    '確定移除「{name}」的所有隊伍及其已安排的跑手？這樣該項目才可以改用另一種規則分隊。此項目所有隊伍都會被移除，不只是空隊伍。',
+  'relayEvents.clearFailed': '無法移除接力隊伍',
+  'relayEvents.clearedFirst': '已先移除 {count} 隊，然後按以下結果重新編隊。',
+  'relayEvents.done': '已按{kind}編隊。',
+  'relayEvents.teamsMade': '現時已成立的隊伍：',
+  'relayEvents.currentTeams': '此項目的隊伍',
+  'relayEvents.printSheets': '列印記錄表',
+  'relayEvents.printRun': '開啟列印頁',
+  'relayEvents.printFailed': '無法列印記錄表',
+  'teacher.relayTitle': '接力項目',
+  'teacher.relayHint':
+    '開啟接力項目即可看到報名該項目的學生 — 連同級別、班別及社 — 並把他們編入該項目的隊伍。接力項目分為班際（每班一隊）及社際（該級別每社一隊）；您可安排自己任教班別的學生，而項目的所有隊伍均會顯示，讓您看到各隊的組合。',
+  'teacher.relayEmpty': '本年度暫時未有接力項目。',
+  'teacher.relayAll': '查看所有接力項目',
 
   /* ---------------- backups ---------------- */
   'backups.title': '備份',

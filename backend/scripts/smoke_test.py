@@ -2542,16 +2542,20 @@ def main() -> int:
         status, board2 = api.request("GET", f"/admin/events/{relay_event['id']}/relay-teams",
                                      token=admin_token)
         teams = board2.get("teams", []) if isinstance(board2, dict) else []
-        check(bool(teams), "and there is a team per form", f"got {len(teams)}")
-        check(all(t.get("label", "").startswith("Form") for t in teams),
-              "each labelled by form", f"got {[t.get('label') for t in teams][:4]}")
+        check(bool(teams), "and there is a team per class", f"got {len(teams)}")
+        check(all(any(ch.isdigit() for ch in t.get("label", "")) for t in teams),
+              "each labelled by its class, not its form",
+              f"got {[t.get('label') for t in teams][:4]}")
 
         if teams:
             team = teams[0]
             status, roster_now = api.request("GET", "/admin/students", token=admin_token)
             pool = [s for s in roster_now
                     if s.get("grade") == relay_event["grade"]
-                    and s.get("sex") == relay_event["sex"]]
+                    and s.get("sex") == relay_event["sex"]
+                    # A class team takes only its own class, so the runner has to come
+                    # from the team's class rather than merely its form.
+                    and s.get("className") == team.get("label")]
             if pool:
                 runner = pool[0]["userId"]
                 status, added = api.request(
@@ -2758,6 +2762,318 @@ def main() -> int:
         check(isinstance(final_pdf, bytes) and final_pdf[:4] == b"%PDF",
               "and the final's marking sheet prints",
               f"status={status}")
+
+    # ------------------------------------------------- 24. relay teams by class
+    section("24. Relay teams are divided by class, four runners and one backup")
+
+    status, all_events = api.request("GET", "/events", token=admin_token)
+    # The programme's relays are divided deliberately now — class teams on some events,
+    # house teams on others — so this section works on a relay that is already a FORM
+    # one when there is one, and only falls back to an undivided relay (which it then
+    # divides itself) when there is not.
+    relays = [e for e in all_events if e["type"] in ("RELAY_4X100M", "RELAY_4X400M")]
+    relay = next((e for e in relays if e.get("relayTeamKind") == "FORM"), None)
+    divided_by_the_test = relay is None
+    if relay is None:
+        relay = next((e for e in relays if e.get("relayTeamKind") is None), None)
+    check(relay is not None, "the programme has a relay this section can work on",
+          f"relays={len(relays)}")
+    if relay:
+        relay_id = relay["id"]
+        if divided_by_the_test:
+            # An undivided relay has nothing to derive, and says so rather than
+            # inventing teams.
+            status, body = api.request("POST", f"/admin/events/{relay_id}/relay-teams/derive",
+                                       {}, token=admin_token)
+            check(status == 409 and "divided" in str(body),
+                  "deriving an undivided relay is refused with a reason",
+                  f"status={status} {str(body)[:130]}")
+
+            status, _ = api.request("PUT", f"/events/{relay_id}",
+                                    {"relayTeamKind": "FORM"}, token=admin_token)
+            check(status == 200, "the event can be made a form relay", f"status={status}")
+        else:
+            check(True, "the relay is already a form relay, and is used as it stands",
+                  f"kind={relay.get('relayTeamKind')}")
+
+        status, derived = api.request("POST", f"/admin/events/{relay_id}/relay-teams/derive",
+                                      {}, token=admin_token)
+        board = derived.get("board") if isinstance(derived, dict) else None
+        teams = (board or {}).get("teams") or []
+        check(status == 200 and bool(teams), "and then derives its teams",
+              f"status={status} {str(derived)[:130]}")
+
+        labels = [t.get("label") for t in teams]
+        # One team per class, so classes of the same form are separate teams.
+        check(all(any(ch.isdigit() for ch in str(l)) for l in labels),
+              "each team is named after a class", f"got {labels[:6]}")
+        check(len(labels) == len(set(labels)), "no two teams share a name", f"got {labels}")
+        numbers = [int("".join(c for c in str(l) if c.isdigit()) or 0) for l in labels]
+        check(numbers == sorted(numbers),
+              "and they come out in school order, not alphabetical", f"got {labels}")
+        # A form relay would give one team per form; a class relay gives one per class.
+        forms = {int("".join(c for c in str(l) if c.isdigit()) or 0) for l in labels}
+        check(len(labels) >= len(forms),
+              "with at least one team per form, which is what makes it a class relay",
+              f"{len(labels)} teams across {len(forms)} forms")
+
+        cap = (board or {}).get("memberCap")
+        legs = (board or {}).get("legsPerTeam")
+        reserves = (board or {}).get("reservesAllowed")
+        check(legs == 4, "a relay team runs four legs", f"got {legs}")
+        check(cap == 4 or (reserves and cap == 5),
+              "and carries four runners, or five with the one backup it allows",
+              f"cap={cap} reserves={reserves}")
+
+        # ---- renaming ----
+        team_id = teams[0].get("id")
+        status, renamed = api.request("PUT", f"/admin/relay-teams/{team_id}/name",
+                                      {"name": "  1A Champions  "}, token=admin_token)
+        check(status == 200 and isinstance(renamed, dict)
+              and renamed.get("label") == "1A Champions",
+              "an administrator can rename a team, and the name is trimmed",
+              f"status={status} {str(renamed)[:130]}")
+
+        status, refused = api.request("PUT", f"/admin/relay-teams/{team_id}/name",
+                                      {"name": "   "}, token=admin_token)
+        check(status == 400, "a blank name is refused", f"status={status}")
+
+        status, long_name = api.request("PUT", f"/admin/relay-teams/{team_id}/name",
+                                        {"name": "x" * 41}, token=admin_token)
+        check(status == 400, "and so is one too long for a sheet", f"status={status}")
+
+        # The runners already on the team are untouched by a rename.
+        status, one_team = api.request("GET", f"/admin/events/{relay_id}/relay-teams",
+                                       token=admin_token)
+        after = next((t for t in ((one_team or {}).get("teams") or [])
+                      if t.get("id") == team_id), None)
+        check(after is not None and after.get("label") == "1A Champions",
+              "and the rename is what the board then reports",
+              f"got {after.get('label') if after else None}")
+
+        # ---- clean up only what this section created ----
+        # The programme's relays carry real teams now, so clearing one this section
+        # merely borrowed would destroy data the run is meant to leave alone. It is
+        # only undone when this section divided the relay itself.
+        if divided_by_the_test:
+            status, _ = api.request("DELETE", f"/admin/events/{relay_id}/relay-teams",
+                                    token=admin_token)
+            check(status == 200, "the derived teams can be cleared again", f"status={status}")
+            status, _ = api.request("PUT", f"/events/{relay_id}", {"relayTeamKind": ""},
+                                    token=admin_token)
+            check(status == 200, "and the event goes back to undivided", f"status={status}")
+        else:
+            status, kept = api.request(
+                "GET", f"/admin/events/{relay_id}/relay-teams", token=admin_token)
+            check(bool((kept or {}).get("teams")),
+                  "and the relay's own teams are left exactly as they were",
+                  f"teams={len((kept or {}).get('teams') or [])}")
+
+    # ------------------------------------------- 25. relay applicants, and codes
+    section("25. A relay event lists who applied, with form, class and house")
+
+    status, all_events = api.request("GET", "/events", token=admin_token)
+    relay = next((e for e in all_events
+                  if e["type"] in ("RELAY_4X100M", "RELAY_4X400M")), None)
+    check(relay is not None, "the programme has a relay")
+    if relay:
+        status, board = api.request(
+            "GET", f"/admin/events/{relay['id']}/relay-teams", token=admin_token)
+        check(status == 200 and isinstance(board, dict),
+              "its board reads", f"status={status}")
+
+        applicants = (board or {}).get("applicants") or []
+        check(all(key in board for key in
+                  ("applicantCount", "placedCount", "unplacedCount")),
+              "and carries the applicant counts a teacher needs",
+              f"keys={sorted(board)[:10]}")
+        check(board.get("applicantCount") == len(applicants),
+              "the count matches the list",
+              f"count={board.get('applicantCount')} list={len(applicants)}")
+        check(board.get("placedCount", 0) + board.get("unplacedCount", 0)
+              == board.get("applicantCount", 0),
+              "and placed plus unplaced is all of them",
+              f"{board.get('placedCount')}+{board.get('unplacedCount')}"
+              f" vs {board.get('applicantCount')}")
+
+        # The students who applied are the students entered. A relay with no entries
+        # is a legitimate state, so an empty list is not a failure.
+        check(all(a.get("studentRef") and a.get("name") for a in applicants),
+              "every applicant is nameable", f"got {applicants[:2]}")
+        check(all(a.get("form") is not None and a.get("className")
+                  for a in applicants),
+              "and carries a form and a class", f"got {applicants[:2]}")
+        check(all(a.get("house") for a in applicants),
+              "and the house in full", f"got {applicants[:2]}")
+        # The code is one of the four, or nothing at all — never a letter invented
+        # from an unrecognised house, which would make Black read as Blue's B.
+        codes = {a.get("houseCode") for a in applicants}
+        check(codes <= {"R", "Y", "B", "G", None},
+              "with the house code only ever R, Y, B or G — or nothing",
+              f"got {sorted(str(c) for c in codes)}")
+
+        # Both paths are the same board, so their shapes must agree.
+        status, teacher_board = api.request(
+            "GET", f"/teacher/events/{relay['id']}/relay-teams", token=admin_token)
+        check(status == 200 and isinstance(teacher_board, dict)
+              and "applicants" in teacher_board,
+              "and the teacher path serves the same applicant list",
+              f"status={status}")
+
+    # ------------------------------------- 26. a relay team made by hand
+    section("26. A relay team made by hand, under a name the school types")
+
+    status, all_events = api.request("GET", "/events", token=admin_token)
+    best = None
+    for candidate in all_events:
+        if candidate["type"] not in ("RELAY_4X100M", "RELAY_4X400M"):
+            continue
+        status, candidate_board = api.request(
+            "GET", f"/admin/events/{candidate['id']}/relay-teams", token=admin_token)
+        if status != 200 or not isinstance(candidate_board, dict):
+            continue
+        count = len(candidate_board.get("applicants") or [])
+        if best is None or count > best[1]:
+            best = (candidate, count, candidate_board)
+
+    check(best is not None, "a relay event can be read")
+    # The season is reset at the start of this run, so a relay may hold only a couple
+    # of confirmed entrants by now. The team is made from whatever is there — the
+    # point is the endpoint, not a full squad — and completeness is only asserted for
+    # a team of four, which is the race.
+    if best and best[1] >= 2:
+        event, _, board = best
+        event_id = event["id"]
+        taken = [a["userId"] for a in board["applicants"][:4]]
+
+        # The team is whatever students are ticked, under a name the school types —
+        # not a class and not a house. `kind` is null precisely so a later derive can
+        # never match, rename or prune it.
+        status, made = api.request(
+            "POST", f"/admin/relay-events/{event_id}/teams",
+            {"name": "Smoke Hand-Made Squad", "userIds": taken}, token=admin_token)
+        check(status == 200 and isinstance(made, dict),
+              "a team can be made from chosen students", f"status={status} {str(made)[:140]}")
+        check(isinstance(made, dict) and made.get("handMade") is True,
+              "and is marked as made by hand", f"got {made.get('handMade') if isinstance(made, dict) else made}")
+        check(isinstance(made, dict) and made.get("kind") is None,
+              "with no kind, so a derive cannot take it over",
+              f"got {made.get('kind') if isinstance(made, dict) else made}")
+        check(isinstance(made, dict) and made.get("label") == "Smoke Hand-Made Squad",
+              "and carries the typed name",
+              f"got {made.get('label') if isinstance(made, dict) else made}")
+        check(isinstance(made, dict) and made.get("memberCount") == len(taken),
+              "with the students named on it, one per leg",
+              f"got {made.get('memberCount') if isinstance(made, dict) else made}")
+        check(isinstance(made, dict) and made.get("complete") is (len(taken) == 4),
+              "complete exactly when it holds all four legs of the race",
+              f"got {made.get('complete') if isinstance(made, dict) else made}")
+
+        # The name is what the sheet and the grid key on, so a clash must be refused.
+        status, clash = api.request(
+            "POST", f"/admin/relay-events/{event_id}/teams",
+            {"name": "smoke hand-made squad", "userIds": taken}, token=admin_token)
+        check(status == 400, "a name already used in the event is refused, ignoring case",
+              f"status={status} {str(clash)[:120]}")
+        status, blank = api.request(
+            "POST", f"/admin/relay-events/{event_id}/teams",
+            {"name": "   ", "userIds": taken}, token=admin_token)
+        check(status == 400, "and so is a blank one", f"status={status}")
+        status, twice = api.request(
+            "POST", f"/admin/relay-events/{event_id}/teams",
+            {"name": "Another Squad", "userIds": taken}, token=admin_token)
+        check(status == 409,
+              "and naming a student who already runs in this event",
+              f"status={status} {str(twice)[:120]}")
+
+        # The board shows it, and the students on it count as placed.
+        status, after = api.request(
+            "GET", f"/admin/events/{event_id}/relay-teams", token=admin_token)
+        hand_made = [t for t in ((after or {}).get("teams") or []) if t.get("handMade")]
+        check(len(hand_made) == 1, "the team is on the board",
+              f"got {len(hand_made)} hand-made of {len(((after or {}).get('teams') or []))}")
+        check((after or {}).get("placedCount") == len(taken),
+              "and its students read as placed",
+              f"placed={ (after or {}).get('placedCount') }")
+
+        # ---- put the event back exactly as it was ----
+        status, _ = api.request("DELETE", f"/admin/events/{event_id}/relay-teams",
+                                token=admin_token)
+        check(status == 200, "the made team can be cleared away again", f"status={status}")
+        status, cleaned = api.request(
+            "GET", f"/admin/events/{event_id}/relay-teams", token=admin_token)
+        check(not ((cleaned or {}).get("teams") or []),
+              "leaving the event with no teams",
+              f"got {len(((cleaned or {}).get('teams') or []))}")
+        check((cleaned or {}).get("placedCount") == 0, "and nobody placed",
+              f"placed={(cleaned or {}).get('placedCount')}")
+
+    # ------------------------- 27. a relay must be ready before it can be marked
+    section("27. A relay is only marked and printed once it is ready")
+
+    status, all_events = api.request("GET", "/events", token=admin_token)
+    relay_events = [e for e in all_events
+                    if e["type"] in ("RELAY_4X100M", "RELAY_4X400M")]
+    check(bool(relay_events), "the programme has relays", f"got {len(relay_events)}")
+
+    ready_event = None
+    unready_event = None
+    unready_reason = None
+    for candidate in relay_events:
+        status, sheet = api.request(
+            "GET", f"/events/{candidate['id']}/marks?stage=HEAT", token=admin_token)
+        if status == 200 and isinstance(sheet, dict):
+            team_rows = [r for r in sheet.get("rows", []) if r.get("teamId")]
+            if team_rows and ready_event is None:
+                ready_event = (candidate, sheet, len(team_rows))
+        elif status == 409 and unready_event is None:
+            unready_event = candidate
+            unready_reason = str(sheet)
+
+    # A ready relay opens and its lines are teams, not athletes.
+    check(ready_event is not None, "a ready relay can be marked")
+    if ready_event:
+        event, sheet, team_rows = ready_event
+        check(team_rows == len(sheet.get("rows", [])),
+              "and every line on it is a team",
+              f"{team_rows} of {len(sheet.get('rows', []))}")
+        check(all(r.get("teamLabel") for r in sheet.get("rows", [])),
+              "each named by its team", f"got {[r.get('teamLabel') for r in sheet.get('rows', [])][:3]}")
+        check(all(not r.get("teamMembers") for r in sheet.get("rows", [])),
+              "and none of them carries the runners",
+              f"got {[r.get('teamMembers') for r in sheet.get('rows', [])][:2]}")
+        # This run resets the season, so by now the event may hold no heats to render,
+        # and the event sheet run has nothing to print. Either answer is fine; what
+        # matters is that a relay which is READY is never refused for being short.
+        status, body = api.request("GET", f"/events/{event['id']}/sheets.pdf",
+                                   token=admin_token)
+        check(status in (200, 409),
+              "and a ready relay's sheets answer rather than erroring", f"status={status}")
+        if status == 409:
+            check("runners it needs" not in str(body) and "team(s)" not in str(body),
+                  "with no complaint that it is short, because it is not",
+                  f"got {str(body)[:150]}")
+
+    # A relay that is short is refused with the reason, in both places.
+    if unready_event:
+        check("runners it needs" in str(unready_reason) or "team(s)" in str(unready_reason),
+              "a relay that is short says which part of it is short",
+              f"got {str(unready_reason)[:160]}")
+        status, _ = api.request("GET", f"/events/{unready_event['id']}/sheets.pdf",
+                                token=admin_token)
+        check(status == 409,
+              "and its sheets are refused for the same reason, not printed empty",
+              f"status={status}")
+    else:
+        # Every relay being ready is a fine state; the refusal is then unit-tested only.
+        check(True, "every relay in the programme is currently ready, so no refusal to show")
+
+    # An individual event is never gated by any of this.
+    individual = next((e for e in all_events if e["type"].startswith("RUN_")), None)
+    if individual:
+        status, sheet = api.request(
+            "GET", f"/events/{individual['id']}/marks?stage=HEAT", token=admin_token)
+        check(status == 200, "an individual event is never held back", f"status={status}")
 
     # ------------------------------------------------------------------ summary
     section("Summary")

@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { api, Grade, GRADES, SexCode, StudentDTO, TeacherMeDTO } from '@/lib/api';
+import { api, EventDTO, Grade, GRADES, isRelayEventType, SexCode, StudentDTO, TeacherMeDTO } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n';
+import { classText, formText, houseText } from '@/lib/students';
 
 /**
  * A teacher's own classes and the students in them.
@@ -31,6 +32,11 @@ export default function TeacherPage() {
 
   const [me, setMe] = useState<TeacherMeDTO | null>(null);
   const [students, setStudents] = useState<StudentDTO[]>([]);
+  /**
+   * The relay events of the programme. A teacher groups the students who applied
+   * to a relay into its teams on that event's own board — this is the way in.
+   */
+  const [relayEvents, setRelayEvents] = useState<EventDTO[]>([]);
   /** `''` is every class the caller may help in. */
   const [className, setClassName] = useState('');
   /**
@@ -94,6 +100,27 @@ export default function TeacherPage() {
     loadStudents(className);
   }, [hasClasses, className, loadStudents]);
 
+  /**
+   * The relay events, fetched whether or not this teacher holds a class: the
+   * relay board itself is what refuses an applicant outside their classes, and
+   * showing the events is how a teacher gets to that board at all.
+   */
+  useEffect(() => {
+    if (!canHelp) return;
+    let cancelled = false;
+    api
+      .getEvents({ onlyEnabled: true })
+      .then(list => {
+        if (!cancelled) setRelayEvents(list.filter(event => isRelayEventType(event.type)));
+      })
+      .catch(() => {
+        if (!cancelled) setRelayEvents([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [canHelp]);
+
   const classOptions = useMemo(() => me?.classes ?? [], [me]);
 
   /**
@@ -150,6 +177,45 @@ export default function TeacherPage() {
       {error && <div className="alert alert-error">{error}</div>}
 
       <div className="hint">{t('teacher.subtitle')}</div>
+
+      {/* Relay events — where the students who applied are grouped into teams */}
+      <div className="card mt-3">
+        <div className="flex justify-between items-center">
+          <h2>{t('teacher.relayTitle')}</h2>
+          <div className="pill-actions">
+            <span className="badge badge-info">
+              {t('relay.teamCount', { count: relayEvents.length })}
+            </span>
+            {/*
+              The programme's relays in one list, with the action that makes a
+              divided event's teams and a link to each event's board. It sits here
+              as well as on `/admin/relay-events` because this page is a teacher's
+              way in: the card below lists one event per button, which stops being
+              readable at twelve.
+            */}
+            <Link href="/admin/relay-events" className="btn btn-sm btn-secondary">
+              {t('teacher.relayAll')}
+            </Link>
+          </div>
+        </div>
+        <p className="muted mt-2">{t('teacher.relayHint')}</p>
+        <p className="muted mt-2">{t('relayEvents.teacherLimits')}</p>
+        {relayEvents.length === 0 ? (
+          <p className="muted mt-2">{t('teacher.relayEmpty')}</p>
+        ) : (
+          <div className="pill-actions mt-2">
+            {relayEvents.map(event => (
+              <Link
+                key={event.id}
+                href={`/admin/events/${event.id}/relay`}
+                className="btn btn-sm btn-secondary"
+              >
+                {event.typeLabel} · {label('grade.short', event.grade)} · {label('sex', event.sex)}
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* My classes */}
       <div className="card mt-3">
@@ -255,6 +321,7 @@ export default function TeacherPage() {
                   <tr>
                     <th>{t('students.colId')}</th>
                     <th>{t('students.colName')}</th>
+                    <th>{t('students.form')}</th>
                     <th>{t('marks.class')}</th>
                     <th>{t('marks.grade')}</th>
                     <th>{t('students.colHouse')}</th>
@@ -266,11 +333,15 @@ export default function TeacherPage() {
                     <tr key={student.id} className={student.enabled ? undefined : 'row-disabled'}>
                       <td>{student.studentId}</td>
                       <td>{student.name}</td>
-                      <td>{student.classLabel || `${student.className} ${student.classNumber}`}</td>
+                      {/* Form, class and house — the house with its short code,
+                          and no letter invented for a house the register has
+                          none for. */}
+                      <td>{formText(student, t)}</td>
+                      <td>{classText(student) || '-'}</td>
                       <td>
                         <span className="badge badge-info">{label('grade', student.grade)}</span>
                       </td>
-                      <td>{student.house || '-'}</td>
+                      <td>{houseText(student)}</td>
                       <td>
                         <Link
                           href={`/teacher/students/${student.studentId}`}

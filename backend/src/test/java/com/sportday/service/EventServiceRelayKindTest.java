@@ -145,7 +145,8 @@ class EventServiceRelayKindTest {
         EventDTO created = service.createEvent(supplied);
 
         assertEquals(6, created.getRelayTeamSize());
-        assertEquals(12, created.getRelayMemberCap());
+        // Six legs and the single backup the school allows.
+        assertEquals(7, created.getRelayMemberCap());
         assertTrue(created.getRelayReservesAllowed());
     }
 
@@ -264,7 +265,8 @@ class EventServiceRelayKindTest {
         EventDTO updated = service.updateEvent(7L, supplied);
 
         assertEquals(5, updated.getRelayTeamSize());
-        assertEquals(10, updated.getRelayMemberCap());
+        // Five legs and the single backup the school allows.
+        assertEquals(6, updated.getRelayMemberCap());
         assertTrue(updated.getRelayReservesAllowed());
     }
 

@@ -27,6 +27,7 @@ import { useAuth } from '@/lib/auth';
 import { EventFilters } from '@/components/EventFilters';
 import type { EventFilterControl } from '@/components/EventFilters';
 import { useI18n } from '@/lib/i18n';
+import { classText, formText, houseText } from '@/lib/students';
 
 /** The two sheets a short sprint has: the numbered heats and the final. */
 const STAGE_OPTIONS: MarkStage[] = ['HEAT', 'FINAL'];
@@ -131,6 +132,43 @@ function hasServerValue(row: MarkRowDTO): boolean {
 /** The outcome a row arrived with, in the same shape as a draft. */
 function serverOutcome(row: MarkRowDTO): DraftOutcome {
   return row.outcome === 'ABS' || row.outcome === 'DQ' ? row.outcome : '';
+}
+
+/**
+ * True when a grid line stands for a relay **team** rather than an athlete.
+ *
+ * The row's own two fields are the whole test, and they are the server's own
+ * statement about the line: a team line carries the team's `teamId` and
+ * `teamLabel`, an athlete's line carries neither. The backend draws its printed
+ * relay sheet on exactly that rule — the team labels are either on the lines or
+ * they are not — so the grid and the sheet agree line for line.
+ *
+ * The event's *type* is deliberately not the test. A relay that nobody has
+ * divided is still a relay, but its grid is the athlete-per-line grid it has
+ * always been and no team is invented for it: going by the type alone would
+ * blank the identity of every such row and leave the grid naming nobody. An
+ * athlete line therefore cannot be mistaken for a team line (it never carries
+ * either field), and a team line cannot fall through to the athlete rendering,
+ * because the identity cells ask this first.
+ */
+function isTeamRow(row: MarkRowDTO): boolean {
+  return (
+    (row.teamId !== undefined && row.teamId !== null) ||
+    (row.teamLabel !== undefined && row.teamLabel !== '')
+  );
+}
+
+/**
+ * What a line is called in the messages and accessible names that have to name
+ * it: the team's name on a relay line, the athlete's student id on every other.
+ *
+ * A team line is never identified by the runner its one mark happens to hang
+ * off — that runner is an implementation detail of `event_results.user_id`, not
+ * the line's identity, and the grid must not name them.
+ */
+function rowWho(row: MarkRowDTO): string {
+  if (!isTeamRow(row)) return row.studentRef;
+  return row.teamLabel && row.teamLabel.trim() !== '' ? row.teamLabel : `#${row.userId}`;
 }
 
 function draftFrom(row: MarkRowDTO, attemptCount: number): MarkDraft {
@@ -369,6 +407,15 @@ export default function MarkEntryPage() {
    * and a time cannot be entered to the wrong precision by accident.
    */
   const sprintEvent = ['RUN_60M', 'RUN_100M', 'RUN_200M'].includes(sheet?.eventType ?? '');
+  /**
+   * True when the sheet on screen marks TEAMS: a relay whose teams have been
+   * derived. Every line is then a team's, so the column that carries a line's
+   * name is headed `Team` rather than `Name`. It is read off the rows themselves
+   * — the same test each row is rendered with, see `isTeamRow` — and not off the
+   * event's type, so a relay nobody has divided keeps the athlete-per-line
+   * headings and columns it has always had.
+   */
+  const teamSheet = useMemo(() => (sheet?.rows ?? []).some(isTeamRow), [sheet]);
   const attemptCount = fieldEvent ? sheet?.attemptCount ?? 3 : 1;
   const attemptIndexes = useMemo(
     () => Array.from({ length: attemptCount }, (_, index) => index),
@@ -605,10 +652,33 @@ export default function MarkEntryPage() {
       if (!Number.isFinite(userId)) return;
 
       const row = byId.get(userId);
-      const who = row ? [row.studentRef, row.name].filter(Boolean).join(' ') : `#${userId}`;
+      /*
+       * A line is named by what it is: a team line by the team's name, an
+       * athlete's by their student id and name. Naming a relay line by the
+       * runner it hangs off would put that runner's id in front of a helper who
+       * is marking teams, which is the one thing a relay grid must not do.
+       */
+      const who = row
+        ? isTeamRow(row)
+          ? rowWho(row)
+          : [row.studentRef, row.name].filter(Boolean).join(' ')
+        : `#${userId}`;
+
+      /*
+       * A relay line's mark is the TEAM's, so the row carries the team's id back
+       * to the server and the one time is hung off the team rather than off the
+       * runner the line is anchored to — otherwise the mark would be stored
+       * against that runner and no longer found when the team's line is read
+       * back. An athlete's line leaves the field out altogether, so its payload
+       * is exactly what it has always been.
+       */
+      const entry: MarkEntryInput =
+        row && isTeamRow(row) && row.teamId !== undefined
+          ? { userId, teamId: row.teamId }
+          : { userId };
 
       if (draft.clear) {
-        rows.push({ userId, mark: null, clear: true });
+        rows.push({ ...entry, mark: null, clear: true });
         return;
       }
 
@@ -617,7 +687,7 @@ export default function MarkEntryPage() {
       // ABS / DQ: the outcome is the whole record, so there is no number to
       // validate and none to send.
       if (draft.outcome !== '') {
-        rows.push({ userId, outcome: draft.outcome, mark: null, notes: notes || null });
+        rows.push({ ...entry, outcome: draft.outcome, mark: null, notes: notes || null });
         return;
       }
 
@@ -652,14 +722,14 @@ export default function MarkEntryPage() {
 
         if (typed.length === 0) {
           if (row && hasServerValue(row)) {
-            rows.push({ userId, mark: null, clear: true });
+            rows.push({ ...entry, mark: null, clear: true });
           } else if (notes) {
             problems.push(tRef.current('marks.remarkNeedsRecord', { who }));
           }
           return;
         }
 
-        rows.push({ userId, outcome: 'RESULT', attempts: typed, notes: notes || null });
+        rows.push({ ...entry, outcome: 'RESULT', attempts: typed, notes: notes || null });
         return;
       }
 
@@ -673,7 +743,7 @@ export default function MarkEntryPage() {
 
         if (minutes === null && seconds === null) {
           if (row && hasServerValue(row)) {
-            rows.push({ userId, mark: null, clear: true });
+            rows.push({ ...entry, mark: null, clear: true });
           } else if (notes) {
             problems.push(tRef.current('marks.remarkNeedsRecord', { who }));
           }
@@ -691,7 +761,7 @@ export default function MarkEntryPage() {
         }
 
         rows.push({
-          userId,
+          ...entry,
           outcome: 'RESULT',
           minutes: minutes ?? 0,
           seconds: seconds ?? 0,
@@ -706,7 +776,7 @@ export default function MarkEntryPage() {
 
       if (typed === '') {
         if (row && hasServerValue(row)) {
-          rows.push({ userId, mark: null, clear: true });
+          rows.push({ ...entry, mark: null, clear: true });
         } else if (notes) {
           problems.push(tRef.current('marks.remarkNeedsRecord', { who }));
         }
@@ -719,7 +789,7 @@ export default function MarkEntryPage() {
         return;
       }
 
-      rows.push({ userId, outcome: 'RESULT', mark: parsed, notes: notes || null });
+      rows.push({ ...entry, outcome: 'RESULT', mark: parsed, notes: notes || null });
     });
 
     return { rows, problems };
@@ -897,7 +967,7 @@ export default function MarkEntryPage() {
   const outcomeSelect = (row: MarkRowDTO, draft: MarkDraft) => (
     <select
       value={draft.outcome}
-      aria-label={`${t('marks.outcome')} ${row.studentRef}`}
+      aria-label={`${t('marks.outcome')} ${rowWho(row)}`}
       onChange={e => updateOutcome(row, e.target.value as DraftOutcome)}
     >
       <option value="">{t('marks.outcomeResult')}</option>
@@ -1114,10 +1184,17 @@ export default function MarkEntryPage() {
               <table className="marks-table">
                 <thead>
                   <tr>
+                    {/* A relay line IS a team, so the column a line is named in
+                        is headed `Team` there; an individual grid is untouched
+                        and still heads it `Name`. The student id column stays
+                        where it is with nothing in it on a team line, exactly
+                        as the printed relay sheet leaves its student id blank. */}
                     <th>{t('marks.studentId')}</th>
-                    <th>{t('marks.name')}</th>
+                    <th>{teamSheet ? t('relay.team') : t('marks.name')}</th>
                     <th className="col-narrow">{t('marks.grade')}</th>
+                    <th className="col-narrow">{t('marks.form')}</th>
                     <th className="col-narrow">{t('marks.class')}</th>
+                    <th className="col-narrow">{t('marks.house')}</th>
                     <th className="col-narrow">{t('marks.heat')}</th>
                     <th className="col-narrow">{t('marks.lane')}</th>
                     {/* A field event is measured over three attempts; the best
@@ -1146,11 +1223,22 @@ export default function MarkEntryPage() {
                 <tbody>
                   {sheet.rows.map(row => {
                     const draft = drafts[row.userId] ?? draftFrom(row, attemptCount);
+                    /*
+                     * A relay line IS the team: one time is written for the four
+                     * runners together, so the line is named by the team and by
+                     * nothing else. The runner the mark hangs off — the server's
+                     * anchor for the result row — is not the line's identity, so
+                     * the student id, grade, form, class and house cells are left
+                     * empty. That is the same shape the printed relay sheet has:
+                     * the team's name in the Name column, every other identity
+                     * cell blank. An athlete's line is rendered exactly as before.
+                     */
+                    const teamRow = isTeamRow(row);
                     return (
                       <tr key={row.userId} className={draft.clear ? 'cell-cleared' : undefined}>
-                        <td>{row.studentRef}</td>
+                        <td>{teamRow ? '' : row.studentRef}</td>
                         <td>
-                          {row.name || '-'}
+                          {teamRow ? row.teamLabel || '-' : row.name || '-'}
                           {/* On a final grid the official needs to see what this
                               athlete ran in the heats, right where they are writing
                               the final down. Absent altogether on a heat grid. */}
@@ -1160,12 +1248,17 @@ export default function MarkEntryPage() {
                             </span>
                           )}
                         </td>
-                        <td title={label('grade', row.grade)}>
-                          {label('grade.short', row.grade)}
+                        <td title={teamRow ? undefined : label('grade', row.grade)}>
+                          {teamRow ? '' : label('grade.short', row.grade)}
                         </td>
-                        <td>
-                          {[row.className, row.classNumber].filter(Boolean).join(' ') || '-'}
-                        </td>
+                        {/* Form, class and house are the three facts that identify
+                            an athlete on the sheet; the house carries its short code
+                            (R, Y, B, G) and no code at all when the register's house
+                            has none. A team line is not a person, so all three are
+                            blank there. */}
+                        <td>{teamRow ? '' : formText(row, t)}</td>
+                        <td>{teamRow ? '' : classText(row) || '-'}</td>
+                        <td>{teamRow ? '' : houseText(row)}</td>
                         <td>{row.groupLabel ?? '-'}</td>
                         <td>{row.lane ?? '-'}</td>
                         {fieldEvent ? (
@@ -1177,7 +1270,7 @@ export default function MarkEntryPage() {
                                   inputMode="decimal"
                                   value={draft.attempts[index] ?? ''}
                                   placeholder={t('results.markPlaceholder')}
-                                  aria-label={`${t('marks.attempt', { n: index + 1 })} ${row.studentRef}`}
+                                  aria-label={`${t('marks.attempt', { n: index + 1 })} ${rowWho(row)}`}
                                   onChange={e => updateAttempt(row, index, e.target.value)}
                                 />
                               </td>
@@ -1206,7 +1299,7 @@ export default function MarkEntryPage() {
                                   className="marks-time-part"
                                   value={draft.minutes}
                                   placeholder={t('marks.minutesShort')}
-                                  aria-label={`${t('marks.minutes')} — ${row.studentRef}`}
+                                  aria-label={`${t('marks.minutes')} — ${rowWho(row)}`}
                                   onChange={e => updateTime(row, 'minutes', e.target.value)}
                                 />
                                 <span className="marks-time-colon" aria-hidden="true">
@@ -1221,7 +1314,7 @@ export default function MarkEntryPage() {
                                   className="marks-time-part"
                                   value={draft.seconds}
                                   placeholder={t('marks.secondsShort')}
-                                  aria-label={`${t('marks.seconds')} — ${row.studentRef}`}
+                                  aria-label={`${t('marks.seconds')} — ${rowWho(row)}`}
                                   onChange={e => updateTime(row, 'seconds', e.target.value)}
                                 />
                               </div>
@@ -1229,7 +1322,7 @@ export default function MarkEntryPage() {
                             </div>
                             {secondsOutOfRange(draft) && (
                               <span className="marks-time-warning">
-                                {t('marks.secondsLimit', { who: row.studentRef })}
+                                {t('marks.secondsLimit', { who: rowWho(row) })}
                               </span>
                             )}
                           </td>
@@ -1244,7 +1337,7 @@ export default function MarkEntryPage() {
                                    masked 00.000 — both as a guide to the helper and
                                    as a nudge to type all three decimals. */
                                 placeholder={sprintEvent ? '00.000' : t('results.markPlaceholder')}
-                                aria-label={`${t('marks.record')} ${row.studentRef}`}
+                                aria-label={`${t('marks.record')} ${rowWho(row)}`}
                                 /* A number typed in is a result again, which is
                                    what takes the row back off ABS / DQ. */
                                 onChange={e => updateDraft(row, { mark: e.target.value, outcome: '' })}
@@ -1267,7 +1360,7 @@ export default function MarkEntryPage() {
                             type="text"
                             value={draft.notes}
                             placeholder={t('results.notesPlaceholder')}
-                            aria-label={`${t('marks.remark')} ${row.studentRef}`}
+                            aria-label={`${t('marks.remark')} ${rowWho(row)}`}
                             onChange={e => updateDraft(row, { notes: e.target.value })}
                           />
                         </td>
@@ -1275,7 +1368,7 @@ export default function MarkEntryPage() {
                           <input
                             type="checkbox"
                             checked={draft.clear}
-                            aria-label={`${t('marks.clearMark')} ${row.studentRef}`}
+                            aria-label={`${t('marks.clearMark')} ${rowWho(row)}`}
                             onChange={e => updateDraft(row, { clear: e.target.checked })}
                           />
                         </td>
@@ -1325,7 +1418,9 @@ export default function MarkEntryPage() {
                   <tr>
                     <th>{t('marks.rank')}</th>
                     <th>{t('marks.studentId')}</th>
-                    <th>{t('marks.name')}</th>
+                    {/* The same wording the grid above uses: on a relay sheet a
+                        line is a team's, so the column it is named in is `Team`. */}
+                    <th>{teamSheet ? t('relay.team') : t('marks.name')}</th>
                     <th>
                       {t('marks.record')} ({unitHeading})
                     </th>
@@ -1336,11 +1431,20 @@ export default function MarkEntryPage() {
                     // An athlete recorded as ABS or DQ has no place and no mark:
                     // the outcome is what the leaderboard shows in its place.
                     const outcome = outcomeText(entry.outcome);
+                    /*
+                     * The saved line is named the same way the grid names it: a
+                     * relay team's time by the team, an athlete's by the athlete.
+                     * A team's mark is stored against the runner the line is
+                     * anchored to, so naming that runner here would put a
+                     * student's id and name against a time the team ran.
+                     */
+                    const line = athletes.get(entry.userId);
+                    const teamLine = !!line && isTeamRow(line);
                     return (
                       <tr key={entry.id}>
                         <td>{outcome ? '–' : index + 1}</td>
-                        <td>{athletes.get(entry.userId)?.studentRef ?? entry.username}</td>
-                        <td>{athletes.get(entry.userId)?.name ?? entry.fullName}</td>
+                        <td>{teamLine ? '' : line?.studentRef ?? entry.username}</td>
+                        <td>{teamLine ? line?.teamLabel ?? entry.fullName : line?.name ?? entry.fullName}</td>
                         <td>
                           {outcome || resultMarkText(entry.mark, timeInMinutes)}
                           {/* The attempts behind a field mark, so the marker can
@@ -1365,12 +1469,17 @@ export default function MarkEntryPage() {
             {t('marks.saveErrors')} <span className="badge badge-danger">{result.errors.length}</span>
           </h2>
           <ul>
-            {result.errors.map((item, index) => (
-              <li key={`${item.userId ?? 'row'}-${index}`} className="muted">
-                {t('results.athlete')}{' '}
-                {athletes.get(item.userId ?? -1)?.studentRef ?? item.userId ?? '-'}: {item.message}
-              </li>
-            ))}
+            {result.errors.map((item, index) => {
+              // Named as the grid names it, so a relay team's refused row is
+              // reported by the team and not by the runner it is anchored to.
+              const failed = athletes.get(item.userId ?? -1);
+              return (
+                <li key={`${item.userId ?? 'row'}-${index}`} className="muted">
+                  {t('results.athlete')}{' '}
+                  {failed ? rowWho(failed) : item.userId ?? '-'}: {item.message}
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}

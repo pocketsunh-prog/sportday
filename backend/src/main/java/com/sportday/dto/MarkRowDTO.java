@@ -24,13 +24,43 @@ public class MarkRowDTO {
     private String grade;
     private String className;
     private Integer classNumber;
+
+    /** The form the class belongs to — {@code 5} for {@code 5A}; null when it names none. */
+    private String form;
+
+    /** The house, in full, as the register stores it — {@code Red}. */
     private String house;
+
+    /** The house's short code — {@code R}, {@code Y}, {@code B}, {@code G}; null for another house. */
+    private String houseCode;
 
     // ---- where they are running / throwing ----
     private Long groupId;
     private Integer groupNumber;
     private String groupLabel;
     private Integer lane;
+
+    /*
+     * The relay team this row is, on a relay grid. Both are null on an individual
+     * event's grid — and on a relay whose teams have not been derived, which keeps the
+     * athlete-per-row grid. When teamId is present the row is the TEAM: one time for
+     * the four runners together, not one mark each.
+     */
+    private Long teamId;
+    /** The team's name — {@code 1A}, {@code C Grade Yellow} — what the school writes. */
+    private String teamLabel;
+
+    /**
+     * <strong>Deliberately not populated.</strong> The school's requirement is that a
+     * relay's line is read by the <em>team's</em> name and not by the students': one
+     * line, one record box, the team's one time. So the grid does not carry who is
+     * running for a team — the field is left null on every row, relay and individual
+     * alike, and is kept here only so the row's shape does not change. Who is on a team
+     * is listed, leg by leg, on the relay board
+     * ({@code RelayTeamMemberDTO}), and in the applicant list — the two places that
+     * legitimately need to know it.
+     */
+    private java.util.List<String> teamMembers;
 
     // ---- the mark, if one has been recorded ----
     private Long resultId;

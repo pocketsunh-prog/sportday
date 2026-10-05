@@ -67,6 +67,8 @@ class RelayTeamTeacherScopeTest {
     @Mock private TeacherClassRepository teacherClassRepository;
     @Mock private UserRepository userRepository;
     @Mock private GradeCalculator gradeCalculator;
+    /** The event's entries: unused here, but the board reads them for its applicants. */
+    @Mock private com.sportday.repository.EnrollmentRepository enrollmentRepository;
 
     /** The real rule, and the service under test wired to it. */
     private TeacherClassService teacherClassService;
@@ -87,7 +89,7 @@ class RelayTeamTeacherScopeTest {
         teacherClassService = new TeacherClassService(teacherClassRepository, studentRepository,
                 userRepository, gradeCalculator);
         service = new RelayTeamService(relayTeamRepository, relayTeamMemberRepository,
-                eventRepository, studentRepository, teacherClassService);
+                eventRepository, studentRepository, teacherClassService, enrollmentRepository);
 
         members.clear();
         nextMemberId = 1;
@@ -180,6 +182,92 @@ class RelayTeamTeacherScopeTest {
             if (ids.contains(oneB.getUser().getId())) found.add(oneB);
             return found;
         });
+    }
+
+    // ================================================= renaming a team
+
+    /** A class team, as the class-based derive now makes them. */
+    private RelayTeam classTeam(Long id, String className) {
+        RelayTeam team = RelayTeam.builder().id(id).event(event).kind(RelayTeamKind.FORM)
+                .teamKey(className).label(className).build();
+        when(relayTeamRepository.findById(id)).thenReturn(Optional.of(team));
+        return team;
+    }
+
+    @Test
+    @DisplayName("an administrator renames any team, and the name is trimmed")
+    void anAdminRenamesAnyTeam() {
+        signedInAs(admin);
+        RelayTeam team = classTeam(1L, "1A");
+
+        var renamed = service.renameTeam(1L, "  1A Boys  ");
+
+        assertEquals("1A Boys", renamed.getLabel());
+        assertEquals("1A", renamed.getTeamKey(),
+                "the key is the team's identity, which a rename does not touch");
+        verify(relayTeamRepository).save(team);
+    }
+
+    @Test
+    @DisplayName("a teacher renames a team from one of their own classes")
+    void aTeacherRenamesTheirOwnClassTeam() {
+        signedInAs(teacher);
+        when(teacherClassRepository.findClassNamesByUserIdOrderByClassNameAsc(TEACHER_ID))
+                .thenReturn(List.of("1A"));
+        classTeam(1L, "1A");
+
+        assertEquals("1A Champions", service.renameTeam(1L, "1A Champions").getLabel());
+    }
+
+    @Test
+    @DisplayName("a teacher cannot rename another class's team")
+    void aTeacherCannotRenameAnotherClassTeam() {
+        signedInAs(teacher);
+        when(teacherClassRepository.findClassNamesByUserIdOrderByClassNameAsc(TEACHER_ID))
+                .thenReturn(List.of("1A"));
+        classTeam(1L, "1B");
+
+        assertThrows(org.springframework.security.access.AccessDeniedException.class,
+                () -> service.renameTeam(1L, "1B Ours"));
+    }
+
+    @Test
+    @DisplayName("a house team may be renamed by a teacher with an athlete on it, and nobody else")
+    void aHouseTeamNeedsSomebodyOnIt() {
+        event.setRelayTeamKind(RelayTeamKind.HOUSE);
+        RelayTeam house = RelayTeam.builder().id(2L).event(event).kind(RelayTeamKind.HOUSE)
+                .teamKey("Yellow").label("Yellow").build();
+        when(relayTeamRepository.findById(2L)).thenReturn(Optional.of(house));
+        when(teacherClassRepository.findClassNamesByUserIdOrderByClassNameAsc(TEACHER_ID))
+                .thenReturn(List.of("1A"));
+
+        signedInAs(teacher);
+        // Nobody named on it yet, so no teacher can be shown to own it.
+        assertThrows(org.springframework.security.access.AccessDeniedException.class,
+                () -> service.renameTeam(2L, "C Grade Yellow"));
+
+        // With one of their own athletes on it, it is theirs to name.
+        members.add(RelayTeamMember.builder().id(1L).team(house).user(oneA.getUser())
+                .leg(1).build());
+        assertEquals("C Grade Yellow", service.renameTeam(2L, "C Grade Yellow").getLabel());
+
+        // But an administrator never needs an excuse.
+        signedInAs(admin);
+        assertEquals("Yellow", service.renameTeam(2L, "Yellow").getLabel());
+    }
+
+    @Test
+    @DisplayName("a blank name, and one too long for a sheet, are both refused")
+    void aBlankOrLongNameIsRefused() {
+        signedInAs(admin);
+        classTeam(1L, "1A");
+
+        assertThrows(IllegalArgumentException.class, () -> service.renameTeam(1L, "   "));
+        assertThrows(IllegalArgumentException.class, () -> service.renameTeam(1L, null));
+        assertThrows(IllegalArgumentException.class,
+                () -> service.renameTeam(1L, "x".repeat(41)));
+        // A name that fits is still accepted, so the ceiling is not simply refusing.
+        assertEquals("y".repeat(40), service.renameTeam(1L, "y".repeat(40)).getLabel());
     }
 
     /** Signs a staff account in the way the JWT filter does. */

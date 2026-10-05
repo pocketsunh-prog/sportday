@@ -76,6 +76,8 @@ class MarkEntryFinalStageTest {
     @Mock private FinalEntryRepository finalEntryRepository;
     @Mock private EventGroupService eventGroupService;
     @Mock private RecordService recordService;
+    @Mock private com.sportday.repository.RelayTeamRepository relayTeamRepository;
+    @Mock private com.sportday.repository.RelayTeamMemberRepository relayTeamMemberRepository;
 
     /** The real rule, over a mocked group table — the rule itself is the subject. */
     private FinalStageGuard guard;
@@ -170,7 +172,10 @@ class MarkEntryFinalStageTest {
         guard = new FinalStageGuard(groupRepository);
         service = new MarkEntryService(enrollmentRepository, eventRepository, groupRepository,
                 resultRepository, studentRepository, userRepository, finalEntryRepository,
-                eventGroupService, recordService);
+                eventGroupService, recordService, relayTeamRepository, relayTeamMemberRepository,
+                // An individual event is never gated by the relay rule, so the guard is
+                // never asked anything here — these are sprints and a distance race.
+                new RelayReadiness(relayTeamRepository, relayTeamMemberRepository));
     }
 
     // ------------------------------------------------- the final is not drawn

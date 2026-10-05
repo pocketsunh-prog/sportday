@@ -79,10 +79,13 @@ class EventRelayKindTest {
     }
 
     @Test
-    @DisplayName("a form team reads Form 1 and a house team reads as the house itself")
+    @DisplayName("a class team reads as its class and a house team reads as the house itself")
     void teamLabels() {
-        assertEquals("Form 1", RelayTeamKind.FORM.labelFor("1"));
-        assertEquals("Form 10", RelayTeamKind.FORM.labelFor(" 10 "));
+        // A class team is named by its class, which is what the school writes on the
+        // sheet — "Form 1A" is neither the class nor the form.
+        assertEquals("1A", RelayTeamKind.FORM.labelFor("1A"));
+        assertEquals("10B", RelayTeamKind.FORM.labelFor(" 10B "));
+        assertEquals("C Grade Yellow", RelayTeamKind.HOUSE.labelFor("C Grade Yellow"));
         assertEquals("Red", RelayTeamKind.HOUSE.labelFor("Red"));
         assertEquals("Form", RelayTeamKind.FORM.labelFor(null));
     }
@@ -109,7 +112,9 @@ class EventRelayKindTest {
         Event withReserves = relay(null);
         withReserves.setRelayReservesAllowed(true);
         assertEquals(4, withReserves.getEffectiveRelayTeamSize());
-        assertEquals(8, withReserves.getRelayMemberCap());
+        // Four runners and one backup: the allowance is a single reserve, not a second
+        // squad. A team that could name four of them is not the team the school entered.
+        assertEquals(5, withReserves.getRelayMemberCap());
     }
 
     @Test
@@ -121,7 +126,7 @@ class EventRelayKindTest {
         assertEquals(6, longer.getRelayMemberCap());
 
         longer.setRelayReservesAllowed(true);
-        assertEquals(12, longer.getRelayMemberCap());
+        assertEquals(7, longer.getRelayMemberCap());
     }
 
     @Test

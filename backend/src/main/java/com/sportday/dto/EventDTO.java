@@ -40,6 +40,23 @@ public class EventDTO {
     private String grade;
     private String gradeLabel;
 
+    /**
+     * The <strong>form</strong> this relay is scoped to — {@code 1} for a "Form 1
+     * 4x100M" whose teams are {@code 1A}, {@code 1B}, {@code 1C} and {@code 1D} — or
+     * null for every event scoped by grade, which is all of them today.
+     *
+     * <p>Only a relay divided into {@code FORM} teams may carry one; a create or an
+     * update that would give one to a sprint, or to a house relay, is refused. On an
+     * update, null means "leave it alone" and an <strong>empty string clears it</strong>,
+     * exactly as {@link #relayTeamKind} behaves. A form event admits students of any
+     * grade so long as they are in that form and the event's division, so null is the
+     * whole of the old behaviour.</p>
+     */
+    private String form;
+
+    /** Printable form, {@code Form 1}; null when the event is graded. */
+    private String formLabel;
+
     private LocalDate eventDate;
     private String location;
     private Integer maxParticipants;
@@ -119,6 +136,19 @@ public class EventDTO {
     /** True when a team may also name reserves past the race's own legs. */
     private Boolean relayReservesAllowed;
 
+    /**
+     * True when this event is a <strong>draft</strong>: a relay event made to hold the
+     * teams the school is building by hand, before the race itself is real.
+     *
+     * <p>Null in a request means "an ordinary event", which is what every caller that
+     * does not know about drafts is sending. A draft is never on the programme — the
+     * listing, the date picker, the past-events list and the results print run all
+     * exclude it — so a client only ever sees {@code true} on the draft's own board,
+     * in the administrator's draft list, or on an event it deliberately asked to
+     * create as one.</p>
+     */
+    private Boolean draft;
+
     /** How many runners one team may hold in total, reserves included. */
     private Integer relayMemberCap;
 
@@ -131,6 +161,13 @@ public class EventDTO {
 
     /** Confirmed entries not yet placed in a heat. */
     private Long ungroupedCount;
+
+    /**
+     * How many relay teams this event holds. Filled in by
+     * {@code EventService.createDraftEvent} on the draft it has just made, so the
+     * answer reports the teams it took; a draft's board is the full account.
+     */
+    private Integer teamCount;
 
     /**
      * How many events of this category a student may enter. Filled in by
@@ -159,6 +196,8 @@ public class EventDTO {
                 .sexLabel(event.getSex() == null ? null : event.getSex().getLabel())
                 .grade(event.getGrade() == null ? null : event.getGrade().name())
                 .gradeLabel(event.getGrade() == null ? null : event.getGrade().getLabel())
+                .form(event.getForm())
+                .formLabel(event.getFormLabel())
                 .eventDate(event.getEventDate())
                 .location(event.getLocation())
                 .maxParticipants(event.getMaxParticipants())
@@ -178,6 +217,7 @@ public class EventDTO {
                 .relayTeamSize(event.getEffectiveRelayTeamSize())
                 .relayReservesAllowed(event.isRelayReservesAllowed())
                 .relayMemberCap(event.getRelayMemberCap())
+                .draft(event.isDraft())
                 .enabled(event.getEnabled())
                 .createdAt(event.getCreatedAt())
                 .seasonId(event.getSeason() == null ? null : event.getSeason().getId())

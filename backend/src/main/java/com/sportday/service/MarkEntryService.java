@@ -55,6 +55,13 @@ import java.util.stream.Collectors;
  * heatDisplayMark}), because the final is drawn from those heat marks and the person
  * writing the final down needs to see what earned the place. A heat grid carries
  * none, having no earlier stage to show.</p>
+ *
+ * <p>A <strong>relay</strong> grid is one row per <em>team</em>, and it is refused
+ * with the reason — a 409 — while the relay is not ready: fewer than two teams, or a
+ * team still short of its runners. The rule and its wording live in
+ * {@link RelayReadiness}, so the grid and the marking sheets refuse a half-built
+ * relay in exactly the same words. An individual event is never gated, and neither is
+ * a relay's team builder: a short team is still saved.</p>
  */
 @Slf4j
 @Service
@@ -73,6 +80,36 @@ public class MarkEntryService {
     private final FinalEntryRepository finalEntryRepository;
     private final EventGroupService eventGroupService;
     private final RecordService recordService;
+    private final com.sportday.repository.RelayTeamRepository relayTeamRepository;
+    private final com.sportday.repository.RelayTeamMemberRepository relayTeamMemberRepository;
+    private final RelayReadiness relayReadiness;
+
+    /**
+     * The team a row records a time for, or null for an athlete's own mark.
+     *
+     * <p>A reference rather than a fetch: the row already carries the team's id and
+     * nothing here reads the team, only points the result at it.</p>
+     */
+    private com.sportday.entity.RelayTeam relayTeamOf(BulkMarkRequest.Entry row) {
+        return row == null || row.getTeamId() == null
+                ? null
+                : relayTeamRepository.getReferenceById(row.getTeamId());
+    }
+
+    /**
+     * The teams of a relay event, or none for anything else — an individual event, or a
+     * relay nobody has divided yet.
+     *
+     * <p>An individual event keeps the athlete-per-row grid. A relay with no teams is
+     * <em>not</em> an athlete grid any more: it is not ready, and the readiness rule
+     * refuses it before this list is used — see {@link RelayReadiness}.</p>
+     */
+    private List<com.sportday.entity.RelayTeam> relayTeamsOf(Event event) {
+        if (event == null || !event.isRelay() || event.getId() == null) {
+            return List.of();
+        }
+        return relayTeamRepository.findByEventIdOrderByIdAsc(event.getId());
+    }
 
     // ------------------------------------------------------------- reading
 
@@ -92,11 +129,53 @@ public class MarkEntryService {
         }
         requireFinalIsReady(event, effectiveStage);
 
+        /*
+         * The teams of a relay, and the one readiness rule over them — asked before
+         * anything is read for the grid. A relay is marked by team, and it may not be
+         * marked at all until it has at least two teams and every team holds its four
+         * runners: until then the grid is refused with the reason rather than served
+         * empty, which would look like a race with nothing in it. An individual event
+         * has no teams and passes straight through — see RelayReadiness.
+         */
+        List<com.sportday.entity.RelayTeam> relayTeams = relayTeamsOf(event);
+        RelayReadiness.requireRelayIsReadyToMark(event,
+                relayReadiness.statesOf(event.getId(), relayTeams));
+
         // Who is competing: the named group, or everyone in the stage.
         List<MarkSheetDTO.GroupOption> groupOptions = new ArrayList<>();
         List<Candidate> candidates = new ArrayList<>();
 
-        if (groupId != null) {
+        /*
+         * A relay is scored by TEAM — one time for the four runners together, not four
+         * times — so its grid lists teams and every other event lists athletes. A ready
+         * relay always has teams to list: the readiness rule above refuses a relay with
+         * fewer than two of them, so the grid never falls through to the athlete-per-row
+         * shape for a relay.
+         *
+         * The row IS the team: it carries the team's id and the team's name, and it
+         * deliberately does not carry who is running for it. The school's requirement is
+         * that a relay line is read by the team's name and not by the students', so the
+         * runners are not put on the grid at all — the relay board is where they are
+         * listed, leg by leg, and it is the only place that needs them.
+         */
+        if (!relayTeams.isEmpty()) {
+            for (com.sportday.entity.RelayTeam team : relayTeams) {
+                List<com.sportday.entity.RelayTeamMember> squad =
+                        relayTeamMemberRepository.findByTeamIdOrderByLegAsc(team.getId());
+                // The row hangs off the team's first runner: event_results.user_id is not
+                // nullable and every reader of a result — standings, records, the results
+                // PDF, the season backup — joins on it. See EventResult#relayTeam.
+                Long anchor = squad.stream()
+                        .filter(member -> member.getUser() != null)
+                        .map(member -> member.getUser().getId())
+                        .findFirst().orElse(null);
+                if (anchor == null) {
+                    continue;
+                }
+                candidates.add(new Candidate(anchor, null, null, team.getLabel(), null,
+                        team.getId(), team.getLabel()));
+            }
+        } else if (groupId != null) {
             var group = eventGroupService.requireGroup(groupId);
             groupOptions.add(MarkSheetDTO.GroupOption.builder()
                     .id(group.getId())
@@ -106,7 +185,7 @@ public class MarkEntryService {
                     .build());
             for (var member : eventGroupService.membersOf(group)) {
                 candidates.add(new Candidate(member.userId(), group.getId(), group.getGroupNumber(),
-                        group.getLabel(), member.lane()));
+                        group.getLabel(), member.lane(), null, null));
             }
         } else if (effectiveStage == EventStage.FINAL) {
             groupRepository.findFirstByEventIdAndStage(eventId, EventStage.FINAL)
@@ -120,7 +199,8 @@ public class MarkEntryService {
                         for (var entry : finalEntryRepository.findByGroupIdOrderByLaneAsc(finalGroup.getId())) {
                             if (entry.getUser() != null) {
                                 candidates.add(new Candidate(entry.getUser().getId(), finalGroup.getId(),
-                                        finalGroup.getGroupNumber(), finalGroup.getLabel(), entry.getLane()));
+                                        finalGroup.getGroupNumber(), finalGroup.getLabel(),
+                                        entry.getLane(), null, null));
                             }
                         }
                     });
@@ -144,7 +224,8 @@ public class MarkEntryService {
                             .athleteCount(entry.getEventGroup().getAthleteCount())
                             .build());
                 }
-                candidates.add(new Candidate(userId, gid, number, label, entry.getLane()));
+                candidates.add(new Candidate(userId, gid, number, label, entry.getLane(),
+                        null, null));
             }
             groupOptions.addAll(byGroup.values());
             groupOptions.sort(Comparator.comparingInt(
@@ -155,6 +236,14 @@ public class MarkEntryService {
         List<Long> userIds = candidates.stream().map(Candidate::userId).distinct().toList();
         Map<Long, Student> rosters = rostersFor(userIds);
         Map<Long, EventResult> results = resultsFor(eventId, effectiveStage);
+        // A relay's marks are the team's, found by team rather than by athlete. Read off
+        // the results already in hand, so a relay grid costs no extra query.
+        Map<Long, EventResult> teamResults = new LinkedHashMap<>();
+        for (EventResult recorded : results.values()) {
+            if (recorded.getRelayTeam() != null) {
+                teamResults.putIfAbsent(recorded.getRelayTeam().getId(), recorded);
+            }
+        }
         // A final's grid shows what each finalist ran in their heat, because that
         // is the performance that put them in the final. One query for the whole
         // sheet — and none at all for a heat sheet, which has no earlier stage.
@@ -177,16 +266,22 @@ public class MarkEntryService {
             if (grade != null && (roster == null || roster.getGrade() != grade)) {
                 continue;
             }
-            EventResult result = results.get(candidate.userId());
+            EventResult result = candidate.teamId() != null
+                    ? teamResults.get(candidate.teamId())
+                    : results.get(candidate.userId());
             EventResult heat = heatResults.get(candidate.userId());
             rows.add(MarkRowDTO.builder()
                     .userId(candidate.userId())
+                    .teamId(candidate.teamId())
+                    .teamLabel(candidate.teamLabel())
                     .studentRef(roster != null ? roster.getStudentId() : String.valueOf(candidate.userId()))
                     .name(roster != null ? roster.getName() : null)
                     .grade(roster != null && roster.getGrade() != null ? roster.getGrade().name() : null)
                     .className(roster != null ? roster.getClassName() : null)
                     .classNumber(roster != null ? roster.getClassNumber() : null)
+                    .form(roster != null ? roster.getForm() : null)
                     .house(roster != null ? roster.getHouse() : null)
+                    .houseCode(roster != null ? roster.getHouseCode() : null)
                     .groupId(candidate.groupId())
                     .groupNumber(candidate.groupNumber())
                     .groupLabel(candidate.groupLabel())
@@ -258,8 +353,15 @@ public class MarkEntryService {
         };
     }
 
-    /** Which group an athlete competes in at a stage. */
-    private record Candidate(Long userId, Long groupId, Integer groupNumber, String groupLabel, Integer lane) {
+    /**
+     * Which group an athlete competes in at a stage — or, on a relay, which team.
+     *
+     * <p>A relay candidate carries its team's id and name and no member list: the grid
+     * line is the team's, so the runners are not carried onto it. See
+     * {@link MarkRowDTO#getTeamMembers()}.</p>
+     */
+    private record Candidate(Long userId, Long groupId, Integer groupNumber, String groupLabel,
+                             Integer lane, Long teamId, String teamLabel) {
     }
 
     /** Heats first, then lane, then grade and class, then student id. */
@@ -297,6 +399,11 @@ public class MarkEntryService {
                     + " — use HEAT or FINAL.");
         }
         requireFinalIsReady(event, stage);
+        // Mark entry is held back with the grid: a relay that is not ready has no grid
+        // to have been filled in, so a save aimed straight at the endpoint is refused
+        // in the same words rather than storing a time for a race still being built.
+        // An individual event is never gated. See RelayReadiness.
+        relayReadiness.requireRelayIsReadyToMark(event);
 
         String defaultUnit = event.getType() == null ? null : event.getType().getDefaultUnit();
         Set<Long> allowed = stage == EventStage.FINAL ? finalists(eventId) : entered(eventId);
@@ -382,10 +489,12 @@ public class MarkEntryService {
                             .user(userRepository.getReferenceById(userId))
                             .event(event)
                             .stage(stage)
+                            .relayTeam(relayTeamOf(row))
                             .outcome(rowOutcome)
                             .notes(row.getNotes())
                             .build();
                 } else {
+                    existing.setRelayTeam(relayTeamOf(row));
                     existing.setOutcome(rowOutcome);
                     existing.setMark(null);
                     existing.setAttempts(null);
@@ -438,6 +547,7 @@ public class MarkEntryService {
                         .user(userRepository.getReferenceById(userId))
                         .event(event)
                         .stage(stage)
+                        .relayTeam(relayTeamOf(row))
                         // A mark was produced, so the row is a result — which is also
                         // what clears an ABS/DQ previously recorded for this athlete.
                         .outcome(EventResult.Outcome.RESULT)
@@ -446,6 +556,7 @@ public class MarkEntryService {
                         .notes(row.getNotes())
                         .build();
             } else {
+                existing.setRelayTeam(relayTeamOf(row));
                 existing.setOutcome(EventResult.Outcome.RESULT);
                 existing.setMark(value);
                 existing.setUnit(unit);

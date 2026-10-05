@@ -57,6 +57,47 @@ public interface StudentRepository extends JpaRepository<Student, Long> {
             + "order by s.className asc, s.classNumber asc, s.studentId asc")
     List<Student> findActiveBySexAndGrade(@Param("sex") Sex sex, @Param("grade") Grade grade);
 
+    /**
+     * Every student of one division who is on this year's list, whatever grade and
+     * whatever class. The register behind a <strong>form-scoped</strong> relay, whose
+     * teams are drawn from every class of one form — across grades.
+     *
+     * <p>Ordered the way the register reads — class, then class number, then student
+     * id — so a derive keys its teams in school order.</p>
+     */
+    @EntityGraph(attributePaths = "user")
+    @Query("select s from Student s where s.sex = :sex and s.enabled = true "
+            + "order by s.className asc, s.classNumber asc, s.studentId asc")
+    List<Student> findActiveBySex(@Param("sex") Sex sex);
+
+    /**
+     * The students who may run in a <strong>form-scoped</strong> event: the event's own
+     * division and one form, on this year's list. This is what a form relay's teams are
+     * derived from — one team per class of that form, across grades.
+     *
+     * <h2>Why the form is matched here and not in the query above</h2>
+     * <p>The register has <strong>no form column</strong>: a form is the leading digits
+     * of the class name, and {@link Student#formOf(String)} is the one place that reads
+     * it — the register, the mark grid, the relay rosters and the applicant list all
+     * ask it. Spelling that rule a second time in SQL (a {@code like '1%'}, say) would
+     * put Form 10 and Form 1 in one team and give the school two answers to one
+     * question, so the query reads the division from the database and the form from the
+     * same derivation everything else uses: {@code 1A} and {@code 01A} are Form 1,
+     * {@code 10B} is Form 10.
+     *
+     * @param form the form as {@link Student#formOf(String)} returns it — {@code 1},
+     *             {@code 10}; blank or null takes nobody
+     */
+    default List<Student> findActiveBySexAndForm(Sex sex, String form) {
+        if (form == null || form.isBlank()) {
+            return List.of();
+        }
+        String wanted = form.trim();
+        return findActiveBySex(sex).stream()
+                .filter(student -> wanted.equalsIgnoreCase(Student.formOf(student.getClassName())))
+                .toList();
+    }
+
     long countByGrade(Grade grade);
 
     long countBySex(Sex sex);

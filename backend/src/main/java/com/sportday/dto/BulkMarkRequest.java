@@ -40,6 +40,17 @@ public class BulkMarkRequest {
     public static class Entry {
         private Long userId;
 
+        /**
+         * The relay team this row is, on a relay grid — one time for the four runners
+         * together rather than a mark each. Null for an athlete's own mark, which is
+         * every row of every individual event.
+         *
+         * <p>{@code userId} is then the team's first runner: a result row has to name a
+         * user, because {@code event_results.user_id} is not nullable and the standings,
+         * the records and the season backup all join on it. See {@code EventResult}.</p>
+         */
+        private Long teamId;
+
         /** The recorded mark; null means "nothing to save for this athlete". */
         private BigDecimal mark;
 

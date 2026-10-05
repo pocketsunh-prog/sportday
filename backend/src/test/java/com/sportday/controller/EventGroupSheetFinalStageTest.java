@@ -12,6 +12,7 @@ import com.sportday.service.EventService;
 import com.sportday.service.FinalQualificationService;
 import com.sportday.service.FinalStageGuard;
 import com.sportday.service.PdfSheetService;
+import com.sportday.service.RelayReadiness;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -55,6 +56,8 @@ class EventGroupSheetFinalStageTest {
     @Mock private PdfSheetService pdfSheetService;
     @Mock private FinalQualificationService finalQualificationService;
     @Mock private EventGroupRepository groupRepository;
+    @Mock private com.sportday.repository.RelayTeamRepository relayTeamRepository;
+    @Mock private com.sportday.repository.RelayTeamMemberRepository relayTeamMemberRepository;
 
     private EventGroupController controller;
 
@@ -103,7 +106,10 @@ class EventGroupSheetFinalStageTest {
         when(pdfSheetService.renderGroupSheet(anyLong())).thenReturn(new byte[]{1, 2, 3});
 
         controller = new EventGroupController(eventGroupService, eventService, pdfSheetService,
-                finalQualificationService, new FinalStageGuard(groupRepository));
+                finalQualificationService, new FinalStageGuard(groupRepository),
+                // No relay among these events: the readiness rule answers "ready" without
+                // reading anything, so the guard's own repositories are never touched.
+                new RelayReadiness(relayTeamRepository, relayTeamMemberRepository));
     }
 
     // --------------------------------------------------------- a final sheet

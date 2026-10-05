@@ -15,6 +15,7 @@ import {
 import { formatCounts, formatDate } from '@/lib/format';
 import { useAuth } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n';
+import { classText, formText, houseText } from '@/lib/students';
 
 const EMPTY_FILTERS: StudentFilters = {
   className: '',
@@ -790,6 +791,7 @@ export default function AdminStudentsPage() {
                   <th>{t('students.colDob')}</th>
                   <th>{t('students.colAge')}</th>
                   <th>{t('common.sex')}</th>
+                  <th>{t('students.form')}</th>
                   <th>{t('marks.class')}</th>
                   <th>{t('students.colHouse')}</th>
                   <th>{t('marks.grade')}</th>
@@ -811,8 +813,9 @@ export default function AdminStudentsPage() {
                     <td>{formatDate(student.dob)}</td>
                     <td>{student.age}</td>
                     <td>{label('sex', student.sex)}</td>
-                    <td>{student.classLabel || `${student.className} ${student.classNumber}`}</td>
-                    <td>{student.house || '-'}</td>
+                    <td>{formText(student, t)}</td>
+                    <td>{classText(student) || '-'}</td>
+                    <td>{houseText(student)}</td>
                     <td>
                       <span className="badge badge-info">{label('grade', student.grade)}</span>
                       {student.gradeAgeRange && (

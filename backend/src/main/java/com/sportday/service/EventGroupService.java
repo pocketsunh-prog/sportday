@@ -64,6 +64,8 @@ public class EventGroupService {
     private final FinalEntryRepository finalEntryRepository;
     private final RecordService recordService;
     private final EventResultRepository resultRepository;
+    private final com.sportday.repository.RelayTeamMemberRepository relayTeamMemberRepository;
+    private final RelayReadiness relayReadiness;
 
     /**
      * Allocates (or re-allocates) the groups of an event.
@@ -280,12 +282,27 @@ public class EventGroupService {
     /**
      * Every group across all matching events, with rosters — used for the
      * whole-school print run.
+     *
+     * <p>A draft relay event contributes nothing: it is not on the programme, its
+     * teams are still being collected rather than drawn into heats, and the school
+     * would not want an unrun race in a whole-school print run.</p>
+     *
+     * <p>A <strong>relay that is not ready</strong> contributes nothing either, and
+     * for the same reason: a race with one team, or with a team still short of its
+     * runners, must not appear on a helper's sheet because its marks cannot be entered
+     * yet ({@link RelayReadiness}). Skipping it here rather than refusing the whole run
+     * is deliberate — a school printing the programme must not be stopped by one
+     * half-built relay, and the relay is simply absent from the output. A run that asks
+     * for that one relay on purpose is refused with the reason instead, in
+     * {@code EventGroupController}.</p>
      */
     @Transactional(readOnly = true)
     public List<EventGroupDTO> getGroupsWithAthletesFiltered(Sex sex, EventCategory category) {
         // Sorted with EVENT_ORDER rather than ORDER BY: the type column is a MySQL
         // ENUM whose declaration order puts RUN_60M last.
         List<Event> events = eventRepository.findAll().stream()
+                .filter(e -> !e.isDraft())
+                .filter(relayReadiness::isReady)
                 .filter(e -> sex == null || e.getSex() == sex)
                 .filter(e -> category == null || e.getCategoryOrDefault() == category)
                 .sorted(EventService.EVENT_ORDER)
@@ -445,6 +462,26 @@ public class EventGroupService {
      * stage, so it carries none.</p>
      */
     @Transactional(readOnly = true)
+    /**
+     * Which team each athlete of a relay event runs for, by user id.
+     *
+     * <p>One query for the whole event rather than one per roster row, so a marking
+     * sheet for a sixty-strong relay costs a single read. An athlete who is on no team
+     * — a relay that has not been divided yet — simply has no entry, and the sheet
+     * leaves its team column blank.</p>
+     */
+    private Map<Long, String> relayTeamLabelsByUser(Long eventId) {
+        Map<Long, String> byUser = new HashMap<>();
+        for (com.sportday.entity.RelayTeamMember member
+                : relayTeamMemberRepository.findForEventWithUser(eventId)) {
+            if (member.getUser() != null && member.getTeam() != null
+                    && member.getTeam().getLabel() != null) {
+                byUser.put(member.getUser().getId(), member.getTeam().getLabel());
+            }
+        }
+        return byUser;
+    }
+
     public List<EnrollmentDTO> athletesOf(EventGroup group) {
         List<GroupMember> members = membersOf(group);
         if (members.isEmpty()) {
@@ -461,6 +498,11 @@ public class EventGroupService {
         Map<Long, Student> rosters = rosterByUser(new ArrayList<>(entries.values()));
         Map<Long, EventResult> heatResults = group.isFinal()
                 ? heatResultsByUser(group.getEvent().getId())
+                : Map.of();
+        // A relay is run by teams, so a relay sheet says which team each line is on.
+        // One query for the event, and none at all for an individual event.
+        Map<Long, String> relayTeams = group.getEvent().isRelay()
+                ? relayTeamLabelsByUser(group.getEvent().getId())
                 : Map.of();
 
         List<EnrollmentDTO> athletes = new ArrayList<>(members.size());
@@ -484,6 +526,7 @@ public class EventGroupService {
                 dto.setHeatDisplayMark(MarkFormatter.formatRecord(heat, type,
                         type == null ? null : type.getDefaultUnit()));
             }
+            dto.setRelayTeamLabel(relayTeams.get(member.userId()));
             athletes.add(dto);
         }
         return athletes;

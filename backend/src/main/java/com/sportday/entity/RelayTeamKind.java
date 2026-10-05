@@ -5,15 +5,16 @@ package com.sportday.entity;
  * base on each form and house relay base on each grade and house".
  *
  * <ul>
- *   <li>{@link #FORM} — one team per <strong>form</strong> (中一 to 中六) of the
- *       event's own grade and division. A form is the leading number of
- *       {@link Student#getClassName()} — {@code 1A}, {@code 1B} and {@code 1C} are
- *       all Form 1 — so {@code 10B} is Form 10 rather than Form 1, which is why the
- *       form is read as a whole run of digits and never as a single character.</li>
+ *   <li>{@link #FORM} — one team per <strong>class</strong> of the event's own grade
+ *       and division: {@code 1A}, {@code 1B}, {@code 1C}, {@code 1D}, then
+ *       {@code 2A}. The team's name is the class name. A class is taken from
+ *       {@link Student#getClassName()} whole, so {@code 10B} is class {@code 10B}
+ *       rather than being folded in with {@code 1B}.</li>
  *   <li>{@link #HOUSE} — one team per <strong>house</strong> within the event's
  *       grade. An event already belongs to exactly one grade, so a house relay is
  *       one team per house present among that grade's students in the event's
- *       division — e.g. the A Grade 4x100M has a Red, a Blue and a Green team.</li>
+ *       division — e.g. the C Grade 4x100M has a Yellow, a Green and a Red team,
+ *       which the school writes as {@code C Grade Yellow}.</li>
  * </ul>
  *
  * <p>The kind lives on {@link Event} and is <strong>nullable</strong>: a relay with
@@ -69,14 +70,39 @@ public enum RelayTeamKind {
     }
 
     /**
-     * The label a team of this kind is shown under. A form team reads
-     * {@code Form 1}; a house team reads as the house itself — {@code Red} — because
-     * the register already names it in full and "Red House House" helps nobody.
+     * The label a team of this kind is shown under — which is its own key.
+     *
+     * <p>A class team is named by its <strong>class</strong>: {@code 1A}, never
+     * "Form 1A", because a class is what the school enters and what it writes on the
+     * sheet. A house team reads as the house itself — {@code Red}, or {@code C Grade
+     * Yellow} once the house relay names it that way — because the register already
+     * names it in full and "Red House House" helps nobody.</p>
      */
     public String labelFor(String teamKey) {
         if (teamKey == null || teamKey.isBlank()) {
             return label;
         }
-        return this == FORM ? label + " " + teamKey.trim() : teamKey.trim();
+        return teamKey.trim();
+    }
+
+    /**
+     * The label a team of this kind is shown under, read together with the grade its
+     * event belongs to.
+     *
+     * <p>A <strong>house</strong> team reads {@code C Grade Yellow}: an event already
+     * belongs to exactly one grade, so a house team <em>is</em> that grade's team, and
+     * the school writes the two together — "Yellow" alone names no race. A
+     * <strong>class</strong> team is unaffected, because its class already says which
+     * grade it is in: {@code 1A}, never "C Grade 1A".</p>
+     *
+     * <p>{@link #labelFor(String)} stays the key-only spelling, so nothing that has no
+     * grade to hand has to invent one.</p>
+     */
+    public String labelFor(Grade grade, String teamKey) {
+        String key = labelFor(teamKey);
+        if (this != HOUSE || grade == null || teamKey == null || teamKey.isBlank()) {
+            return key;
+        }
+        return grade.getLabel() + " " + key;
     }
 }

@@ -50,6 +50,28 @@ public class EventResult {
     @JoinColumn(name = "event_id", nullable = false)
     private Event event;
 
+    /**
+     * The relay team this mark belongs to, or null for an individual event.
+     *
+     * <p>A relay is scored by <strong>team</strong> — one time for a 4x100M, not four
+     * — so a relay result is one row per team rather than one per athlete. This column
+     * is what says so: {@code relayTeam != null} means the row is a team's time.</p>
+     *
+     * <p><strong>A deliberate compromise, not an accident.</strong> The row still
+     * carries a {@link #user}, because {@code user_id} is not nullable and every
+     * existing query — standings, records, the results PDF, the season backup — joins
+     * on it. That user is the team's <em>first runner</em>, an anchor rather than the
+     * owner of the time: asking "what did this athlete run?" will return the team's
+     * time for whichever of the four happened to be listed first. Modelling a team
+     * result properly would be its own table, at the cost of a second path through
+     * every one of those queries. This way relay times count for school records and
+     * appear in the results like any other mark, which is what the school asked for.
+     * See {@code relay-teams-results-migration.sql}.</p>
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "relay_team_id")
+    private RelayTeam relayTeam;
+
     /** Heat or final. A null is read as {@link EventStage#HEAT}. */
     @Enumerated(EnumType.STRING)
     @Column(name = "stage", length = 10)

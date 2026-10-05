@@ -78,7 +78,9 @@ class SeasonServiceTest {
                 .category(EventCategory.TRACK).sex(Sex.MALE).grade(Grade.A)
                 .eventDate(LocalDate.of(2026, 10, 1)).enabled(true).groupSize(8).build();
         when(eventRepository.findBySeasonIdOrderByTypeAscSexAscGradeAsc(4L)).thenReturn(List.of(lastYear));
-        when(eventRepository.countBySeasonId(9L)).thenReturn(1L);
+        // The year's own count excludes a draft relay event, so it is this query the
+        // listing reads (see SeasonService.eventCount).
+        when(eventRepository.countRealEventsInSeason(org.mockito.ArgumentMatchers.anyLong())).thenReturn(1L);
 
         service.create(SeasonDTO.builder()
                 .year(2027)
@@ -137,6 +139,8 @@ class SeasonServiceTest {
     void aYearWithEventsCannotBeDeleted() {
         Season current = season(2L, 2026, true);
         when(seasonRepository.findById(2L)).thenReturn(Optional.of(current));
+        // The guard counts every event, drafts included, so a year cannot be deleted
+        // out from under a draft relay event.
         when(eventRepository.countBySeasonId(2L)).thenReturn(37L);
 
         IllegalStateException error = assertThrows(IllegalStateException.class,
@@ -202,7 +206,7 @@ class SeasonServiceTest {
     void emptyYearsAreListed() {
         Season fresh = season(4L, 2027, false);
         when(seasonRepository.findAllByOrderByYearDesc()).thenReturn(List.of(fresh));
-        when(eventRepository.countBySeasonId(4L)).thenReturn(0L);
+        when(eventRepository.countRealEventsInSeason(org.mockito.ArgumentMatchers.anyLong())).thenReturn(0L);
 
         List<SeasonDTO> seasons = service.list();
 

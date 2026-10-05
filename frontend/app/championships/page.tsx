@@ -6,6 +6,7 @@ import { api, ChampionshipsDTO, EventStandingsDTO, SettingsDTO } from '@/lib/api
 import { useAuth } from '@/lib/auth';
 import { useI18n, MessageKey } from '@/lib/i18n';
 import { formatDate, resultMark } from '@/lib/format';
+import { classText, formText, houseText } from '@/lib/students';
 
 /** `1st 9, 2nd 6, 3rd 3, 4th–8th 1 · relay 30 / 20 / 10` */
 function scaleLine(
@@ -90,6 +91,7 @@ export default function ChampionshipsPage() {
             <th>{t('championships.colRank')}</th>
             <th>{t('championships.colAthlete')}</th>
             <th>{t('championships.colGrade')}</th>
+            <th>{t('students.form')}</th>
             <th>{t('championships.colClass')}</th>
             <th>{t('championships.colHouse')}</th>
             <th>{t('results.result')}</th>
@@ -114,8 +116,9 @@ export default function ChampionshipsPage() {
                   )}
                 </td>
                 <td>{label('grade.short', placing.grade) || placing.grade}</td>
-                <td>{placing.className}</td>
-                <td>{placing.house}</td>
+                <td>{formText(placing, t)}</td>
+                <td>{classText(placing) || '-'}</td>
+                <td>{houseText(placing)}</td>
                 <td>
                   <strong>{mark.value}</strong>
                   {mark.suffix}
@@ -227,6 +230,7 @@ export default function ChampionshipsPage() {
                   <th>{t('championships.colRank')}</th>
                   <th>{t('championships.colAthlete')}</th>
                   <th>{t('championships.colGrade')}</th>
+                  <th>{t('students.form')}</th>
                   <th>{t('championships.colClass')}</th>
                   <th>{t('championships.colHouse')}</th>
                   <th>{t('championships.colPoints')}</th>
@@ -252,8 +256,9 @@ export default function ChampionshipsPage() {
                       )}
                     </td>
                     <td>{label('grade.short', row.grade) || row.grade}</td>
-                    <td>{row.className}</td>
-                    <td>{row.house}</td>
+                    <td>{formText(row, t)}</td>
+                    <td>{classText(row) || '-'}</td>
+                    <td>{houseText(row)}</td>
                     <td>
                       <strong>{row.points}</strong>
                     </td>

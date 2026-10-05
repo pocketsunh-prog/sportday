@@ -61,6 +61,14 @@ export function Navbar() {
                   {canHelpStudents && (
                     <Link href="/teacher">{t('nav.helpStudents')}</Link>
                   )}
+                  {/* Every relay event, and the buttons that make its teams. The
+                      page serves ADMIN and TEACHER alike — it calls the
+                      `/teacher/**` endpoint family for a teacher — so the link is
+                      shown to both. A manager is not shown it, because that page
+                      admits administrators and teachers only. */}
+                  {canHelpStudents && (
+                    <Link href="/admin/relay-events">{t('nav.relayEvents')}</Link>
+                  )}
                   {/* An input helper keys in marks and prints sheets. They are not
                       staff in the administrative sense, so they get those two links
                       and none of the rest — every other /admin page would refuse

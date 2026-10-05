@@ -17,6 +17,7 @@ import {
 import { useAuth } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n';
 import { formatDate, resultMark } from '@/lib/format';
+import { classText, formText, houseText } from '@/lib/students';
 import Link from 'next/link';
 
 type ResultsTab = 'event' | 'past';
@@ -617,6 +618,7 @@ export default function ResultsPage() {
                       <th>{t('results.place')}</th>
                       <th>{t('results.athlete')}</th>
                       <th>{t('championships.colGrade')}</th>
+                      <th>{t('students.form')}</th>
                       <th>{t('championships.colClass')}</th>
                       <th>{t('championships.colHouse')}</th>
                       <th>{t('results.result')}</th>
@@ -657,8 +659,9 @@ export default function ResultsPage() {
                             </span>
                           </td>
                           <td>{label('grade.short', placing.grade)}</td>
-                          <td>{placing.className}</td>
-                          <td>{placing.house}</td>
+                          <td>{formText(placing, t)}</td>
+                          <td>{classText(placing) || '-'}</td>
+                          <td>{houseText(placing)}</td>
                           <td>
                             <strong>{mark.value}</strong>
                             {mark.suffix}

@@ -42,7 +42,8 @@ Spring Boot 4.1 (Java 25) backend, Next.js 16 web app, MySQL 8.
 | 28 | A season reset **writes a restorable backup first**, and refuses to reset if the backup fails; backups can be listed, downloaded and restored | `SeasonBackupService`, `BackupStore`, `POST /api/admin/season/reset` |
 | 29 | An admin **uploads teacher accounts**, each carrying the classes they look after | `TeacherService`, `POST /api/admin/teachers/upload` |
 | 30 | A teacher may **enter, withdraw and look up a student's events — but only in their own classes** | `TeacherClassService`, `TeacherHelpService`, `/api/teacher/**` |
-| 31 | **Relay teams**: one team per form, and one per house within a grade, with the runners and their legs chosen for each | `RelayTeam`, `RelayTeamService` |
+| 31 | **Relay teams**: one team per class of the event's form (a form relay) or per grade × house, four runners and one reserve each, with the runners, their legs and the team's name chosen for it | `RelayTeam`, `RelayTeamService` |
+| 32 | **A relay event built around its teams**: the school chooses the teams by hand first, on a *draft* relay event, and then moves them onto the race — all of them or none | `Event.isDraft()`, `RelayTeamService.moveTeamsToEvent` |
 
 Events are also split by **sex division** (Boys / Girls), so each event is
 contested in exactly one division.
@@ -499,31 +500,287 @@ student: the event's division and grade, and the 2-track/1-field quota.
 
 A relay event can be divided two ways, chosen on the event itself:
 
-- a **form relay** — one team per form (中一 to 中六), built from every class in that
-  form;
-- a **house relay** — one team per house within the event's grade, since the event
-  already belongs to one grade.
+- a **form relay** is one team per **class** — `1A`, `1B`, `1C`, `1D`, then `2A` —
+  and the team is named after its class. Which classes it takes is the event's
+  **form**: a "Form 1 4x100M" takes every class of Form 1 **whatever grade its
+  students are in**, and Form 2 is a separate event;
+- a **house relay** is one team per **grade × house**, since the event already
+  belongs to one grade, named the way the school writes it: `C Grade Yellow`,
+  `C Grade Green`.
+
+The form is written on the event as `form` (`"1"` for Form 1, exposed beside
+`formLabel` as `Form 1`). It is a plain number — the number the form's classes
+begin with — and a leading zero is read the way the register reads it, so `01` is
+Form 1. **Only a relay divided into `FORM` teams may carry one**: a sprint, an
+undivided relay and a house relay are all refused with the reason, because none of
+them has class teams to draw from. On an update, leaving `form` out leaves it
+alone and an **empty string clears it** — the same reading as `relayTeamKind`.
+**An event with no form is scoped by its grade, exactly as every relay was before
+the form existed, so the relays already on the programme are untouched.**
 
 ```
 GET    /api/admin/events/{eventId}/relay-teams
 POST   /api/admin/events/{eventId}/relay-teams/derive?prune=
+POST   /api/admin/relay-events/{eventId}/teams       { name, userIds: [...] }
+POST   /api/admin/relay-events/drafts                { type, sex, grade, relayTeamKind, form, teams: [...] }
+PUT    /api/admin/relay-events/{draftEventId}/teams/move   { targetEventId }
+DELETE /api/admin/relay-events/{draftEventId}/teams
 POST   /api/admin/relay-teams/{teamId}/runners      { userId, leg }
 DELETE /api/admin/relay-teams/{teamId}/runners/{userId}
 PUT    /api/admin/relay-teams/{teamId}/legs         { userIds: [...] }
+PUT    /api/admin/relay-teams/{teamId}/name         { name }
 DELETE /api/admin/events/{eventId}/relay-teams
 ```
 
-The teams are **derived from the register**, so a form relay offers exactly the forms
-that have athletes in that grade and division. A relay with no kind is *undivided* —
-which is how every existing relay event stays, untouched, until the school divides it,
-and deriving one is refused with the reason rather than inventing teams.
+The same runners, legs and names are available to a teacher under
+`/api/teacher/**`, with `PUT /api/teacher/relay-teams/{teamId}/name` admitted only
+for a team that is theirs — see below.
 
-A runner must be in the event's division and grade, and in the team's own form or
-house. One athlete may hold a leg in a form relay **and** in a house relay, because
-those are different events, but never two legs of the **same** event. A 4x100M has four
-legs; reserves are opt-in and the ceiling then doubles, so a school that wants spares
-can name eight. Every rule is enforced in one place, and a teacher may only pick
-runners from their own classes — the same rule as helping a student.
+The teams are **derived from the register**: a form relay offers one team per class
+of the classes that have athletes in **that form and the event's division** — across
+grades, so a B-grade athlete and a C-grade athlete in `1A` are one `1A` team — in
+school order (`1A, 1B, …, 2A, …, 10B`, never `10B` before `2A`). An event with no form
+derives from its **own grade** and division, exactly as before. A relay with no kind is
+*undivided* — which is how every existing relay event stays, untouched, until the
+school divides it, and deriving one is refused with the reason rather than inventing
+teams.
+
+A team is **four runners and at most one reserve** — four members or five. A sixth is
+refused with the reason; a team that is still being collected is *saved* and reported
+incomplete (`complete: false`), because a helper has to be able to put four runners
+down one at a time. A reserve is the runner past the race's own legs and is marked as
+one on the wire (`members[].reserve`), so a client needs no second rule to spot it.
+
+A runner must be in the event's division and **scope** — its grade, or, on a
+form-scoped event, the form it is scoped to, in which case the grade is not asked
+about at all, so a Form 1 relay admits a Form 1 athlete of any grade — and in the
+**one group the team runs for**: the class of a form relay, the house of a house
+relay. The group rule is read from the **event's** `relayTeamKind`, never from the
+team's own `kind`, so it binds a team made by hand exactly as it binds a derived one
+— see below. A member of another grade on a *graded* event is refused by the
+division-and-grade rule, which the event already implies; on a form-scoped event the
+form takes that place, and the class rule is what keeps `1A` to `1A`. One athlete may
+hold a leg in a form relay **and** in a house relay, because those are different
+events, but never two legs of the **same** event. Every rule is
+enforced in one place — `RelayTeamService.requireEligibleForTeam`, which every
+endpoint goes through — and a teacher may only pick runners from their own classes —
+the same rule as helping a student.
+
+#### Teams made by hand
+
+A derive gives one team per class or per house, which is not always what the school
+wants. A teacher can instead **tick the students who applied and create a team from
+them**, typing the team's own name:
+
+```
+POST /api/admin/relay-events/{eventId}/teams    { "name": "B Grade Yellow", "userIds": [41, 42, 43, 44] }
+POST /api/teacher/relay-events/{eventId}/teams  the same, for a teacher's own classes' students
+```
+
+The name is **free text** — `1A`, `B Grade Yellow`, anything the school writes — while
+the **runners are not**: a hand-made team obeys the event's own kind, so on a
+form-class relay every one of them is in the same class and on a house relay every one
+is in the same house. `userIds` is the running order, so **leg 1 is the first student
+listed**. Fewer than four is allowed and reported incomplete (`complete: false`), a
+fifth is the reserve when the event allows one and a sixth is refused, exactly as
+adding runners one at a time behaves. Every eligibility rule is the same one: the
+caller may help each student (`TeacherClassService`), the student is in the event's
+division and grade, the student is in the team's one class or house, and one athlete
+holds one leg per event. A name is trimmed, must not be blank, is at most 40
+characters and must be unique within its event — the same check a rename uses.
+
+**A relay team never mixes, and that binds a hand-made team too.** A form-class relay
+is one class's — a `1A` team cannot hold a `1B` or a `2A` student — and a house relay
+is one house's. The rule is read from the event's `relayTeamKind` and not from the
+team's own `kind`, which is exactly what makes it bind a hand-made team: such a team
+has no `kind` at all, so judging it by that would exempt it from the rule. A hand-made
+team's group is whoever was named first, and every runner after them has to be in it,
+so a mixed squad is refused in one request or one runner at a time, naming the student
+who does not belong:
+
+```
+"Athlete S0003 is in class 2A, and 1A runs for this team only — a form relay team
+ cannot mix classes."
+"Athlete S0002 is in Blue House, and Red House runs for this team only — a house
+ relay team cannot mix houses."
+```
+
+Every runner is judged before anything is written, so a refused request leaves no team
+and no runners behind.
+
+A relay with **no kind** is undivided: it has no class rule and no house rule to break,
+so a hand-made team of any students is allowed there — that is the state a relay is in
+while its teams are still being put together, and the school builds its teams on a
+draft event (which always has a kind) before moving them onto the race.
+
+A team made this way is **not the roster's**, and says so: it carries **no
+`kind`** at all, whatever kind its event has, and is returned with
+`handMade: true` (and `kind: null`). A derive builds its key set from class names or
+house names, so a team with no kind can never be in it. The consequence, which is the
+point of the design:
+
+- a derive **never renames** it — the school's typed name survives every re-derive;
+- a derive **never re-keys** it, and `(event_id, kind, team_key)` cannot collide with
+  a derived team, because the derived one always has a kind and this one never does;
+- a derive **never prunes** it, even with `prune=true` and even when the team has
+  nobody in it yet — a teacher who names a team before choosing its runners does not
+  lose it the next time anybody derives.
+
+The team's `teamKey` is **its own name** (trimmed), not a generated id: the name is
+already unique within the event, so it satisfies the unique key on its own and stays
+readable in a database row. Renaming the team afterwards leaves the key where it is,
+as it does for every team.
+
+A hand-made team can be filled and reordered with the ordinary
+`relay-teams/{teamId}/...` endpoints, and shows on the board beside the derived ones.
+It is also shown on an event that has **no kind** at all — a relay nobody has divided
+yet still has whatever teams the school has made for it.
+
+**Schema.** A hand-made team has no `kind`, so `relay_teams.kind` must be nullable,
+and the flag is one new column, `relay_teams.hand_made`. The original
+`relay-teams-migration.sql` created `kind` as `ENUM('FORM','HOUSE') NOT NULL`, so on
+a database that predates this round both changes must be applied —
+`backend/db/migration/relay-teams-hand-made-migration.sql` does exactly that and
+touches no data. Hibernate's `ddl-auto=update` adds `hand_made` on start, but
+whether it also relaxes `kind` depends on the dialect's column comparison, so the
+script is the reliable path (and is required where `ddl-auto` is `validate`).
+
+#### Renaming a team
+
+A team's name is free text — what the school writes on the sheet — and a rename never
+touches the team's runners or the key it is matched on. An **administrator** may rename
+any team. A **teacher** may rename a class team that belongs to one of their own
+classes, on the same `TeacherClassService` rule that governs helping a student; a
+**house** team spans many classes and belongs to no one teacher, so a teacher may
+rename it only while one of their own athletes is named on it, and an empty house team
+is an administrator's to name.
+
+A name is trimmed, must not be blank, is at most 40 characters, and must be unique
+within its event — a marking sheet lists the teams of a race by name, so two teams
+sharing one is a result nobody could read off. A name typed by hand is remembered
+(`nameOverridden`), so deriving the teams again refreshes the names the roster gives
+and leaves a renamed team's name alone.
+
+#### The applicants beside the teams
+
+The same board also carries the students who **applied**: every student with a
+**confirmed entry** in the event, so the page can tick them and group them into the
+teams that already exist. Each one carries the form, class, house and house code,
+and the team they are already on when they are on one:
+
+```json
+{
+  "teamCount": 4, "runnerCount": 14,
+  "applicantCount": 8, "placedCount": 5, "unplacedCount": 3,
+  "applicants": [
+    { "userId": 41, "studentRef": "S0041", "name": "Chan Tai Man",
+      "form": "1", "className": "1A", "classNumber": 1, "classLabel": "1A 1",
+      "house": "Red", "houseCode": "R",
+      "teamId": 7, "teamLabel": "1A", "placed": true }
+  ]
+}
+```
+
+An applicant on no team has `teamId: null` and `placed: false`, which is what the
+page shows as still unplaced; `unplacedCount` is returned so it need not count them
+itself. A **withdrawn** or still-**unconfirmed** entry is not an applicant, and the
+list reads in the register's own order — form numerically (Form 2 before Form 10),
+then class, then class number, then name. It costs two queries for the event
+however many applicants there are.
+
+A **teacher** is shown only the applicants of their own classes, because those are
+the students they may actually place; an **administrator** is shown all of them.
+That holds on a **house** relay too: a house team deliberately spans classes, so a
+teacher sees the whole team and everyone named on it — otherwise they could not see
+who is running with whom — but only their own students are offered as somebody to
+place, and `PUT .../relay-teams/{id}/name` is unchanged.
+
+
+#### A relay event built around its teams
+
+The school builds the **teams** first and wants the **event** created around them.
+A relay team cannot live without an event — `relay_teams.event_id` is `NOT NULL`, and
+the marking sheet and the mark grid both reach a team *through* its event — so the
+teams are collected on a **draft** relay event and then moved onto the race the
+school actually runs:
+
+```
+GET    /api/admin/relay-events/drafts                        # the drafts being filled
+POST   /api/admin/relay-events/drafts                        # the event, plus its teams
+PUT    /api/admin/relay-events/{draftEventId}/teams/move     { "targetEventId": 7 }
+DELETE /api/admin/relay-events/{draftEventId}/teams          # discard, deliberately
+```
+
+A draft is an ordinary `events` row with one extra flag, `is_draft`. The flag is
+**nullable and null reads as false**, so every event already on file — and every
+event created without it — is a real event and behaves exactly as it did.
+
+```
+POST /api/admin/relay-events/drafts
+{
+  "type": "RELAY_4X100M", "sex": "MALE", "grade": "B",
+  "relayTeamKind": "FORM", "form": "1", "eventDate": "2026-10-01",
+  "teams": [
+    { "name": "B Grade Yellow", "userIds": [41, 42, 43, 44] },
+    { "name": "B Grade Green",  "userIds": [51, 52, 53] }
+  ]
+}
+```
+
+`teams` is the same shape as one team made by hand, so each one is created through
+exactly that call: the name rules, the four-plus-one cap, the event's division and
+scope (its grade, or the form the draft is scoped to), one leg per athlete per event,
+and the class rule a teacher is held to are all the rules that already exist, with no
+second copy of any of them. Every team is
+judged before any is written, and the kind (`FORM` or `HOUSE`) is required because
+that is what the register judges the teams and their runners against. A draft of
+anything that is not a relay — and a draft with no kind — is refused with the reason.
+
+**A draft never looks like a real event to the school.** The programme
+(`GET /api/events`), the dates the picker offers (`GET /api/events/dates`), the
+past-events list and the year's event count all exclude it, so it offers no entry and
+is counted nowhere; the whole-programme results PDF and the whole-school sheet print
+run skip it too. The **draft's own relay board** — `GET
+/api/admin/events/{id}/relay-teams` — of course shows it, and an administrator finds
+the drafts in `GET /api/admin/relay-events/drafts`, which is the one listing a draft
+belongs in. A year that still contains a draft cannot be deleted, even though the
+draft is not counted on it.
+
+The **move** re-points every team of the draft at the target event, **all of them or
+none**. The target must be a relay event, and every team is re-judged against it
+before anything moves: a name already used in the target refuses the whole move (the
+same name rule a create and a rename share), a squad bigger than the target's own
+team refuses it, and a runner no longer in the target's division and grade refuses
+it. Nothing is renamed, re-keyed or dropped to make a move fit. Because every rule is
+checked before the first write — and because the method is one transaction that ends
+with a flush — a refused move leaves the draft exactly as it was. The answer says how
+much moved:
+
+```json
+{
+  "draftEventId": 12, "draftEventName": "Boys 4x100M Relay · B Grade (teams)",
+  "targetEventId": 7, "targetEventName": "Boys 4x100M Relay · B Grade",
+  "teamsMoved": 2, "runnersMoved": 7,
+  "teamLabels": ["B Grade Yellow", "B Grade Green"],
+  "targetEvent": { "id": 7, "...": "as every other event endpoint describes it" }
+}
+```
+
+**The draft is kept**, emptied of its teams, with its kind, grade and division
+untouched — so there is somewhere to build the next squad, and the draft can be
+cleared away deliberately once it is empty. A draft's teams are **never destroyed as
+a side effect**: `EventService.deleteEvent` removes an event's teams with it, so
+deleting a **draft that still holds teams is refused** outright, and the shared call
+that clears an event's teams refuses a draft too. Throwing a draft's teams away is
+its own explicit request, `DELETE /api/admin/relay-events/{id}/teams`.
+
+**Schema.** One nullable column, `events.is_draft`:
+`backend/db/migration/event-drafts-migration.sql`. Hibernate's `ddl-auto=update`
+would add it on the next start anyway — a nullable `ADD COLUMN` is the one case its
+schema update handles reliably — with every existing row `NULL`, which reads as
+false; the script is the explicit path and is what is required where `ddl-auto` is
+`validate` or `none`. It touches no data.
+
 
 ### School records
 
@@ -750,6 +1007,33 @@ Grades are stored on each student, so moving the sport day does not silently
 change existing records — run **Admin → Students → Recompute grades** (or
 `POST /api/admin/students/recompute-grades?referenceDate=...`) to move the whole
 school onto the new date.
+
+---
+
+## Form, class and house
+
+Everywhere a student is listed — the register, the mark grid, the relay rosters, the
+marking sheets, the championship tables — the row carries the **form**, the **class**
+and the **house**, and the house also as its short code:
+
+| field | example | meaning |
+|-------|---------|---------|
+| `className` | `5A` | the class as the register writes it |
+| `form` | `5` | the leading run of digits of the class; null when the class names no form |
+| `house` | `Red` | the house in full, exactly as it is stored |
+| `houseCode` | `R` | `R` Red, `Y` Yellow, `B` Blue, `G` Green; null for any other house |
+
+Both derivations live on `Student` — `Student.formOf(className)` and
+`Student.houseCodeOf(house)` — and nowhere else, so two listings cannot disagree
+about what form `5A` is or which letter `Red` has. The form is read numerically, so
+`10B` is Form 10 and not Form 1. The house is matched trimmed and
+case-insensitively, so `red`, ` Red ` and `RED` are all `R`, and the **stored house
+keeps its full name** — only the code is derived.
+
+A house that is not one of the four yields **null**, not its first letter: a school
+may keep a fifth house, and `Black` reading `B` — which is Blue's — would put a
+wrong house on a sheet. An unknown house is honestly blank rather than plausibly
+wrong.
 
 ---
 
@@ -1014,6 +1298,10 @@ reported in `errors` while the good rows are still stored.
 | POST | `/api/admin/backups/{name}/restore` | **Destructive** — overwrite the current entries, heats, final places, marks and record baselines with the file's |
 | POST | `/api/admin/managers` | Create a manager account |
 | GET | `/api/users`, `PATCH /api/users/{id}/enable`, `DELETE /api/users/{id}` | Staff account management |
+| GET | `/api/admin/relay-events/drafts` | The draft relay events — the events built around their hand-made teams. The only listing a draft appears in |
+| POST | `/api/admin/relay-events/drafts` | Create a draft relay event together with the teams it is built around |
+| PUT | `/api/admin/relay-events/{draftEventId}/teams/move` | Move a draft's teams onto the real relay event, all of them or none. Body `{ "targetEventId": N }` |
+| DELETE | `/api/admin/relay-events/{draftEventId}/teams` | Discard a draft's teams deliberately, so the empty draft can be deleted |
 
 ---
 
@@ -1160,7 +1448,7 @@ mvn clean compile     # wipe and build main sources
 mvn test              # run the tests against what was just built
 ```
 
-471 tests covering the grade bands and their boundaries, the password rule, the
+630 tests covering the grade bands and their boundaries, the password rule, the
 group sizes, sheet sizes and default units for every event type, the register
 reader (headings, encodings, date spellings, BOM, quoted fields, bad rows), the
 sample generator's invariants, the marking-sheet PDFs — page size, page count, the
@@ -1183,6 +1471,17 @@ stored mark cannot drift back to words, which events may be split into heats and
 final (the default, the four splittable types, and a final needing both conditions),
 and grade eligibility (the starting rules, a missing rule meaning allowed, a cell
 being closed and reopened, and the grid counting each grade's events).
+
+The relay work is covered on its own: the teams derived from the roster and the teams
+made **by hand** out of chosen students (that a derive never matches, renames,
+re-keys or prunes one), the applicant list beside them, the mark grid's one row per
+team and the marking sheet's one line per team, the rename rule and a teacher's scope
+over it — and, for a relay event built around its teams, that a **draft** is excluded
+from the programme, the dates and the past-events list while a real event is not;
+that a draft's teams and legs move onto the target event and the draft is left empty;
+that a name already used in the target refuses the move and **nothing moves**; that a
+move onto a non-relay, or a runner outside the target's grade, is refused; and that a
+draft's teams cannot be destroyed as a side effect of deleting the draft.
 
 > Run those as two commands. A single `mvn clean test` can fail with
 > `package com.sportday.entity does not exist` on Windows even though the classes

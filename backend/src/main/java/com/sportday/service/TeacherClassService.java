@@ -110,13 +110,54 @@ public class TeacherClassService {
                     "You have no classes assigned, so you cannot help any student. "
                             + "Ask the school office to assign you the classes you take.");
         }
-        String normalized = StudentPasswordPolicy.normalizeClass(className);
-        if (normalized == null || !assigned.contains(normalized)) {
+        if (!isAssigned(assigned, className)) {
+            String normalized = StudentPasswordPolicy.normalizeClass(className);
             throw new AccessDeniedException(
                     normalized == null
                             ? "That student has no class on the register, so you cannot help them."
                             : normalized + " is not one of your classes.");
         }
+    }
+
+    /** The one class test: is this class among the ones assigned? */
+    private static boolean isAssigned(List<String> assigned, String className) {
+        String normalized = StudentPasswordPolicy.normalizeClass(className);
+        return normalized != null && assigned.contains(normalized);
+    }
+
+    /**
+     * Which classes the signed-in caller may act for, read <strong>once for a whole
+     * page</strong> instead of once per student — the same rule
+     * {@link #requireMayHelp} refuses on, so a board cannot show a teacher a student
+     * they would be refused if they tried to place them.
+     *
+     * <p>{@code requireMayHelp} looks a class up for every student it judges; a relay
+     * board with two hundred applicants has to be filtered with one query, not two
+     * hundred. The answer is the same one:</p>
+     * <ul>
+     *   <li>an administrator may act for every class, so the register's own class
+     *       list is the answer;</li>
+     *   <li>a teacher, for the classes assigned to them — and an <strong>empty</strong>
+     *       list when they have none, which is a refusal and never the whole
+     *       school;</li>
+     *   <li>anybody else, for no class at all.</li>
+     * </ul>
+     *
+     * <p>Names are the register's own canonical spelling
+     * ({@link StudentPasswordPolicy#normalizeClass(String)}), so a caller compares
+     * with that and not with a guess at the spelling.</p>
+     *
+     * @return the classes the caller may act for; never null, and empty means nobody
+     */
+    @Transactional(readOnly = true)
+    public List<String> classesMayActFor() {
+        if (isAdmin()) {
+            // An administrator may act for every student, so every class on the
+            // register is theirs.
+            return studentRepository.findDistinctClassNames();
+        }
+        User caller = signedInUser();
+        return isATeacherAccount(caller) ? assignedClasses(caller) : List.of();
     }
 
     // ------------------------------------------------------- the caller

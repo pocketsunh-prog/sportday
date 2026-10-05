@@ -50,13 +50,18 @@ import static org.mockito.Mockito.*;
  * relay endpoint goes through:</p>
  *
  * <ul>
- *   <li>one team per form, or one per house, of the event's own grade and division;</li>
+ *   <li>one team per class, or one per house, of the event's own grade and division;</li>
  *   <li>a runner must be in the event's division and grade — the rule entry uses;</li>
- *   <li>a house team's runner must be in that house, a form team's runner in that
- *       form;</li>
+ *   <li>a house team's runner must be in that house, a class team's runner in that
+ *       class (a legacy form-keyed team still takes its own form's runners);</li>
  *   <li>the same athlete cannot hold two legs of a team, or two legs of an event;</li>
- *   <li>the team's own size is respected, and reserves are opt-in.</li>
+ *   <li>the team's own size is respected, and reserves are opt-in — four runners and
+ *       at most one reserve.</li>
  * </ul>
+ *
+ * <p>A team a <em>derive</em> makes is keyed with a class name, and the tests here
+ * build their teams by hand with the older form keys; that the two agree is asserted
+ * in {@code RelayTeamClassTeamTest}, which fills the teams a derive actually makes.</p>
  *
  * <p>The repositories are backed by three in-memory lists rather than mocked call by
  * call, so the tests exercise the service's real read-then-write behaviour —
@@ -74,6 +79,8 @@ class RelayTeamServiceTest {
     @Mock private EventRepository eventRepository;
     @Mock private StudentRepository studentRepository;
     @Mock private TeacherClassService teacherClassService;
+    /** The event's entries: no confirmed entry, so the board has no applicants. */
+    @Mock private com.sportday.repository.EnrollmentRepository enrollmentRepository;
 
     private RelayTeamService service;
 
@@ -93,7 +100,7 @@ class RelayTeamServiceTest {
     @BeforeEach
     void setUp() {
         service = new RelayTeamService(relayTeamRepository, relayTeamMemberRepository,
-                eventRepository, studentRepository, teacherClassService);
+                eventRepository, studentRepository, teacherClassService, enrollmentRepository);
         teams.clear();
         members.clear();
         students.clear();
@@ -322,17 +329,19 @@ class RelayTeamServiceTest {
     // ========================================================== derivation
 
     @Test
-    @DisplayName("a form relay gets one team per form present in the event's grade and division")
+    @DisplayName("a form relay gets one team per class present in the event's grade and division")
     void deriveCreatesOneTeamPerForm() {
         RelayTeamDerivationDTO result = service.deriveTeams(EVENT_ID, false);
 
-        assertEquals(3, result.getCreated());
+        assertEquals(5, result.getCreated());
         assertEquals(0, result.getKept());
         assertEquals("FORM", result.getKind());
-        assertEquals(List.of("1", "2", "10"), teamKeys());
-        assertEquals(List.of("Form 1", "Form 2", "Form 10"), teamLabels());
+        // One team per class, not per form: 1A and 1B are two teams of Form 1, and the
+        // order is school order — Form 10 comes last, not second.
+        assertEquals(List.of("1A", "1B", "2A", "2C", "10B"), teamKeys());
+        assertEquals(List.of("1A", "1B", "2A", "2C", "10B"), teamLabels());
         assertEquals(5, result.getEligibleStudents());
-        assertEquals(3, result.getBoard().getTeamCount());
+        assertEquals(5, result.getBoard().getTeamCount());
         assertEquals(4, result.getBoard().getLegsPerTeam());
         assertFalse(result.getBoard().getReservesAllowed());
         assertTrue(result.getBoard().getRelay());
@@ -347,7 +356,10 @@ class RelayTeamServiceTest {
 
         assertEquals(4, result.getCreated());
         assertEquals(List.of("Blue", "Green", "Red", "Yellow"), teamKeys());
-        assertEquals(List.of("Blue", "Green", "Red", "Yellow"), teamLabels());
+        // A house team IS that grade's team — the event is a B Grade one — so the
+        // school's own wording names the grade and the house together.
+        assertEquals(List.of("B Grade Blue", "B Grade Green", "B Grade Red", "B Grade Yellow"),
+                teamLabels());
     }
 
     @Test
@@ -358,8 +370,8 @@ class RelayTeamServiceTest {
 
         RelayTeamDerivationDTO result = service.deriveTeams(EVENT_ID, false);
 
-        assertEquals(3, result.getCreated());
-        assertEquals(List.of("1", "2", "10"), teamKeys());
+        assertEquals(5, result.getCreated());
+        assertEquals(List.of("1A", "1B", "2A", "2C", "10B"), teamKeys());
         assertEquals(5, result.getEligibleStudents());
     }
 
@@ -370,8 +382,8 @@ class RelayTeamServiceTest {
         RelayTeamDerivationDTO second = service.deriveTeams(EVENT_ID, false);
 
         assertEquals(0, second.getCreated());
-        assertEquals(3, second.getKept());
-        assertEquals(3, teamKeys().size());
+        assertEquals(5, second.getKept());
+        assertEquals(5, teamKeys().size());
     }
 
     @Test
@@ -456,13 +468,13 @@ class RelayTeamServiceTest {
     }
 
     @Test
-    @DisplayName("a form team refuses a runner from another form")
+    @DisplayName("a class team refuses a runner from another class")
     void formTeamRefusesAnotherForm() {
-        RelayTeam formOne = team("1");
+        RelayTeam classOneA = team("1A");
 
         IllegalStateException error = assertThrows(IllegalStateException.class,
-                () -> service.addRunner(formOne.getId(), twoA.getUser().getId(), null));
-        assertTrue(error.getMessage().contains("Form 1"), error.getMessage());
+                () -> service.addRunner(classOneA.getId(), twoA.getUser().getId(), null));
+        assertTrue(error.getMessage().contains("1A"), error.getMessage());
         assertTrue(error.getMessage().contains("2A"), error.getMessage());
     }
 
@@ -615,7 +627,7 @@ class RelayTeamServiceTest {
     }
 
     @Test
-    @DisplayName("reserves are allowed past the legs, up to twice the race, when the event says so")
+    @DisplayName("reserves are allowed past the legs, and one of them only, when the event says so")
     void allowsReservesUpToTwiceTheRace() {
         event.setRelayReservesAllowed(true);
         event.setRelayTeamSize(4);
@@ -623,8 +635,7 @@ class RelayTeamServiceTest {
         Student c = formOneRunner(5L);
         Student d = formOneRunner(6L);
         Student e = formOneRunner(7L);
-        Student f = formOneRunner(8L);
-        Student g = formOneRunner(9L);
+        Student sixth = formOneRunner(8L);
 
         service.addRunner(formOne.getId(), 1L, null);
         service.addRunner(formOne.getId(), 2L, null);
@@ -632,20 +643,15 @@ class RelayTeamServiceTest {
         service.addRunner(formOne.getId(), d.getUser().getId(), null);
         RelayTeamDTO withReserve = service.addRunner(formOne.getId(), e.getUser().getId(), null);
 
-        assertEquals(8, withReserve.getMemberCap().intValue());
+        // Four runners and one backup: the fifth is the reserve, and there is no sixth.
+        assertEquals(5, withReserve.getMemberCap().intValue());
         assertEquals(5, withReserve.getMemberCount().intValue());
         assertTrue(withReserve.getMembers().get(4).getReserve(), "the fifth runner is a reserve");
         assertTrue(withReserve.getComplete(), "four legs filled is a complete team");
 
-        service.addRunner(formOne.getId(), f.getUser().getId(), null);
-        service.addRunner(formOne.getId(), g.getUser().getId(), null);
-        Student h = formOneRunner(11L);
-        service.addRunner(formOne.getId(), h.getUser().getId(), null);
-        Student ninth = formOneRunner(12L);
-
         IllegalStateException error = assertThrows(IllegalStateException.class,
-                () -> service.addRunner(formOne.getId(), ninth.getUser().getId(), null));
-        assertTrue(error.getMessage().contains("full squad of 8"), error.getMessage());
+                () -> service.addRunner(formOne.getId(), sixth.getUser().getId(), null));
+        assertTrue(error.getMessage().contains("full squad of 5"), error.getMessage());
     }
 
     @Test
@@ -661,7 +667,8 @@ class RelayTeamServiceTest {
             squad.add(formOneRunner(userId).getUser().getId());
         }
 
-        assertEquals(12, event.getRelayMemberCap());
+        // Six legs and the single backup the school allows.
+        assertEquals(7, event.getRelayMemberCap());
         for (Long userId : squad.subList(0, 6)) {
             service.addRunner(formOne.getId(), userId, null);
         }
@@ -673,10 +680,10 @@ class RelayTeamServiceTest {
                 "six legs and six runners is not a reserve");
 
         // A seventh teammate is eligible and there is squad room, so only the leg is
-        // wrong — past both the six legs and the twelve-strong squad.
+        // wrong — past both the six legs and the seven-strong squad.
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
                 () -> service.addRunner(formOne.getId(), squad.get(6), 13));
-        assertTrue(error.getMessage().contains("between 1 and 12"), error.getMessage());
+        assertTrue(error.getMessage().contains("between 1 and 7"), error.getMessage());
     }
 
     @Test

@@ -47,6 +47,16 @@ import java.util.List;
  * <strong>A5</strong>; everything else runs 24 to a group and prints on
  * <strong>A4</strong>.</p>
  *
+ * <p>On a <strong>relay</strong> a line is the <strong>team</strong>, not an athlete:
+ * the school confirmed it, and one time is written for the four runners together. So a
+ * relay sheet prints one line per team, carrying the team's own name in the Name column
+ * and nothing else — no student id, no grade, no runners' names — leaving the one record
+ * box beside it for the team's one time. The runners are named on the relay board, where
+ * the legs are set, and not on the sheet a helper marks. An individual event is untouched:
+ * there a line is the athlete, and their student id and name are printed. A relay whose
+ * teams have not been derived carries no team labels and keeps that athlete-per-line
+ * sheet.</p>
+ *
  * <p>Under the event name the sheet carries the event's <strong>school record</strong>
  * — the mark to beat — once per sheet, in the header block, for example
  * {@code 紀錄 Record 7.406s — Chan Tai Man (2019)}. It is the record for the
@@ -238,12 +248,50 @@ public class PdfSheetService {
         }
 
         List<EnrollmentDTO> athletes = group.getAthletes() == null ? List.of() : group.getAthletes();
-        // Pad out to the group's capacity so a late entry can still be written in.
-        int rows = Math.max(athletes.size(), group.getCapacity() == null ? athletes.size() : group.getCapacity());
+        /*
+         * A relay is run by teams, not by individuals: one time is written against the
+         * team, not four against the legs. So a relay sheet has one line per TEAM, and
+         * that line IS the team — the team's name and nothing else, because there is one
+         * record box beside it and one time to write in it. An individual event keeps one
+         * line per athlete, where the line is the athlete and their name is printed. A
+         * relay whose teams have not been derived carries no team labels at all and falls
+         * back to the athlete-per-line sheet it has always had.
+         */
+        List<String> relayLines = relayLinesOf(athletes);
+        // Pad out to the group's capacity so a late entry can still be written in —
+        // but a relay is padded to its teams, because empty team lines help nobody.
+        int lines = relayLines == null ? athletes.size() : relayLines.size();
+        int rows = relayLines == null
+                ? Math.max(lines, group.getCapacity() == null ? lines : group.getCapacity())
+                : lines;
 
         float rowHeight = rowHeight(pageSize, margin, a5, rows, field);
 
         for (int i = 0; i < rows; i++) {
+            if (relayLines != null) {
+                /*
+                 * The line is the TEAM's, so the team's name is the whole of it: it sits
+                 * in the Name column, 姓名 being where a name belongs. The student id,
+                 * the grade and the remark are printed blank, and every record box with
+                 * them, so the helper has one box to write the team's one time in. The
+                 * runners' names are deliberately absent — not against the team and not
+                 * on lines of their own: the sheet has one line per team, and the line
+                 * names the team.
+                 */
+                String team = i < relayLines.size() ? relayLines.get(i) : null;
+                table.addCell(bodyCell("", cellFont, Element.ALIGN_CENTER, rowHeight, a5));
+                table.addCell(bodyCell(team == null ? "" : team,
+                        cellFont, Element.ALIGN_LEFT, rowHeight, a5));
+                table.addCell(bodyCell("", cellFont, Element.ALIGN_CENTER, rowHeight, a5));
+                if (finalStage) {
+                    table.addCell(bodyCell("", cellFont, Element.ALIGN_CENTER, rowHeight, a5));
+                }
+                for (int attempt = 0; attempt < attempts; attempt++) {
+                    table.addCell(bodyCell("", cellFont, Element.ALIGN_CENTER, rowHeight, a5));
+                }
+                table.addCell(bodyCell("", cellFont, Element.ALIGN_LEFT, rowHeight, a5));
+                continue;
+            }
             EnrollmentDTO athlete = i < athletes.size() ? athletes.get(i) : null;
             table.addCell(bodyCell(athlete == null ? "" : nullSafe(athlete.getStudentRef()),
                     cellFont, Element.ALIGN_CENTER, rowHeight, a5));
@@ -269,6 +317,40 @@ public class PdfSheetService {
                 metaFont);
         footer.setSpacingBefore(a5 ? 7f : 10f);
         document.add(footer);
+    }
+
+    /**
+     * The team lines a relay sheet is drawn from — the team's own name, one entry per
+     * team, in the order the roster lists them, so the sheet reads 5A, 5B, 5C down the
+     * page — or null when this is not a relay with teams.
+     *
+     * <p><strong>A line is the team.</strong> The school confirmed it: on a relay the
+     * line's identity is the team's name, with one time written for the team, so the
+     * four runners are not named here — neither beside the team nor on lines of their
+     * own. Who runs for a team, and in which leg, belongs on the relay board, where the
+     * selection is made and the order is set; the sheet a helper marks carries no use
+     * for it, and printing "5A — Chan Tai Man, Lee Siu Ming" against one record box
+     * would read as a mark for each of them.</p>
+     *
+     * <p>Returning null is what keeps an individual event — where a line is the
+     * athlete, whose student id and name are printed — and a relay whose teams have not
+     * been derived on the athlete-per-line sheet; the two shapes cannot be confused for
+     * one another because the team labels are either there or they are not.</p>
+     */
+    private static List<String> relayLinesOf(List<EnrollmentDTO> athletes) {
+        boolean anyTeam = athletes.stream().anyMatch(a -> a.getRelayTeamLabel() != null);
+        if (!anyTeam) {
+            return null;
+        }
+        // A LinkedHashSet, so a team's four legs collapse to the one line the team gets
+        // and the teams keep the order the roster lists them in.
+        java.util.Set<String> teams = new java.util.LinkedHashSet<>();
+        for (EnrollmentDTO athlete : athletes) {
+            if (athlete.getRelayTeamLabel() != null) {
+                teams.add(athlete.getRelayTeamLabel());
+            }
+        }
+        return new java.util.ArrayList<>(teams);
     }
 
     /**

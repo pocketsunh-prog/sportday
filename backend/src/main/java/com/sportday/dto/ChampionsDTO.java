@@ -53,7 +53,15 @@ public class ChampionsDTO {
         private String name;
         private String grade;
         private String className;
+
+        /** The form the class belongs to — {@code 5} for {@code 5A}; null when it names none. */
+        private String form;
+
         private String house;
+
+        /** The house's short code — {@code R}, {@code Y}, {@code B}, {@code G}; null for another house. */
+        private String houseCode;
+
         private int points;
         private int golds;
         private int silvers;
@@ -116,7 +124,15 @@ public class ChampionsDTO {
         private String name;
         private String grade;
         private String className;
+
+        /** The form the class belongs to — {@code 5} for {@code 5A}; null when it names none. */
+        private String form;
+
         private String house;
+
+        /** The house's short code — {@code R}, {@code Y}, {@code B}, {@code G}; null for another house. */
+        private String houseCode;
+
         private BigDecimal mark;
         private String unit;
 

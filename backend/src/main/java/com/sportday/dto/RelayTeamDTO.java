@@ -34,8 +34,28 @@ public class RelayTeamDTO {
     /** The form number ({@code "1"}) or the house name ({@code "Red"}). */
     private String teamKey;
 
-    /** What the team is shown as: {@code Form 1} or {@code Red}. */
+    /** What the team is shown as: the class ({@code 1A}) or {@code C Grade Yellow}. */
     private String label;
+
+    /**
+     * True when that name was typed by hand rather than derived from the register.
+     * A client can show it as the team's own name, and knows a re-derive will not
+     * take it away.
+     */
+    private Boolean nameOverridden;
+
+    /**
+     * True when the team was built by hand out of chosen students rather than derived
+     * from the register — see {@link RelayTeam#isHandMade()}.
+     *
+     * <p>Such a team is <strong>not one class's and not one house's</strong>, so
+     * {@link #kind} is null whatever kind the event has, and no class or house rule
+     * applies to its runners. It is also not the roster's: a later derive leaves it
+     * alone — never renamed, never re-keyed, never pruned. A client that draws a team
+     * from {@link #kind} must therefore handle a team with none, and should show it as
+     * the school's own team rather than as a broken one.</p>
+     */
+    private Boolean handMade;
 
     /** Legs in this team's race — four for a 4x100M. */
     private Integer legCount;
@@ -75,6 +95,8 @@ public class RelayTeamDTO {
                 .kindLabel(team.getKind() == null ? null : team.getKind().getLabel())
                 .teamKey(team.getTeamKey())
                 .label(team.getLabel())
+                .nameOverridden(team.isNameOverridden())
+                .handMade(team.isHandMade())
                 .legCount(legCount)
                 .memberCap(team.getMemberCap())
                 .reservesAllowed(team.getEvent() != null && team.getEvent().isRelayReservesAllowed())

@@ -263,7 +263,12 @@ export interface UserDTO {
   gradeLabel?: string;
   className?: string;
   classNumber?: number;
+  classLabel?: string;
+  /** The form the class belongs to — `5` for `5D`; absent when it names none. */
+  form?: string;
   house?: string;
+  /** The house's short code — `R`, `Y`, `B`, `G`; absent for another house. */
+  houseCode?: string;
 }
 
 /* ------------------------------------------------------------------ *
@@ -484,7 +489,11 @@ export interface EnrollmentDTO {
   grade: string;
   className: string;
   classNumber: number;
+  /** The form the class belongs to — `5` for `5D`; absent when it names none. */
+  form?: string;
   house: string;
+  /** The house's short code — `R`, `Y`, `B`, `G`; absent for another house. */
+  houseCode?: string;
   status: string;
   enrolledAt: string;
 }
@@ -560,7 +569,11 @@ export interface FinalQualifierDTO {
   grade: string;
   className: string;
   classNumber: number;
+  /** The form the class belongs to — `5` for `5D`; absent when it names none. */
+  form?: string;
   house: string;
+  /** The house's short code — `R`, `Y`, `B`, `G`; absent for another house. */
+  houseCode?: string;
   /** The mark that won them the place, and its unit. */
   heatMark: number;
   unit: string;
@@ -654,11 +667,32 @@ export interface MarkRowDTO {
   grade?: string;
   className?: string;
   classNumber?: number;
+  /** The form the class belongs to — `5` for `5D`; absent when it names none. */
+  form?: string;
   house?: string;
+  /** The house's short code — `R`, `Y`, `B`, `G`; absent for another house. */
+  houseCode?: string;
   groupId?: number;
   groupNumber?: number;
   groupLabel?: string;
   lane?: number;
+  /**
+   * The relay team this line stands for, when the line **is a team** rather
+   * than an athlete.
+   *
+   * On a relay whose teams have been derived the grid holds one line per TEAM,
+   * because one time is written for the four runners together and not four
+   * times: the line carries the team's id and the team's name, and deliberately
+   * nothing about who runs for it. An athlete's line carries neither field, and
+   * a relay nobody has divided is still the athlete-per-line grid it has always
+   * been — so it is the presence of these two fields, not the event's type,
+   * that tells the two shapes apart. The backend's own marking sheet decides it
+   * the same way (`PdfSheetService.relayLinesOf`: the team labels are either
+   * there or they are not).
+   */
+  teamId?: number;
+  /** The team's own name as the school writes it — `B Grade Red`, `5A`. */
+  teamLabel?: string;
   resultId?: number;
   /** The best mark. For a field event that is the best of `attempts`. */
   mark?: number;
@@ -757,6 +791,15 @@ export interface MarkSheetDTO {
 /** One row sent back to the server when the grid is saved. */
 export interface MarkEntryInput {
   userId: number;
+  /**
+   * The relay team the mark belongs to, on a team line — see
+   * {@link MarkRowDTO.teamId}. The server needs it to hang the one time off the
+   * team rather than off the runner the line happens to be anchored to: sent
+   * without it, a relay mark is stored against that runner and no longer found
+   * when the team's line is read back. Omitted altogether on an athlete's row,
+   * where the mark is the athlete's own.
+   */
+  teamId?: number;
   /** The single mark a track row is recorded with. */
   mark?: number | null;
   /**
@@ -867,7 +910,11 @@ export interface StudentDTO {
   className: string;
   classNumber: number;
   classLabel: string;
+  /** The form the class belongs to — `5` for `5D`; absent when it names none. */
+  form?: string;
   house: string;
+  /** The house's short code — `R`, `Y`, `B`, `G`; absent for another house. */
+  houseCode?: string;
   grade: string;
   gradeLabel: string;
   gradeAgeRange: string;
@@ -1088,7 +1135,11 @@ export interface RelayTeamMemberDTO {
   className?: string;
   /** e.g. `5D 8`. */
   classLabel?: string;
+  /** The form the class belongs to — `5` for `5D`; absent when it names none. */
+  form?: string;
   house?: string;
+  /** The house's short code — `R`, `Y`, `B`, `G`; absent for another house. */
+  houseCode?: string;
   grade?: string;
   /** 1-based leg; leg 1 runs first. */
   leg?: number;
@@ -1113,6 +1164,23 @@ export interface RelayTeamDTO {
   teamKey?: string;
   /** What the team is shown as: `Form 5`, or `Red` for a house team. */
   label?: string;
+  /**
+   * True when that name was typed by hand rather than derived from the register.
+   * A re-derive refreshes a derived label and leaves a typed one alone, so a team
+   * showing this is one somebody named.
+   */
+  nameOverridden?: boolean;
+  /**
+   * True when the team was **made by hand** out of a chosen set of students under
+   * a typed name — see `createRelayTeam` — rather than derived from the roster.
+   *
+   * Such a team is not one class's and not one house's: it carries no `kind` at
+   * all and is keyed with its own name, so a later derive can never match it,
+   * rename it or prune it. That is what a board has to say out loud, because a
+   * teacher who re-derives afterwards will see every derived team refreshed and
+   * this one untouched.
+   */
+  handMade?: boolean;
   /** Legs in this team's race — four for a 4x100M. */
   legCount?: number;
   /** How many runners the team may hold in total, reserves included. */
@@ -1154,6 +1222,53 @@ export interface RelayEventTeamsDTO {
   teamCount?: number;
   runnerCount?: number;
   teams: RelayTeamDTO[];
+
+  /**
+   * The students who **applied** to this event — a confirmed entry in it — with
+   * the team each is already on when they are on one. This is the list beside the
+   * teams: a teacher ticks these and groups them into the teams the event has.
+   *
+   * A teacher's copy carries only the applicants of their own classes (the ones
+   * they may place) while the teams above are the event's whole set, because a
+   * house team spans classes. A relay that is undivided still reports its
+   * applicants — they are what a page counts before anything can be derived.
+   */
+  applicants?: RelayApplicantDTO[];
+  /** How many applicants this board shows. */
+  applicantCount?: number;
+  /** How many of them already hold a leg in one of the teams. */
+  placedCount?: number;
+  /** How many are still unplaced — `applicantCount - placedCount`. */
+  unplacedCount?: number;
+}
+
+/**
+ * One student who applied to a relay event, as the board lists them beside the
+ * teams. `teamId` is null, `teamLabel` absent and `placed` false for a student
+ * who is still unplaced — that is the whole point of the list.
+ */
+export interface RelayApplicantDTO {
+  /** The login account — what a team leg is named against. */
+  userId: number;
+  /** The student id string, e.g. `S0001`. */
+  studentRef?: string;
+  name?: string;
+  /** The form the class belongs to — `5` for `5D`; absent when it names none. */
+  form?: string;
+  className?: string;
+  classNumber?: number;
+  /** e.g. `5D 8`. */
+  classLabel?: string;
+  /** The house, in full, as the register stores it — `Red`. */
+  house?: string;
+  /** `R`, `Y`, `B` or `G`; absent for a house the server does not recognise. */
+  houseCode?: string;
+  /** The team this applicant already runs for, or null when still unplaced. */
+  teamId?: number | null;
+  /** That team's name as the school writes it — `1A`, `C Grade Yellow`. */
+  teamLabel?: string | null;
+  /** True when `teamId` is set. */
+  placed?: boolean;
 }
 
 /**
@@ -1388,7 +1503,11 @@ export interface ChampionshipPersonRowDTO {
   name: string;
   grade: string;
   className: string;
+  /** The form the class belongs to — `5` for `5D`; absent when it names none. */
+  form?: string;
   house: string;
+  /** The house's short code — `R`, `Y`, `B`, `G`; absent for another house. */
+  houseCode?: string;
   points: number;
   golds: number;
   silvers: number;
@@ -1416,7 +1535,11 @@ export interface ChampionshipPlacingDTO {
   name: string;
   grade: string;
   className: string;
+  /** The form the class belongs to — `5` for `5D`; absent when it names none. */
+  form?: string;
   house: string;
+  /** The house's short code — `R`, `Y`, `B`, `G`; absent for another house. */
+  houseCode?: string;
   mark: number;
   unit: string;
   /** The mark with its unit, e.g. `18.12M` — see `resultMark()`. */
@@ -2149,12 +2272,27 @@ class ApiClient {
   /* ---------------- Admin: relay teams ---------------- */
 
   /**
-   * An event's relay board: what kind of relay it is, how big a team is, and
-   * every team with its runners. A relay with no kind is undivided and reports
-   * no teams at all. An event that is not a relay is refused with a 400.
+   * The relay endpoint family the caller is allowed to use: `/admin/**` is
+   * ADMIN only, `/teacher/**` admits ADMIN and TEACHER alike. Both answer the
+   * same board and obey the same service, so a single relay page serves both
+   * roles by choosing the right family — an administrator gets the one that can
+   * also remove every team.
    */
-  async getRelayTeams(eventId: number): Promise<RelayEventTeamsDTO> {
-    return this.request(`/admin/events/${eventId}/relay-teams`);
+  private relayBase(role: Role): string {
+    return role === 'ADMIN' ? '/admin' : '/teacher';
+  }
+
+  /**
+   * An event's relay board: what kind of relay it is, how big a team is, every
+   * team with its runners, and the applicants who have still to be placed.
+   *
+   * A relay with no kind is undivided and reports no teams (its applicants are
+   * still listed). An event that is not a relay is refused with a 400 — and a
+   * role with no business here with a 403 — so both are worth showing as they
+   * stand.
+   */
+  async getRelayTeams(eventId: number, role: Role = 'ADMIN'): Promise<RelayEventTeamsDTO> {
+    return this.request(`${this.relayBase(role)}/events/${eventId}/relay-teams`);
   }
 
   /**
@@ -2167,20 +2305,57 @@ class ApiClient {
    * set. A relay that has not been divided yet is refused with a 409 telling the
    * administrator to set its kind first.
    */
-  async deriveRelayTeams(eventId: number, prune = false): Promise<RelayTeamDerivationDTO> {
+  async deriveRelayTeams(
+    eventId: number,
+    prune = false,
+    role: Role = 'ADMIN'
+  ): Promise<RelayTeamDerivationDTO> {
     return this.request(
-      `/admin/events/${eventId}/relay-teams/derive${buildQuery({ prune })}`,
+      `${this.relayBase(role)}/events/${eventId}/relay-teams/derive${buildQuery({ prune })}`,
       { method: 'POST' }
     );
   }
 
   /**
-   * Removes every team of the event, with its runners. This is what frees a relay
-   * to change kind, and what starts a selection again; it leaves the event
-   * otherwise untouched.
+   * Removes every team of the event, with its runners. **ADMIN only** — this is
+   * what frees a relay to change kind, and what starts a selection again; it
+   * leaves the event otherwise untouched. A teacher is refused by the server.
    */
   async removeRelayTeams(eventId: number): Promise<RelayTeamRemovalDTO> {
     return this.request(`/admin/events/${eventId}/relay-teams`, { method: 'DELETE' });
+  }
+
+  /**
+   * Creates one relay team by hand out of the students the caller chose, under
+   * the name the school writes on the sheet.
+   *
+   * This is **the primary way a team is made** — a teacher ticks the applicants,
+   * types a name and presses create — and the team it makes is deliberately not
+   * required to be one class or one house: `1A`, `B Grade Yellow`, anything the
+   * school writes. `userIds` is **in leg order**, so the first student listed
+   * runs leg 1.
+   *
+   * Every eligibility rule is the server's and is refused with its own wording,
+   * worth showing as it stands: a blank name, a name over 40 characters, a name
+   * another team of this event already holds, a student who is not in this
+   * year's list, is in the wrong grade or division, is already running in another
+   * team of this event, and a squad larger than the event's own cap (four runners
+   * and at most one reserve). For a teacher every chosen student must also be in
+   * one of their own classes.
+   *
+   * A request that is going to be refused writes nothing at all, so a failure
+   * leaves the board exactly as it was and the ticks can simply be retried.
+   */
+  async createRelayTeam(
+    eventId: number,
+    name: string,
+    userIds: number[],
+    role: Role = 'ADMIN'
+  ): Promise<RelayTeamDTO> {
+    return this.request(`${this.relayBase(role)}/relay-events/${eventId}/teams`, {
+      method: 'POST',
+      body: JSON.stringify({ name, userIds }),
+    });
   }
 
   /**
@@ -2189,22 +2364,29 @@ class ApiClient {
    * Every eligibility rule is enforced by the server — the event's division and
    * grade, the team's own form or house, one leg per athlete per event, and the
    * team's size — and an ineligible pick is refused with a 409 whose message
-   * names the athlete and the reason, which is worth showing as it stands.
+   * names the athlete and the reason, which is worth showing as it stands. For a
+   * teacher the class rule bites as well: a student outside their own classes is
+   * refused, and the message says so.
    */
   async addRelayRunner(
     teamId: number,
     userId: number,
-    leg?: number | null
+    leg?: number | null,
+    role: Role = 'ADMIN'
   ): Promise<RelayTeamDTO> {
-    return this.request(`/admin/relay-teams/${teamId}/runners`, {
+    return this.request(`${this.relayBase(role)}/relay-teams/${teamId}/runners`, {
       method: 'POST',
       body: JSON.stringify(leg ? { userId, leg } : { userId }),
     });
   }
 
   /** Takes the athlete out of the team; the legs close up behind them. */
-  async removeRelayRunner(teamId: number, userId: number): Promise<RelayTeamDTO> {
-    return this.request(`/admin/relay-teams/${teamId}/runners/${userId}`, {
+  async removeRelayRunner(
+    teamId: number,
+    userId: number,
+    role: Role = 'ADMIN'
+  ): Promise<RelayTeamDTO> {
+    return this.request(`${this.relayBase(role)}/relay-teams/${teamId}/runners/${userId}`, {
       method: 'DELETE',
     });
   }
@@ -2213,10 +2395,35 @@ class ApiClient {
    * Sets the running order, leg 1 first. The list must name exactly the runners
    * the team already has — the server refuses anything else rather than guessing.
    */
-  async setRelayLegs(teamId: number, userIds: number[]): Promise<RelayTeamDTO> {
-    return this.request(`/admin/relay-teams/${teamId}/legs`, {
+  async setRelayLegs(
+    teamId: number,
+    userIds: number[],
+    role: Role = 'ADMIN'
+  ): Promise<RelayTeamDTO> {
+    return this.request(`${this.relayBase(role)}/relay-teams/${teamId}/legs`, {
       method: 'PUT',
       body: JSON.stringify({ userIds }),
+    });
+  }
+
+  /**
+   * Renames a relay team. This is **the name the school writes on the sheet**, so
+   * it is what a marking sheet and a mark grid are keyed on.
+   *
+   * The server refuses a blank name, a name over 40 characters, and a name another
+   * team of the same event already holds — each with its own wording, worth showing
+   * as it stands. An administrator may rename any team; a teacher only one from
+   * their own classes, and a house team only while one of their own athletes is
+   * named on it.
+   */
+  async renameRelayTeam(
+    teamId: number,
+    name: string,
+    role: Role = 'ADMIN'
+  ): Promise<RelayTeamDTO> {
+    return this.request(`${this.relayBase(role)}/relay-teams/${teamId}/name`, {
+      method: 'PUT',
+      body: JSON.stringify({ name }),
     });
   }
 

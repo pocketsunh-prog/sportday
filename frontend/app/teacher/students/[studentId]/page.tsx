@@ -16,6 +16,7 @@ import {
 import { useAuth } from '@/lib/auth';
 import { formatDate } from '@/lib/format';
 import { useI18n } from '@/lib/i18n';
+import { classText, formText, houseText } from '@/lib/students';
 
 const SECTION_ORDER: EventCategory[] = ['TRACK', 'FIELD'];
 
@@ -364,9 +365,11 @@ export default function TeacherStudentEntriesPage() {
           <div className="stat-label">{t('students.colId')}</div>
         </div>
         <div className="stat">
-          <div className="stat-value">
-            {student.classLabel || `${student.className} ${student.classNumber}`}
-          </div>
+          <div className="stat-value">{formText(student, t)}</div>
+          <div className="stat-label">{t('students.form')}</div>
+        </div>
+        <div className="stat">
+          <div className="stat-value">{classText(student) || '-'}</div>
           <div className="stat-label">{t('marks.class')}</div>
         </div>
         <div className="stat">
@@ -374,7 +377,7 @@ export default function TeacherStudentEntriesPage() {
           <div className="stat-label">{t('marks.grade')}</div>
         </div>
         <div className="stat">
-          <div className="stat-value">{student.house || '-'}</div>
+          <div className="stat-value">{houseText(student)}</div>
           <div className="stat-label">{t('students.colHouse')}</div>
         </div>
         <div className="stat">

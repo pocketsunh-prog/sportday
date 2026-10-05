@@ -149,11 +149,19 @@ public class SeasonService {
         }
     }
 
-    /** Removes a year. Refused while it still has events, so nothing is orphaned. */
+    /**
+     * Removes a year. Refused while it still has events, so nothing is orphaned.
+     *
+     * <p>The guard counts <strong>every</strong> event, drafts included, even though
+     * {@link #eventCount} does not: a draft relay event still belongs to this year,
+     * and deleting the year under it would leave it pointing at a year that is gone.
+     * The refusal names the true number, so an administrator whose year reads "0
+     * events" on the picker is told why it will not delete.</p>
+     */
     @Transactional
     public void delete(Long id) {
         Season season = require(id);
-        long events = eventCount(season.getId());
+        long events = eventCountIncludingDrafts(season.getId());
         if (events > 0) {
             throw new IllegalStateException("This year still has " + events
                     + " event(s). Delete or move them first.");
@@ -162,7 +170,16 @@ public class SeasonService {
         log.info("Deleted the {} sport day", season.getYear());
     }
 
-    /** Copies another year's events into this one, keeping the types, divisions and grades. */
+    /**
+     * Copies another year's events into this one, keeping the types, divisions and
+     * grades.
+     *
+     * <p>A <strong>draft</strong> relay event is not copied. It is not part of a
+     * sport day — it is where one school year's relay teams were collected — and
+     * copying it would carry an unfinished event, with none of its teams, into the
+     * next year's programme as a draft nobody remembers making. The teams themselves
+     * are not copied either way: a relay team belongs to an event, not to a year.</p>
+     */
     @Transactional
     public int copyEvents(Long fromSeasonId, Season target) {
         List<Event> source = eventRepository.findBySeasonIdOrderByTypeAscSexAscGradeAsc(fromSeasonId);
@@ -171,6 +188,9 @@ public class SeasonService {
                 : LocalDate.now();
         int copied = 0;
         for (Event original : source) {
+            if (original.isDraft()) {
+                continue;
+            }
             eventRepository.save(Event.builder()
                     .name(original.getName())
                     .description(original.getDescription())
@@ -226,10 +246,26 @@ public class SeasonService {
 
     // -------------------------------------------------------------- helpers
 
-    /** The number of events in a year. */
+    /**
+     * The number of events in a year — what the year picker shows and what guards a
+     * year's deletion.
+     *
+     * <p>A draft relay event is not counted: it is not on the programme, so counting
+     * it would make a sport day look bigger than it is and would report a year as
+     * occupied by a draft. It still <em>belongs</em> to the year, and deleting that
+     * year is still refused while the draft is there — the guard is on any event, so
+     * nothing is orphaned.</p>
+     */
     @Transactional(readOnly = true)
     public int eventCount(Long seasonId) {
-        return seasonId == null ? 0 : (int) eventRepository.countBySeasonId(seasonId);
+        return seasonId == null ? 0
+                : (int) eventRepository.countRealEventsInSeason(seasonId);
+    }
+
+    /** Every event of a year, drafts included — what guards a year's deletion. */
+    @Transactional(readOnly = true)
+    public long eventCountIncludingDrafts(Long seasonId) {
+        return seasonId == null ? 0 : eventRepository.countBySeasonId(seasonId);
     }
 
     private Season require(Long id) {

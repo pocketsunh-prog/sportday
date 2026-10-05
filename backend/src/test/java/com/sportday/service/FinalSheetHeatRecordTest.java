@@ -71,6 +71,8 @@ class FinalSheetHeatRecordTest {
     @Mock private FinalEntryRepository finalEntryRepository;
     @Mock private RecordService recordService;
     @Mock private EventResultRepository resultRepository;
+    @Mock private com.sportday.repository.RelayTeamMemberRepository relayTeamMemberRepository;
+    @Mock private com.sportday.repository.RelayTeamRepository relayTeamRepository;
 
     private EventGroupService groups;
     private PdfSheetService sheets;
@@ -122,7 +124,11 @@ class FinalSheetHeatRecordTest {
     @BeforeEach
     void setUp() {
         groups = new EventGroupService(groupRepository, eventRepository, enrollmentRepository,
-                studentRepository, finalEntryRepository, recordService, resultRepository);
+                studentRepository, finalEntryRepository, recordService, resultRepository,
+                relayTeamMemberRepository,
+                // No relay here: the readiness rule is never asked, so the guard's own
+                // repositories are never read.
+                new RelayReadiness(relayTeamRepository, relayTeamMemberRepository));
         sheets = new PdfSheetService(groups, new PdfFontProvider(""), mockedSettings());
 
         sprint = Event.builder()

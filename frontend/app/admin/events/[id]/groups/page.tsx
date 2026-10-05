@@ -13,6 +13,7 @@ import {
 } from '@/lib/api';
 import { formatDate } from '@/lib/format';
 import { useI18n } from '@/lib/i18n';
+import { classText, formText, houseText } from '@/lib/students';
 
 /** Turns an event/heat name into something safe for a download filename. */
 function slug(value: string): string {
@@ -34,6 +35,7 @@ function RosterTable({ athletes }: { athletes: EnrollmentDTO[] }) {
             <th>{t('students.colId')}</th>
             <th>{t('students.colName')}</th>
             <th>{t('marks.grade')}</th>
+            <th>{t('students.form')}</th>
             <th>{t('marks.class')}</th>
             <th>{t('students.colHouse')}</th>
           </tr>
@@ -47,10 +49,9 @@ function RosterTable({ athletes }: { athletes: EnrollmentDTO[] }) {
                 <td>{athlete.studentRef}</td>
                 <td>{athlete.name}</td>
                 <td>{label('grade', athlete.grade)}</td>
-                <td>
-                  {athlete.className} {athlete.classNumber}
-                </td>
-                <td>{athlete.house || '-'}</td>
+                <td>{formText(athlete, t)}</td>
+                <td>{classText(athlete)}</td>
+                <td>{houseText(athlete)}</td>
               </tr>
             ))}
         </tbody>
@@ -628,6 +629,7 @@ export default function EventGroupsPage() {
                         <th>{t('students.colId')}</th>
                         <th>{t('students.colName')}</th>
                         <th>{t('marks.grade')}</th>
+                        <th>{t('students.form')}</th>
                         <th>{t('marks.class')}</th>
                         <th>{t('groups.heatMark')}</th>
                       </tr>
@@ -639,9 +641,8 @@ export default function EventGroupsPage() {
                           <td>{qualifier.studentRef}</td>
                           <td>{qualifier.name}</td>
                           <td>{label('grade', qualifier.grade)}</td>
-                          <td>
-                            {[qualifier.className, qualifier.classNumber].filter(Boolean).join(' ')}
-                          </td>
+                          <td>{formText(qualifier, t)}</td>
+                          <td>{classText(qualifier)}</td>
                           <td>
                             {qualifier.heatMark} {label('unit', qualifier.unit)}
                           </td>
