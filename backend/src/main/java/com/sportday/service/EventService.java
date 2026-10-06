@@ -462,6 +462,7 @@ public class EventService {
         }
         applyRelayTeamSettings(event, eventDTO, id);
         applyFormScope(event, eventDTO);
+        applyStandard(event, eventDTO);
         // Moving an event to another type or grade renames it only while it still
         // carries its own default name; a title the school chose is left alone.
         if (previousDefaultName != null && previousDefaultName.equals(event.getName())) {
@@ -551,6 +552,44 @@ public class EventService {
         // Judged on what the event will be, not on what it came in as: the kind may
         // have just changed under it.
         requireFormScopeAllowed(event.getType(), event.getRelayTeamKind(), event.getForm());
+    }
+
+    /**
+     * Applies the required standard, or clears it.
+     *
+     * <p>An omitted standard leaves the event's own alone, because several callers
+     * send partial bodies — the relay board sends only a kind and a form — and a
+     * missing field must never quietly wipe a number somebody set. Clearing is
+     * therefore asked for: {@code clearStandard: true}.</p>
+     *
+     * <p>Refused on an event that does not carry a standard, judged on what the update
+     * would leave behind, so a 400M cannot become a 100M while keeping one. A standard
+     * must be positive: a time of zero or a negative distance is not a qualifying
+     * mark, it is a typo.</p>
+     *
+     * <p>Which events carry one is {@link Event.EventType#carriesAStandard()}'s
+     * business, not this method's, so the rule is not restated here.</p>
+     */
+    private void applyStandard(Event event, EventDTO eventDTO) {
+        if (Boolean.TRUE.equals(eventDTO.getClearStandard())) {
+            event.setStandard(null);
+        } else if (eventDTO.getStandard() != null) {
+            event.setStandard(eventDTO.getStandard());
+        }
+        if (event.getStandard() != null) {
+            if (event.getType() == null || !event.getType().carriesAStandard()) {
+                // The type it is becoming, not the name it still carries: a request
+                // that changes both is judged on the event it would leave behind.
+                throw new IllegalArgumentException(
+                        (event.getType() == null ? "This event" : event.getType().getDisplayName())
+                        + " is not an event that carries a required standard. Only the "
+                        + "track races of 400M and over, and the field events, can have one.");
+            }
+            if (event.getStandard().signum() <= 0) {
+                throw new IllegalArgumentException(
+                        "A required standard must be greater than zero.");
+            }
+        }
     }
 
     /**

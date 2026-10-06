@@ -357,6 +357,7 @@ public class EventGroupService {
     private EventGroupDTO withAthletes(EventGroup group, boolean includeAthletes) {
         EventGroupDTO dto = EventGroupDTO.from(group);
         withRecord(dto, group.getEvent());
+        withStandard(dto, group.getEvent());
         if (!includeAthletes) {
             return dto;
         }
@@ -364,7 +365,26 @@ public class EventGroupService {
         return dto;
     }
 
-    // ------------------------------------------------------- the school record
+    // ------------------------------------ the school record and the required standard
+
+    /**
+     * Puts the event's required standard on the sheet's DTO, spelled once.
+     *
+     * <p>Only the events that carry one get a label — asked through
+     * {@link Event.EventType#carriesAStandard()}, the one rule that answers it —
+     * and everything else is left null, so the renderer prints no line and nothing
+     * already on paper changes. The label reads as the school reads a mark: the
+     * number in the event's own unit, {@code 64.123 s} or {@code 12.5 M}.</p>
+     */
+    private void withStandard(EventGroupDTO dto, Event event) {
+        if (event == null || event.getType() == null
+                || !event.getType().carriesAStandard()
+                || event.getStandard() == null) {
+            return;
+        }
+        dto.setStandardLabel(event.getStandard().stripTrailingZeros().toPlainString()
+                + " " + event.getType().getDefaultUnit());
+    }
 
     /**
      * The school record this sheet prints in its header, put on the group as it is

@@ -57,6 +57,40 @@ public class EventDTO {
     /** Printable form, {@code Form 1}; null when the event is graded. */
     private String formLabel;
 
+    /**
+     * The <strong>required standard</strong> — the qualifying mark an athlete must
+     * reach — for the track races of 400M and over and for every field event. Null
+     * for everything else, and null here is the whole of the old behaviour.
+     *
+     * <p>In the event's own unit: seconds for a race, metres for a field event. On
+     * the way in, a null value <strong>leaves it alone</strong> — the relay board
+     * sends partial bodies and must not wipe a standard by omitting it. To clear
+     * one, send {@link #clearStandard} as true; a number cannot say "blank" the way
+     * {@link #form} can.</p>
+     */
+    private java.math.BigDecimal standard;
+
+    /**
+     * True when this event is one a school sets a required standard on: the track
+     * races of 400M and over, and every field event.
+     *
+     * <p>Sent rather than left to the client to work out, because the list of
+     * qualifying types lives in exactly one place
+     * ({@link Event.EventType#carriesAStandard()}) and a page that re-derived it
+     * from type names would eventually disagree with the server about which events
+     * are qualifying.</p>
+     */
+    private Boolean carriesStandard;
+
+    /** e.g. {@code 64.123 s}. The standard with its unit, for a sheet or a page. */
+    private String standardLabel;
+
+    /**
+     * True to remove the standard. Needed because an omitted {@code standard} means
+     * "leave it alone" rather than "clear it".
+     */
+    private Boolean clearStandard;
+
     private LocalDate eventDate;
     private String location;
     private Integer maxParticipants;
@@ -221,6 +255,12 @@ public class EventDTO {
                 .gradeLabel(event.getGrade() == null ? null : event.getGrade().getLabel())
                 .form(event.getForm())
                 .formLabel(event.getFormLabel())
+                // The standard, and whether this event is one that carries one at
+                // all. Only a qualifying event reports a number or a label, so a
+                // relay or a sprint can never show a standard it cannot have.
+                .standard(carriesStandard(event) ? event.getStandard() : null)
+                .carriesStandard(carriesStandard(event))
+                .standardLabel(standardLabelOf(event))
                 .eventDate(event.getEventDate())
                 .location(event.getLocation())
                 .maxParticipants(event.getMaxParticipants())
@@ -259,5 +299,26 @@ public class EventDTO {
         EventDTO dto = from(event);
         dto.setEnrolledCount(enrolledCount);
         return dto;
+    }
+
+    /**
+     * True when this event is one that may carry a required standard at all — the
+     * track races of 400M and over, and every field event — asked through the one
+     * method that owns the question, {@link Event.EventType#carriesAStandard()}.
+     */
+    private static boolean carriesStandard(Event event) {
+        return event.getType() != null && event.getType().carriesAStandard();
+    }
+
+    /**
+     * The standard as the school reads it — the number with the event's unit. One
+     * place spells it, so the sheet and the page cannot disagree.
+     */
+    private static String standardLabelOf(Event event) {
+        if (event.getStandard() == null || !carriesStandard(event)) {
+            return null;
+        }
+        return event.getStandard().stripTrailingZeros().toPlainString()
+                + " " + event.getType().getDefaultUnit();
     }
 }

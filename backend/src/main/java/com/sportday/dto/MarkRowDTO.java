@@ -40,6 +40,27 @@ public class MarkRowDTO {
     private String groupLabel;
     private Integer lane;
 
+    /**
+     * The event's <strong>required standard</strong>, in the event's own unit, or
+     * null for an event that carries none — every sprint under 400M, and every
+     * relay. Which events carry one is {@link Event.EventType#carriesAStandard()},
+     * asked by the service that builds the row.
+     */
+    private java.math.BigDecimal standard;
+
+    /** e.g. {@code 64.123 s}. The standard with its unit, for the row to show. */
+    private String standardLabel;
+
+    /**
+     * True when this row's result is <strong>below the standard</strong>, worked
+     * out from the mark and the standard together.
+     *
+     * <p>Automatic on purpose: a teacher types nothing, so it cannot be forgotten
+     * or set wrongly. A row with no mark, and an event with no standard, are never
+     * below — a blank is not a failure.</p>
+     */
+    private Boolean belowStandard;
+
     /*
      * The relay team this row is, on a relay grid. Both are null on an individual
      * event's grid — and on a relay whose teams have not been derived, which keeps the

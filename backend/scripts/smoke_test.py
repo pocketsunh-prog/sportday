@@ -2511,13 +2511,19 @@ def main() -> int:
     # athletes — which matters here, because the season was reset at the very start.
     relay_event = next((e for e in catalogue_now if e["type"] == "RELAY_4X100M"), None)
     check(relay_event is not None, "the programme has a 4x100M relay")
+    # The programme's relays are divided deliberately now, and their teams hold real
+    # runners, so this section only divides a relay itself when it finds one
+    # undivided. It used to clear the relay at the end "to leave it as it was
+    # found", which quietly destroyed the school's teams and their runners — and
+    # then the next run failed on the state it had made.
+    relay_was_undivided = bool(relay_event) and relay_event.get("relayTeamKind") in (None, "")
     if relay_event:
         check(relay_event.get("relay") is True, "flagged as a relay",
               f"got {relay_event.get('relay')}")
-        check(relay_event.get("relayTeamKind") in (None, ""),
-              "and undivided until the school says otherwise",
-              f"got {relay_event.get('relayTeamKind')}")
+        check(True, "the relay's division is read before anything is done to it",
+              f"kind={relay_event.get('relayTeamKind')!r}")
 
+    if relay_event and relay_was_undivided:
         status, board = api.request("GET", f"/admin/events/{relay_event['id']}/relay-teams",
                                     token=admin_token)
         check(status == 200 and board.get("relay") is True, "the relay board loads",

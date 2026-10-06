@@ -174,6 +174,17 @@ public class PdfSheetService {
             document.add(record);
         }
 
+        // The required standard, when the event has one — the same place and the
+        // same shape as the record line above it, and the same promise: no standard,
+        // no line, so a sheet for an event without one is unchanged.
+        String standardLine = standardLine(group);
+        if (standardLine != null) {
+            Paragraph standard = new Paragraph(standardLine, metaFont);
+            standard.setAlignment(Element.ALIGN_CENTER);
+            standard.setSpacingAfter(a5 ? 2f : 3f);
+            document.add(standard);
+        }
+
         StringBuilder meta = new StringBuilder();
         meta.append("項目 Event: ").append(nullSafe(group.getEventTypeLabel()));
         meta.append("  |  ").append(nullSafe(group.getCategoryLabel()));
@@ -359,6 +370,35 @@ public class PdfSheetService {
      */
     static boolean isFinal(EventGroupDTO group) {
         return group != null && "FINAL".equalsIgnoreCase(group.getStage());
+    }
+
+    /**
+     * The header line carrying the event's <strong>required standard</strong> — the
+     * qualifying mark — or null when the event has none.
+     *
+     * <pre>
+     *   標準 Standard 64.123 s
+     *   標準 Standard 12.5 M
+     * </pre>
+     *
+     * <p>A <em>line in the header</em> rather than a column, deliberately: the column
+     * count and the width array decide the layout of every sheet in the programme,
+     * including the ones for events that carry no standard at all — every sprint and
+     * every relay — so a column would re-lay out sheets that have nothing to do with
+     * this. Drawn beside the record, in the sheet's own bilingual style, it is
+     * additive: no standard, no line, and the sheet is byte for byte the one it
+     * always printed.</p>
+     *
+     * <p>The label is already spelled with its unit by the service that built the
+     * group, so the sheet and the standards page cannot read the same number two
+     * ways.</p>
+     */
+    static String standardLine(EventGroupDTO group) {
+        String label = group == null ? null : group.getStandardLabel();
+        if (label == null || label.isBlank()) {
+            return null;
+        }
+        return "標準 Standard " + label;
     }
 
     /**

@@ -80,11 +80,17 @@ export function Navbar() {
                       <Link href="/admin/print">{t('nav.print')}</Link>
                     </>
                   )}
+                  {/* An administrator's own settings. Setting a required standard
+                      is one of them: the page is ADMIN-only, exactly like the
+                      settings page and the `/api/admin/**` endpoints behind them,
+                      so neither a manager nor a helper is offered a link that
+                      would only turn them away. */}
                   {isAdmin && (
                     <>
                       <Link href="/admin/sport-day">{t('nav.sportDay')}</Link>
                       <Link href="/admin/teachers">{t('nav.teachers')}</Link>
                       <Link href="/admin/backups">{t('nav.backups')}</Link>
+                      <Link href="/admin/standards">{t('nav.standards')}</Link>
                       <Link href="/admin/settings">{t('nav.settings')}</Link>
                       <Link href="/admin/users">{t('nav.users')}</Link>
                     </>

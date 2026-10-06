@@ -110,6 +110,23 @@ public class Event {
     @Column(nullable = false)
     private LocalDate eventDate;
 
+    /**
+     * The <strong>required standard</strong> — the qualifying mark an athlete must
+     * reach — for the events that carry one: the track races of 400M and over, and
+     * every field event. Null for everything else, and null here is the whole of
+     * the old behaviour, so no event on file changes.
+     *
+     * <p>Measured in the event's own unit: seconds for a race, metres for a field
+     * event. A race meets the standard at or <em>under</em> it and a field event at
+     * or <em>over</em> it — the same lower-is-better rule that already decides the
+     * leaderboards and the records, taken from {@link EventType#isLowerBetter()}
+     * rather than decided again here.</p>
+     *
+     * @see EventType#carriesAStandard()
+     */
+    @Column(name = "standard", precision = 10, scale = 3)
+    private java.math.BigDecimal standard;
+
     private String location;
 
     /** Hard cap on confirmed entries. Generous by default so a whole year group can enter. */
@@ -544,6 +561,49 @@ public class Event {
          */
         public boolean isRelay() {
             return this == RELAY_4X100M || this == RELAY_4X400M;
+        }
+
+        /**
+         * True for the events a school sets a <strong>required standard</strong> on:
+         * the track races of <strong>400M and over</strong>, and <strong>every field
+         * event</strong>.
+         *
+         * <p>Deliberately not "every track event": a 60M, 100M or 200M is not
+         * qualifying in this school's programme, and neither are the short hurdles.
+         * A <strong>relay</strong> does not carry one either — it is its own category
+         * now, and it is run and scored by team. This is the single place that
+         * answers the question; the standards page, the sheet and the mark grid all
+         * ask it rather than testing categories and distances for themselves.</p>
+         */
+        public boolean carriesAStandard() {
+            if (isRelay()) {
+                return false;
+            }
+            if (category == EventCategory.FIELD) {
+                return true;
+            }
+            return this == RUN_400M || this == HURDLES_400M
+                    || this == RUN_800M || this == RUN_1500M || this == RUN_5000M;
+        }
+
+        /**
+         * True when a mark <strong>meets</strong> the standard, or when there is
+         * nothing to meet.
+         *
+         * <p>The direction is not decided here: it is {@link #isLowerBetter()}, the
+         * one rule that already settles the leaderboards, the records and the
+         * placings. A time counts at or under the standard, a distance at or over
+         * it. A missing mark, or no standard, is never "below" — a blank is not a
+         * failure.</p>
+         */
+        public boolean meetsStandard(java.math.BigDecimal mark,
+                                     java.math.BigDecimal standard) {
+            if (mark == null || standard == null) {
+                return true;
+            }
+            return isLowerBetter()
+                    ? mark.compareTo(standard) <= 0
+                    : mark.compareTo(standard) >= 0;
         }
 
         /**

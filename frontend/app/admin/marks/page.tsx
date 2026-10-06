@@ -999,6 +999,36 @@ export default function MarkEntryPage() {
     </select>
   );
 
+  /**
+   * The standard this row is judged against, drawn **under the record box** — in
+   * a field row's best cell, in a stopped time's cell and under a single record
+   * box alike, so all three mark-cell shapes say the same thing. The events that
+   * carry a standard are precisely the field events and the long races, so a note
+   * that only reached the single box would say nothing about most of them.
+   *
+   * Everything shown here is the **server's**: `standardLabel` is the target in
+   * the event's own unit and `belowStandard` is its verdict, worked out from the
+   * mark and the standard with the one lower-is-better rule that settles the
+   * leaderboards. The page deliberately does not repeat that comparison, so the
+   * grid and the leaderboard cannot come to disagree about which way round
+   * "better" goes, and a teacher types nothing: below-standard is automatic.
+   *
+   * Nothing is drawn for an event with no standard, for a relay (which carries
+   * none), or for a row the server left unmarked — a blank is not a failure, so
+   * an unmarked row shows the target and is never called below it.
+   */
+  const standardNote = (row: MarkRowDTO) =>
+    row.standardLabel ? (
+      <span
+        className={row.belowStandard ? 'badge badge-warning' : 'muted'}
+        style={{ display: 'block', marginTop: '0.25rem' }}
+      >
+        {row.belowStandard
+          ? t('marks.belowStandard', { standard: row.standardLabel })
+          : t('marks.standard', { standard: row.standardLabel })}
+      </span>
+    ) : null;
+
   if (authLoading || !isStaff) {
     return <p className="muted">{t('common.loading')}</p>;
   }
@@ -1322,6 +1352,11 @@ export default function MarkEntryPage() {
                                 </strong>
                                 {outcomeSelect(row, draft)}
                               </div>
+                              {/* A field event is one of the families that carries a
+                                  standard, so the target and the verdict belong on
+                                  its best-attempt cell exactly as they do on a
+                                  single record box. */}
+                              {standardNote(row)}
                             </td>
                           </>
                         ) : timeInMinutes ? (
@@ -1360,6 +1395,10 @@ export default function MarkEntryPage() {
                               </div>
                               {outcomeSelect(row, draft)}
                             </div>
+                            {/* The 800M, the 1500M and the 5000M are three of the
+                                five track races that carry a standard, so their
+                                stopped-time cell carries the note too. */}
+                            {standardNote(row)}
                             {secondsOutOfRange(draft) && (
                               <span className="marks-time-warning">
                                 {t('marks.secondsLimit', { who: rowWho(row) })}
@@ -1393,6 +1432,10 @@ export default function MarkEntryPage() {
                               />
                               {outcomeSelect(row, draft)}
                             </div>
+                            {/* The target, and the server's own verdict when this
+                                row has a mark — see `standardNote`. A row with no
+                                mark is never below, so it reads as the target. */}
+                            {standardNote(row)}
                           </td>
                         )}
                         <td>

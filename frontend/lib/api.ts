@@ -388,6 +388,32 @@ export interface EventDTO {
   form?: string | '' | null;
   /** e.g. `Form 1`. The server's own label for `form`. */
   formLabel?: string;
+  /**
+   * The event's **required standard** — the qualifying mark an athlete must
+   * reach. Only the track races of 400M and over, and the field events, carry
+   * one; a sprint under 400M and a relay carry none.
+   *
+   * In the event's own unit: seconds on the track, metres in the field. A time
+   * meets it at or under, a distance at or over.
+   *
+   * On the way in, omitting it **leaves it alone** — several callers send partial
+   * bodies. To remove one, send `clearStandard: true`; a number cannot say
+   * "blank" the way `form` can.
+   */
+  standard?: number | null;
+  /** e.g. `64.123 s`. The standard with its unit. */
+  standardLabel?: string;
+  /** True to remove the standard, since an omitted number means "leave it alone". */
+  clearStandard?: boolean;
+  /**
+   * True when this event is one that carries a required standard at all: the
+   * track races of 400M and over, and every field event.
+   *
+   * Sent by the server rather than re-derived here, because the list of
+   * qualifying types lives in one place and a page that worked it out from type
+   * names would eventually disagree with the sheet and the mark grid.
+   */
+  carriesStandard?: boolean;
   /** Legs in a team — four for a 4x100M. */
   relayTeamSize?: number;
   /** True when a team may also name reserves past its legs. */
@@ -756,6 +782,21 @@ export interface MarkRowDTO {
    * A track row carries no list at all.
    */
   attempts?: Array<number | null>;
+  /**
+   * The event's **required standard**, in the event's own unit, or absent for an
+   * event that carries none — every sprint under 400M, and every relay. A sprint
+   * is not qualifying in this school's programme.
+   */
+  standard?: number;
+  /** e.g. `64.123 s`. The standard with its unit, for the row to show. */
+  standardLabel?: string;
+  /**
+   * True when this row's result fell short of the standard — worked out by the
+   * server from the mark and the standard together, so the teacher types nothing
+   * and cannot forget or mis-set it. A row with no mark, and an event with no
+   * standard, are never below: a blank is not a failure.
+   */
+  belowStandard?: boolean;
   notes?: string;
   /**
    * What is recorded for this athlete: `RESULT` when a mark was produced, `ABS`

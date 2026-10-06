@@ -289,6 +289,12 @@ public class MarkEntryService {
                     .resultId(result != null ? result.getId() : null)
                     .mark(result != null ? result.getMark() : null)
                     .unit(result != null ? result.getUnit() : null)
+                    // A standard belongs to the row only when the event is one that
+                    // carries one, so a relay line and a sprint line never show one
+                    // — see `carriesAStandard`.
+                    .standard(carriesAStandard(event) ? event.getStandard() : null)
+                    .standardLabel(standardLabelOf(event))
+                    .belowStandard(isBelowStandard(event, result))
                     .notes(result != null ? result.getNotes() : null)
                     .outcome(result != null ? result.getOutcomeOrDefault().name() : null)
                     .newRecord(result != null && recordHolders.contains(result.getId()))
@@ -717,6 +723,46 @@ public class MarkEntryService {
         if (stage == EventStage.FINAL) {
             FinalStageGuard.requireDrawnFinal(event, eventGroupService.finalDrawn(event.getId()));
         }
+    }
+
+    // ------------------------------------------------------- the required standard
+
+    /**
+     * True when this event is one that may carry a required standard at all — the
+     * track races of 400M and over, and every field event.
+     *
+     * <p>Asked through {@link Event.EventType#carriesAStandard()}, the one place that
+     * answers it, so a relay or a sprint can never carry a standard onto the grid
+     * even if one were somehow left on the row: a relay is its own category and is
+     * run by team, so its line has no standard.</p>
+     */
+    private static boolean carriesAStandard(Event event) {
+        return event.getType() != null && event.getType().carriesAStandard();
+    }
+
+    /** The standard as the school reads it — {@code 64.123 s} — or null for none. */
+    private static String standardLabelOf(Event event) {
+        if (event.getStandard() == null || !carriesAStandard(event)) {
+            return null;
+        }
+        return event.getStandard().stripTrailingZeros().toPlainString()
+                + " " + event.getType().getDefaultUnit();
+    }
+
+    /**
+     * True when the result fell short of the event's required standard.
+     *
+     * <p>The direction is not decided here — {@link Event.EventType#meetsStandard}
+     * owns it, so the grid cannot disagree with the leaderboard about which way
+     * round "better" goes. An event with no standard, an event that carries none,
+     * or a row with no mark, is never below: a blank is not a failure.</p>
+     */
+    private static boolean isBelowStandard(Event event, EventResult result) {
+        if (!carriesAStandard(event)) {
+            return false;
+        }
+        return !event.getType().meetsStandard(
+                result != null ? result.getMark() : null, event.getStandard());
     }
 
     private Event requireEvent(Long eventId) {

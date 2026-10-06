@@ -62,6 +62,13 @@ public class EventGroupDTO {
      */
     private String recordDisplayMark;
 
+    /**
+     * The event's <strong>required standard</strong> with its unit - {@code 64.123 s}
+     * - or null for an event that carries none. Null prints no line at all, which is
+     * what keeps a sheet for an event without a standard exactly as it was.
+     */
+    private String standardLabel;
+
     /** Who holds the record, when that is known. Null for a record with no name. */
     private String recordHolderName;
 
