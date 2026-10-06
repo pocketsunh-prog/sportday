@@ -44,7 +44,9 @@ const en = {
   'nav.language': 'Language',
   'nav.teachers': 'Teacher accounts',
   'nav.helpStudents': 'Help a student',
-  'nav.relayEvents': 'Relay events',
+  /* The two relay families, each on its own page. */
+  'nav.relayFormEvents': 'Form class relays',
+  'nav.relayHouseEvents': 'Grade house relays',
 
   /* ---------------- common ---------------- */
   'common.loading': 'Loading…',
@@ -1295,9 +1297,27 @@ const en = {
     'This is the name the marking sheet and the mark grid are keyed on. Two teams of one race cannot share a name, and a name of more than 40 characters is refused.',
 
   /* ---------------- every relay event, and one-click teams ---------------- */
-  'relayEvents.title': 'Relay events',
-  'relayEvents.subtitle':
-    'Every relay event of the programme, and the two rules a relay’s teams can be made by. Pick a rule here and the teams are made for that event in one step; open the event’s board to place the runners.',
+  /*
+   * The relay programme is two families on two pages: the form class relays — one
+   * team per class of a form, Forms 1 to 6, filtered by form — and the grade house
+   * relays — one team per grade × house, Grades A to C, filtered by grade.
+   */
+  'relayEvents.formTitle': 'Form class relays',
+  'relayEvents.formSubtitle':
+    'The class relays: one team per class of the form the relay is scoped to — Forms 1 to 6, each class of that form across every grade. Filter by form to see one at a time, then press the rule on an event to make its teams.',
+  'relayEvents.houseTitle': 'Grade house relays',
+  'relayEvents.houseSubtitle':
+    'The house relays: one team per grade × house — Grades A to C. Filter by grade to see one at a time, then press the rule on an event to make its teams.',
+  'relayEvents.filterForm': 'Form:',
+  'relayEvents.filterGrade': 'Grade:',
+  'relayEvents.allForms': 'All forms',
+  'relayEvents.allGrades': 'All grades',
+  'relayEvents.groupNoForm': 'No form — the event’s own grade only',
+  'relayEvents.noFormRelays':
+    'No class relay is on the programme yet. Set a relay’s rule to “one team per class” here, and its Forms 1 to 6 teams are made from the register.',
+  'relayEvents.noHouseRelays':
+    'No house relay is on the programme yet. Set a relay’s rule to “one team per house” here, and its Grade A to C teams are made from the register.',
+  'relayEvents.filterEmpty': 'No relay of this family matches the filter.',
   'relayEvents.loading': 'Loading the relay events…',
   'relayEvents.loadFailed': 'Failed to load the relay events',
   'relayEvents.listTitle': 'The programme’s relay events',
@@ -1422,7 +1442,8 @@ const zh: Record<keyof typeof en, string> = {
   'nav.language': '語言',
   'nav.teachers': '教師帳戶',
   'nav.helpStudents': '協助學生報名',
-  'nav.relayEvents': '接力項目',
+  'nav.relayFormEvents': '班際接力',
+  'nav.relayHouseEvents': '社際接力',
 
   'common.loading': '載入中…',
   'common.saving': '儲存中…',
@@ -2503,9 +2524,22 @@ const zh: Record<keyof typeof en, string> = {
 
   /* ---------------- 教師前往接力編隊的入口 ---------------- */
   /* ---------------- every relay event, and one-click teams ---------------- */
-  'relayEvents.title': '接力項目',
-  'relayEvents.subtitle':
-    '本年度所有接力項目，以及接力隊的兩種編隊規則。在此選擇規則，即可為該項目一次編好隊伍；安排跑手請開啟該項目的接力隊伍編排頁。',
+  'relayEvents.formTitle': '班際接力',
+  'relayEvents.formSubtitle':
+    '班際接力：接力項目所屬年級的每班一隊 — 中一至中六，該年級各級別的班別都會成隊。可用年級篩選，逐個查看，然後在項目上按下編隊規則即可產生隊伍。',
+  'relayEvents.houseTitle': '社際接力',
+  'relayEvents.houseSubtitle':
+    '社際接力：每個組別 × 每社一隊 — A 至 C 組。可用組別篩選，逐個查看，然後在項目上按下編隊規則即可產生隊伍。',
+  'relayEvents.filterForm': '年級：',
+  'relayEvents.filterGrade': '組別：',
+  'relayEvents.allForms': '所有年級',
+  'relayEvents.allGrades': '所有組別',
+  'relayEvents.groupNoForm': '未設年級 — 只限本級',
+  'relayEvents.noFormRelays':
+    '本年度暫時未有班際接力項目。在此把某個接力的規則設為「每班一隊」，即會由名冊產生其中一至中六的隊伍。',
+  'relayEvents.noHouseRelays':
+    '本年度暫時未有社際接力項目。在此把某個接力的規則設為「每社一隊」，即會由名冊產生其 A 至 C 組的隊伍。',
+  'relayEvents.filterEmpty': '此類接力項目沒有符合篩選條件的項目。',
   'relayEvents.loading': '載入接力項目…',
   'relayEvents.loadFailed': '無法載入接力項目',
   'relayEvents.listTitle': '本年度接力項目',

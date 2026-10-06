@@ -100,10 +100,13 @@ export function Navbar() {
         { href: '/admin/events', key: 'nav.manageEvents', allowed: isAdmin },
         // Setting a required standard is ADMIN-only, exactly like the page.
         { href: '/admin/standards', key: 'nav.standards', allowed: isAdmin },
-        // The relay board serves ADMIN and TEACHER alike — the page calls the
-        // `/teacher/**` endpoint family for a teacher — so both are shown it. A
-        // manager is not, because that page admits administrators and teachers only.
-        { href: '/admin/relay-events', key: 'nav.relayEvents', allowed: canHelpStudents },
+        // The relay pages serve ADMIN and TEACHER alike — each calls the
+        // `/teacher/**` endpoint family for a teacher — so both are shown them. A
+        // manager is not, because those pages admit administrators and teachers
+        // only. Two links, because the relay programme is two families: the form
+        // class relays and the grade house ones, each with its own filter.
+        { href: '/admin/relay-events/form', key: 'nav.relayFormEvents', allowed: canHelpStudents },
+        { href: '/admin/relay-events/grade', key: 'nav.relayHouseEvents', allowed: canHelpStudents },
       ],
     },
     {
