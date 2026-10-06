@@ -89,7 +89,8 @@ export default function ChampionshipsPage() {
         <thead>
           <tr>
             <th>{t('championships.colRank')}</th>
-            <th>{t('championships.colAthlete')}</th>
+            {/* A relay's placings are its teams'. */}
+            <th>{event.relay ? t('relay.team') : t('championships.colAthlete')}</th>
             <th>{t('championships.colGrade')}</th>
             <th>{t('students.form')}</th>
             <th>{t('championships.colClass')}</th>
@@ -105,10 +106,15 @@ export default function ChampionshipsPage() {
               <tr key={`${event.eventId}-${placing.userId}-${placing.place}`}>
                 <td>{placingIcon(placing.place)}</td>
                 <td>
-                  {placing.name}
-                  <span className="muted" style={{ marginLeft: '0.4rem' }}>
-                    {placing.studentRef}
-                  </span>
+                  {/* A relay's placing is the TEAM's: the team's own name, and no
+                      student id — the runner the row hangs off is not the line's
+                      identity. An individual placing is unchanged. */}
+                  {placing.teamLabel || placing.name}
+                  {!placing.teamLabel && (
+                    <span className="muted" style={{ marginLeft: '0.4rem' }}>
+                      {placing.studentRef}
+                    </span>
+                  )}
                   {event.relay && (
                     <span className="badge badge-warn" style={{ marginLeft: '0.4rem' }}>
                       {t('championships.relay')}

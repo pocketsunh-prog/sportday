@@ -95,10 +95,21 @@ class ChampionServiceTest {
     }
 
     private EventResult result(Event event, long userId, String mark) {
+        return result(event, userId, mark, null);
+    }
+
+    /**
+     * A result that is a <strong>relay team's</strong> time when a team is named, and
+     * the anchor athlete's own mark when it is not. The runner is only the row's
+     * anchor — see {@code EventResult#relayTeam}.
+     */
+    private EventResult result(Event event, long userId, String mark,
+                               com.sportday.entity.RelayTeam team) {
         return EventResult.builder()
                 .id(userId * 100 + event.getId())
                 .user(rosters.get(userId).getUser())
                 .event(event)
+                .relayTeam(team)
                 .stage(EventStage.HEAT)
                 .mark(new BigDecimal(mark))
                 .unit(event.getType().getDefaultUnit())
@@ -218,6 +229,69 @@ class ChampionServiceTest {
         assertTrue(relayStandings.isRelay());
         assertEquals(30, relayStandings.getPlacings().get(0).getPoints());
         assertEquals(20, relayStandings.getPlacings().get(1).getPoints());
+    }
+
+    // ------------------------------------------------- a relay is named by its team
+
+    @Test
+    @DisplayName("a relay placing is named by the team, never by the runner it hangs off")
+    void relayPlacingsAreNamedByTheTeam() {
+        com.sportday.entity.RelayTeam green = com.sportday.entity.RelayTeam.builder()
+                .id(70L).teamKey("Green").label("C Grade Green").build();
+        com.sportday.entity.RelayTeam red = com.sportday.entity.RelayTeam.builder()
+                .id(71L).teamKey("Red").label("C Grade Red").build();
+        // 44.000 is the fastest, and it is the Red team's time — anchored on athlete 2.
+        when(resultRepository.findByEventIdAndStageOrderByMarkAsc(2L, EventStage.HEAT))
+                .thenReturn(List.of(result(relay, 1, "45.000", green),
+                        result(relay, 2, "44.000", red)));
+
+        var placings = standingsFor(2L).getPlacings();
+
+        assertEquals("C Grade Red", placings.get(0).getName(), "the team, not the runner");
+        assertEquals("C Grade Red", placings.get(0).getTeamLabel());
+        assertEquals(71L, placings.get(0).getTeamId());
+        assertEquals("C Grade Green", placings.get(1).getName());
+        // A team's line has no student id, grade, class or form: those belong to a
+        // person, exactly as the marking sheet and the mark grid leave them blank.
+        assertNull(placings.get(0).getStudentRef());
+        assertNull(placings.get(0).getGrade());
+        assertNull(placings.get(0).getClassName());
+        assertNull(placings.get(0).getForm());
+        // The house is kept: a relay's points count for a house, and always have.
+        assertEquals("Blue", placings.get(0).getHouse());
+        assertEquals(30, placings.get(0).getPoints());
+        assertEquals("0.44.000s", placings.get(0).getDisplayMark(),
+                "a relay's time reads in the school's own shape");
+    }
+
+    @Test
+    @DisplayName("a relay's placings still score for the house, and still not in the personal table")
+    void relayTeamPlacingsStillScoreForTheHouse() {
+        com.sportday.entity.RelayTeam red = com.sportday.entity.RelayTeam.builder()
+                .id(71L).teamKey("Red").label("C Grade Red").build();
+        when(resultRepository.findByEventIdAndStageOrderByMarkAsc(2L, EventStage.HEAT))
+                .thenReturn(List.of(result(relay, 1, "45.000"), result(relay, 2, "44.000", red)));
+
+        assertEquals(39, house("Blue").getPoints(), "9 for the 100M and 30 for the relay");
+        assertEquals(9, personal(2L).getPoints(), "the relay's points stay with the house");
+    }
+
+    @Test
+    @DisplayName("an individual event's placings are completely unchanged")
+    void individualPlacingsAreUnchanged() {
+        var placings = standingsFor(1L).getPlacings();
+
+        // The athlete's own name, student id, grade and class — and no team anywhere,
+        // so nothing that reads a placings table can mistake one for a relay line.
+        assertEquals("Athlete 2", placings.get(0).getName());
+        assertEquals("S0002", placings.get(0).getStudentRef());
+        assertEquals("B", placings.get(0).getGrade());
+        assertEquals("3A", placings.get(0).getClassName());
+        assertEquals("3", placings.get(0).getForm());
+        assertNull(placings.get(0).getTeamId());
+        assertNull(placings.get(0).getTeamLabel());
+        assertEquals("11.5s", placings.get(0).getDisplayMark(),
+                "a sprint reads as the seconds it is, trimmed of trailing zeros");
     }
 
     @Test

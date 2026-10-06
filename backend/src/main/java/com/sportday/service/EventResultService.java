@@ -29,6 +29,14 @@ public class EventResultService {
     private final EnrollmentRepository enrollmentRepository;
     private final RecordService recordService;
 
+    /**
+     * An event's results, in placings order.
+     *
+     * <p>Read inside a transaction: a row's athlete and, on a relay, the team its
+     * time belongs to are lazy associations, and a relay result is read by the
+     * team's name ({@link EventResultDTO#getTeamLabel()}).</p>
+     */
+    @Transactional(readOnly = true)
     public List<EventResultDTO> getResultsByEvent(Long eventId) {
         Set<Long> recordHolders = recordService.recordResultIds();
         return resultRepository.findByEventIdOrderByMarkAsc(eventId).stream()
@@ -44,6 +52,14 @@ public class EventResultService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * One athlete's own results — "what did this athlete run?".
+     *
+     * <p>An athlete who anchored a relay keeps that line, named by the athlete with
+     * the team's name beside it ({@link EventResultDTO#getTeamLabel()}), because the
+     * question here is about the person rather than about the race.</p>
+     */
+    @Transactional(readOnly = true)
     public List<EventResultDTO> getResultsByUser(Long userId) {
         Set<Long> recordHolders = recordService.recordResultIds();
         return resultRepository.findByUserId(userId).stream()

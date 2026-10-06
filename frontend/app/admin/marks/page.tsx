@@ -26,6 +26,14 @@ import {
 import { useAuth } from '@/lib/auth';
 import { EventFilters } from '@/components/EventFilters';
 import type { EventFilterControl } from '@/components/EventFilters';
+import { resultMark } from '@/lib/format';
+import {
+  canonicalStopwatchTime,
+  formatStopwatchTime,
+  parseStopwatchTime,
+  STOPWATCH_EXAMPLE,
+  STOPWATCH_SHAPE,
+} from '@/lib/stopwatch';
 import { useI18n } from '@/lib/i18n';
 import { classText, formText, houseText } from '@/lib/students';
 
@@ -43,24 +51,24 @@ const SEX_CODE: Record<EventSex, SexCode> = { MALE: 'M', FEMALE: 'F' };
 type DraftOutcome = '' | MarkOutcome;
 
 /**
- * The seconds part of a stopped time has to sit under a whole minute: 2 minutes
- * 15 seconds is 2 and 15, never 1 and 75. The server refuses the row outright,
- * so it is caught here first and only ever confirmed by the server's own words.
+ * The shape a stopwatch time is written in — minutes, seconds and milliseconds —
+ * and the grammar that reads it back. Both live in `lib/stopwatch.ts`, so the box
+ * the grid draws and the check it makes before sending speak the same language:
+ * `1.04.123`, `0.48.123`, `48.123` (no minute part, so seconds and milliseconds).
+ * The server parses the same text with its own copy of the grammar and refuses a
+ * malformed time rather than reading it as a number.
  */
-const TIME_SECONDS_MAX = 60;
 
 /** What the user has typed for one athlete.
  *
  *  Marks stay strings while editing so partial input such as `8.` or `12.` is
  *  never clobbered. A field row is typed into `attempts` (a miss is left blank);
- *  a track row is typed into the single `mark`, and a race over 400M into the
- *  `minutes` and `seconds` boxes that stand in for it. */
+ *  a track row is typed into the single `mark`, and a race timed on a stopwatch
+ *  into the single `time` box. */
 interface MarkDraft {
   mark: string;
-  /** Whole minutes of a race over 400M, as typed. */
-  minutes: string;
-  /** The seconds left over after those minutes, as typed. */
-  seconds: string;
+  /** A stopwatch time as typed: `1.04.123`, `0.48.123`, `48.123`. */
+  time: string;
   attempts: string[];
   notes: string;
   clear: boolean;
@@ -86,29 +94,23 @@ function normaliseDecimal(raw: string): string {
     : trimmed.replace(',', '.');
 }
 
-/**
- * One number the way the user would retype it: `7.500` reads back as `7.5`, an
- * absent field as empty. Comparison only — `formatServer` holds what is shown.
- */
-function normaliseNumber(value: number | null | undefined): string {
-  return value === null || value === undefined ? '' : String(Number(value));
-}
-
 /** The single mark a track row arrived with, in the same shape as a draft. */
 function serverMark(row: MarkRowDTO): string {
   return row.mark === null || row.mark === undefined ? '' : String(row.mark);
 }
 
 /**
- * One of the two boxes a race over 400M is timed in — the whole minutes and the
- * seconds left over — seeded from the row. Both are blank when no mark is held.
+ * The stopwatch time a row arrived with, exactly as the box should show it.
+ *
+ * The server writes it (`row.time`) from the same shape the parser reads, so what
+ * is on screen is what the mark is. A row from a server that does not carry the
+ * text yet falls back to the parts that used to be drawn as two boxes; a row with
+ * no mark at all is blank.
  */
-function serverMinutes(row: MarkRowDTO): string {
-  return normaliseNumber(row.minutes);
-}
-
-function serverSeconds(row: MarkRowDTO): string {
-  return normaliseNumber(row.seconds);
+function serverTime(row: MarkRowDTO): string {
+  if (row.time !== undefined && row.time !== null) return row.time;
+  if (row.mark === null || row.mark === undefined) return '';
+  return formatStopwatchTime(row.mark);
 }
 
 /**
@@ -179,8 +181,7 @@ function draftFrom(row: MarkRowDTO, attemptCount: number): MarkDraft {
   if (attempts.length > 1 && !row.attempts?.length) attempts[0] = serverMark(row);
   return {
     mark: serverMark(row),
-    minutes: serverMinutes(row),
-    seconds: serverSeconds(row),
+    time: serverTime(row),
     attempts,
     notes: row.notes ?? '',
     clear: false,
@@ -189,46 +190,11 @@ function draftFrom(row: MarkRowDTO, attemptCount: number): MarkDraft {
 }
 
 /**
- * A lone comma is a decimal point in much of the world; accept it, and read an
- * empty box as `null` — the whole minutes of a stopped time are a whole number.
+ * What the time box holds for a row, as a draft: the box's own text when the row
+ * came from the server, blank when it holds no mark.
  */
-function draftMinutes(draft: MarkDraft): number | null {
-  const raw = draft.minutes.trim();
-  if (raw === '') return null;
-  const value = Number(normaliseDecimal(raw));
-  return Number.isFinite(value) ? value : null;
-}
-
-/** The seconds left over after the minutes, or `null` when the box is empty. */
-function draftSeconds(draft: MarkDraft): number | null {
-  const raw = draft.seconds.trim();
-  if (raw === '') return null;
-  const value = Number(normaliseDecimal(raw));
-  return Number.isFinite(value) ? value : null;
-}
-
-/** True when the seconds box holds 60 or more, which is not a real part of a time. */
-function secondsOutOfRange(draft: MarkDraft): boolean {
-  const seconds = draftSeconds(draft);
-  return seconds !== null && seconds >= TIME_SECONDS_MAX;
-}
-
-/**
- * A total in seconds the way a stopwatch reads it: `2:15` for 135. The `mark`
- * a result arrives with is always the total, so it is split here for display
- * only — `0:08` for a sprint is written `8.000` instead, which is what the
- * track has always printed.
- */
-function formatStoppedTime(total: number): string {
-  const minutes = Math.floor(total / 60);
-  const seconds = total - minutes * 60;
-  const parts = seconds.toFixed(3).split('.');
-  return `${minutes}:${parts[0].padStart(2, '0')}.${parts[1]}`;
-}
-
-/** One result mark: a stopped time for a race over 400M, the raw mark otherwise. */
-function resultMarkText(mark: number, minutesAndSeconds: boolean): string {
-  return minutesAndSeconds ? formatStoppedTime(mark) : String(mark);
+function draftTime(draft: MarkDraft): string {
+  return draft.time.trim();
 }
 
 /** The best of the attempts currently on screen, as typed, or `''` for none. */
@@ -277,7 +243,7 @@ function groupEvents(events: EventDTO[], heading: (event: EventDTO) => string): 
 
 export default function MarkEntryPage() {
   const { user, isLoading: authLoading } = useAuth();
-  const { t, label } = useI18n();
+  const { t, label, lang } = useI18n();
   const router = useRouter();
 
   const [events, setEvents] = useState<EventDTO[]>([]);
@@ -396,9 +362,9 @@ export default function MarkEntryPage() {
    */
   const fieldEvent = !!sheet?.fieldEvent;
   /**
-   * A race longer than 400M is timed on a stopwatch, so its one record box
-   * becomes the two boxes `minutes` and `seconds`. False on every other sheet,
-   * which keeps the single box exactly as it was.
+   * A race timed on a stopwatch — the 400M and over, and both relays — is written
+   * in the school's own shape, so its one record box takes `M.SS.mmm` in a single
+   * box. False on every other sheet, which keeps the box exactly as it was.
    */
   const timeInMinutes = !fieldEvent && !!sheet?.timeInMinutes;
   /*
@@ -423,11 +389,12 @@ export default function MarkEntryPage() {
   );
 
   /**
-   * The heading over the record column. A stopped time reads `M:S` — the two
-   * boxes are one value — and everything else carries the unit of the event
-   * itself, which is the unit its marks are saved in.
+   * The heading over the record column. A stopwatch time is written in the
+   * school's own shape — minutes, seconds and milliseconds — so the column says
+   * so; everything else carries the unit of the event itself, which is the unit
+   * its marks are saved in.
    */
-  const unitHeading = timeInMinutes ? t('unit.M:S') : label('unit', sheet?.defaultUnit);
+  const unitHeading = timeInMinutes ? t('marks.timeFormat') : label('unit', sheet?.defaultUnit);
 
   const dirty = useMemo(() => {
     if (!sheet) return Object.keys(drafts).length > 0;
@@ -443,10 +410,11 @@ export default function MarkEntryPage() {
         );
       }
       if (timeInMinutes) {
-        return (
-          normaliseDecimal(draft.minutes.trim()) !== serverMinutes(row) ||
-          normaliseDecimal(draft.seconds.trim()) !== serverSeconds(row)
-        );
+        // The same time written differently — `48.123` for a stored `0.48.123` — is
+        // not a change, so both sides are compared in the one shape. A box that is
+        // not a time at all is something the helper typed, so it counts as a change.
+        const typed = canonicalStopwatchTime(draft.time);
+        return typed === null ? draft.time.trim() !== '' : typed !== serverTime(row);
       }
       return draft.mark.trim() !== serverMark(row);
     });
@@ -461,17 +429,17 @@ export default function MarkEntryPage() {
   };
 
   /**
-   * Types into one of the two boxes of a stopped time. The two are one value, so
-   * a lone comma is accepted as a decimal point in either, and emptying both
-   * leaves the row with nothing typed — which is what clears the mark. Typing a
-   * number takes the row back off ABS / DQ: the time is the record again.
+   * Types into a stopwatch time. It is one value in one box, so a lone comma is
+   * accepted as a decimal point and emptying the box leaves the row with nothing
+   * typed — which is what clears the mark. Typing a time takes the row back off
+   * ABS / DQ: the time is the record again.
    */
-  const updateTime = (row: MarkRowDTO, part: 'minutes' | 'seconds', value: string) => {
+  const updateStopwatch = (row: MarkRowDTO, value: string) => {
     setDrafts(prev => ({
       ...prev,
       [row.userId]: {
         ...(prev[row.userId] ?? draftFrom(row, attemptCount)),
-        [part]: value,
+        time: value,
         outcome: '',
       },
     }));
@@ -511,8 +479,7 @@ export default function MarkEntryPage() {
           ...draft,
           outcome: next,
           mark: '',
-          minutes: '',
-          seconds: '',
+          time: '',
           attempts: draft.attempts.map(() => ''),
           clear: false,
         },
@@ -631,10 +598,12 @@ export default function MarkEntryPage() {
    * who had a mark clears the whole result, attempts included. The best attempt
    * is what the server stores in `mark`, so it is not sent separately.
    *
-   * A race over 400M is typed into minutes and seconds instead of one box, and
-   * is checked here before it is sent: the seconds part has to be under 60, or
-   * the server would refuse the row. Both empty boxes clear the mark, exactly as
-   * one empty box does on every other sheet.
+   * A race timed on a stopwatch is typed into one box in the school's own shape —
+   * `M.SS.mmm` — and is checked here before it is sent with the same grammar the
+   * box was drawn from (`lib/stopwatch.ts`). A time that is not a time is
+   * reported and the row is not sent, and the server refuses the very same text
+   * with its own copy of the grammar rather than reading it as a number. An empty
+   * box clears the mark, exactly as one empty box does on every other sheet.
    *
    * An athlete recorded as ABS or DQ is the one row with nothing to check: the
    * outcome is sent on its own, with no mark and no attempts, so it can never
@@ -733,15 +702,14 @@ export default function MarkEntryPage() {
         return;
       }
 
-      // A race over 400M is timed on a stopwatch, so the row carries the whole
-      // minutes and the seconds left over rather than one count of seconds. The
-      // seconds part is checked here so the helper is told before anything is
-      // sent; the server refuses the same row with the same words.
+      // A race timed on a stopwatch: one box, the school's own shape. The typed
+      // text is what travels — the server parses it with the same grammar — so a
+      // time that is not a time is named here rather than turned into a number,
+      // and an empty box clears the mark exactly as one empty box always has.
       if (timeInMinutes) {
-        const minutes = draftMinutes(draft);
-        const seconds = draftSeconds(draft);
+        const typed = draftTime(draft);
 
-        if (minutes === null && seconds === null) {
+        if (typed === '') {
           if (row && hasServerValue(row)) {
             rows.push({ ...entry, mark: null, clear: true });
           } else if (notes) {
@@ -750,21 +718,20 @@ export default function MarkEntryPage() {
           return;
         }
 
-        if (minutes !== null && minutes < 0) {
-          problems.push(tRef.current('marks.invalidMark', { who, value: draft.minutes.trim() }));
-          return;
-        }
-
-        if (seconds !== null && (seconds < 0 || seconds >= TIME_SECONDS_MAX)) {
-          problems.push(tRef.current('marks.secondsLimit', { who }));
+        const time = parseStopwatchTime(typed);
+        if (!time.ok) {
+          problems.push(
+            time.problem === 'seconds'
+              ? tRef.current('marks.timeSecondsLimit', { who })
+              : tRef.current('marks.timeBadShape', { who, value: typed })
+          );
           return;
         }
 
         rows.push({
           ...entry,
           outcome: 'RESULT',
-          minutes: minutes ?? 0,
-          seconds: seconds ?? 0,
+          time: typed,
           notes: notes || null,
         });
         return;
@@ -1281,7 +1248,7 @@ export default function MarkEntryPage() {
                         </th>
                       </>
                     ) : (
-                      /* A stopped time reads `M:S` — its two boxes are one value. */
+                      /* A stopwatch time is written `M.SS.mmm` — one box, one value. */
                       <th className="col-mark">
                         {t('marks.record')} ({unitHeading})
                       </th>
@@ -1304,6 +1271,13 @@ export default function MarkEntryPage() {
                      * cell blank. An athlete's line is rendered exactly as before.
                      */
                     const teamRow = isTeamRow(row);
+                    /*
+                     * What the stopwatch box holds, read with the one grammar the
+                     * box and the save both use — so the note under it is the same
+                     * wording a refused save would use, only sooner.
+                     */
+                    const typedTime = timeInMinutes ? draftTime(draft) : '';
+                    const timeParse = typedTime === '' ? null : parseStopwatchTime(typedTime);
                     return (
                       <tr key={row.userId} className={draft.clear ? 'cell-cleared' : undefined}>
                         <td>{teamRow ? '' : row.studentRef}</td>
@@ -1360,48 +1334,45 @@ export default function MarkEntryPage() {
                             </td>
                           </>
                         ) : timeInMinutes ? (
-                          /* One stopped time in two boxes: minutes, then the
-                             seconds left over. They sit inside the one cell and
-                             Tab runs M → S → the next athlete's M. */
+                          /* One stopwatch time in one box, in the school's own
+                             shape: minutes, seconds and milliseconds. What is in
+                             the box is exactly what the server reads back. */
                           <td className="col-mark">
                             <div className="marks-outcome">
-                              <div className="marks-time">
-                                <input
-                                  type="number"
-                                  min={0}
-                                  step={1}
-                                  inputMode="numeric"
-                                  className="marks-time-part"
-                                  value={draft.minutes}
-                                  placeholder={t('marks.minutesShort')}
-                                  aria-label={`${t('marks.minutes')} — ${rowWho(row)}`}
-                                  onChange={e => updateTime(row, 'minutes', e.target.value)}
-                                />
-                                <span className="marks-time-colon" aria-hidden="true">
-                                  :
-                                </span>
-                                <input
-                                  type="number"
-                                  min={0}
-                                  max={TIME_SECONDS_MAX - 1}
-                                  step="any"
-                                  inputMode="decimal"
-                                  className="marks-time-part"
-                                  value={draft.seconds}
-                                  placeholder={t('marks.secondsShort')}
-                                  aria-label={`${t('marks.seconds')} — ${rowWho(row)}`}
-                                  onChange={e => updateTime(row, 'seconds', e.target.value)}
-                                />
-                              </div>
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                className="marks-time"
+                                value={draft.time}
+                                placeholder={STOPWATCH_EXAMPLE}
+                                aria-label={`${t('marks.record')} (${STOPWATCH_SHAPE}) ${rowWho(row)}`}
+                                onChange={e => updateStopwatch(row, e.target.value)}
+                                onBlur={() => {
+                                  // Leaving the box tidies what was typed into the one
+                                  // shape — 1.4.123 becomes 1.04.123 — so the box and
+                                  // the stored mark cannot read two ways. A time that
+                                  // is not a time is left exactly as typed, for the
+                                  // helper to see and fix.
+                                  const canonical = canonicalStopwatchTime(draft.time);
+                                  if (canonical !== null && canonical !== draft.time) {
+                                    updateStopwatch(row, canonical);
+                                  }
+                                }}
+                              />
                               {outcomeSelect(row, draft)}
                             </div>
-                            {/* The 800M, the 1500M and the 5000M are three of the
-                                five track races that carry a standard, so their
-                                stopped-time cell carries the note too. */}
+                            {/* The 400M and over are the track races that carry a
+                                standard, so their stopwatch cell carries the note
+                                too. */}
                             {standardNote(row)}
-                            {secondsOutOfRange(draft) && (
+                            {timeParse && !timeParse.ok && (
                               <span className="marks-time-warning">
-                                {t('marks.secondsLimit', { who: rowWho(row) })}
+                                {timeParse.problem === 'seconds'
+                                  ? t('marks.timeSecondsLimit', { who: rowWho(row) })
+                                  : t('marks.timeBadShape', {
+                                      who: rowWho(row),
+                                      value: typedTime,
+                                    })}
                               </span>
                             )}
                           </td>
@@ -1523,13 +1494,31 @@ export default function MarkEntryPage() {
                      */
                     const line = athletes.get(entry.userId);
                     const teamLine = !!line && isTeamRow(line);
+                    /*
+                     * The mark reads here exactly as it reads on the results page:
+                     * the server's own `displayMark`, which is the school's shape
+                     * for a race timed on a stopwatch — `1.04.123s`, `0.48.123s` —
+                     * and the seconds it is for a sprint. One shape, one place.
+                     */
+                    const mark = resultMark(
+                      entry.displayMark,
+                      entry.mark,
+                      entry.unit,
+                      lang,
+                      label
+                    );
                     return (
                       <tr key={entry.id}>
                         <td>{outcome ? '–' : index + 1}</td>
                         <td>{teamLine ? '' : line?.studentRef ?? entry.username}</td>
                         <td>{teamLine ? line?.teamLabel ?? entry.fullName : line?.name ?? entry.fullName}</td>
                         <td>
-                          {outcome || resultMarkText(entry.mark, timeInMinutes)}
+                          {outcome || (
+                            <>
+                              <strong>{mark.value}</strong>
+                              {mark.suffix}
+                            </>
+                          )}
                           {/* The attempts behind a field mark, so the marker can
                               see how the best was arrived at. */}
                           {!outcome && formatAttempts(entry.attempts) && (

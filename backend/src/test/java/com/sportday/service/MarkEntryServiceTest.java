@@ -314,6 +314,135 @@ class MarkEntryServiceTest {
                 "an untouched row keeps whatever is stored");
     }
 
+    // ------------------------------------------------- the one time box
+
+    @Test
+    @DisplayName("a time typed as M.SS.mmm is stored as the total in seconds")
+    void aTypedTimeIsStoredAsSeconds() {
+        var result = service.saveMarks(EIGHT_HUNDRED_ID, oneRow(BulkMarkRequest.Entry.builder()
+                .userId(ATHLETE)
+                .time("2.15.500")
+                .build()));
+
+        assertEquals(1, result.getSaved());
+        assertEquals(0, result.getFailed());
+        var saved = org.mockito.ArgumentCaptor.forClass(EventResult.class);
+        verify(resultRepository).save(saved.capture());
+        assertEquals(0, new BigDecimal("135.500").compareTo(saved.getValue().getMark()));
+        assertEquals("s", saved.getValue().getUnit(), "the event decides the unit");
+    }
+
+    @Test
+    @DisplayName("a time with no minute part is seconds, exactly as the box says")
+    void aTimeWithNoMinutePartIsSeconds() {
+        var result = service.saveMarks(EIGHT_HUNDRED_ID, oneRow(BulkMarkRequest.Entry.builder()
+                .userId(ATHLETE)
+                .time("48.123")
+                .build()));
+
+        assertEquals(1, result.getSaved());
+        var saved = org.mockito.ArgumentCaptor.forClass(EventResult.class);
+        verify(resultRepository).save(saved.capture());
+        assertEquals(0, new BigDecimal("48.123").compareTo(saved.getValue().getMark()),
+                "48.123 means 48.123 seconds — there is no minute part to read it as");
+    }
+
+    @Test
+    @DisplayName("a malformed time is refused outright, not read as a number")
+    void aMalformedTimeIsRefused() {
+        // 1 minute 75 seconds is how somebody mistypes 2:15. Read as a number it
+        // would be a plausible 2:15 that nobody wrote, so it is refused instead.
+        var result = service.saveMarks(EIGHT_HUNDRED_ID, oneRow(BulkMarkRequest.Entry.builder()
+                .userId(ATHLETE)
+                .time("1.75.000")
+                .build()));
+
+        assertEquals(1, result.getFailed());
+        assertEquals(0, result.getSaved());
+        assertEquals(Long.valueOf(ATHLETE), result.getErrors().get(0).getUserId());
+        assertTrue(result.getErrors().get(0).getMessage().contains("under 60"),
+                result.getErrors().get(0).getMessage());
+        verify(resultRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("a time that is not a time at all is refused, naming the shape")
+    void nonsenseIsRefusedWithTheShape() {
+        var result = service.saveMarks(EIGHT_HUNDRED_ID, oneRow(BulkMarkRequest.Entry.builder()
+                .userId(ATHLETE)
+                .time("2.15.500s")
+                .build()));
+
+        assertEquals(1, result.getFailed());
+        assertEquals(0, result.getSaved());
+        String message = result.getErrors().get(0).getMessage();
+        assertTrue(message.contains("2.15.500s"), message);
+        assertTrue(message.contains(StopwatchTime.SHAPE), message);
+        verify(resultRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("a blank time box is still nothing recorded, not a refusal")
+    void aBlankTimeBoxIsLeftAlone() {
+        var result = service.saveMarks(EIGHT_HUNDRED_ID, oneRow(BulkMarkRequest.Entry.builder()
+                .userId(ATHLETE)
+                .time("   ")
+                .build()));
+
+        assertEquals(1, result.getSkipped());
+        assertEquals(0, result.getFailed());
+    }
+
+    @Test
+    @DisplayName("the grid hands the box the one time the mark is, as M.SS.mmm")
+    void theGridShowsTheTimeInTheShape() {
+        when(resultRepository.findByEventIdAndStageOrderByMarkAsc(EIGHT_HUNDRED_ID, EventStage.HEAT))
+                .thenReturn(List.of(EventResult.builder()
+                        .id(7L).user(user(ATHLETE)).event(eightHundred).stage(EventStage.HEAT)
+                        .mark(new BigDecimal("135.500")).unit("s")
+                        .build()));
+        when(studentRepository.findWithUserByUserIdIn(any())).thenReturn(List.of());
+
+        MarkRowDTO row = service.getMarkSheet(EIGHT_HUNDRED_ID, null, null, EventStage.HEAT)
+                .getRows().get(0);
+
+        assertEquals("2.15.500", row.getTime(),
+                "what the box shows is exactly what the server parses back");
+        assertEquals(0, StopwatchTime.parse(row.getTime()).compareTo(row.getMark()));
+        // The 400M rows read the same way, with the leading zero minute.
+        assertEquals("0.48.123", StopwatchTime.format(new BigDecimal("48.123")));
+    }
+
+    @Test
+    @DisplayName("an event that is not timed on a stopwatch carries no time text")
+    void aShotPutHasNoStopwatchText() {
+        when(resultRepository.findByEventIdAndStageOrderByMarkAsc(SHOT_ID, EventStage.HEAT))
+                .thenReturn(List.of(EventResult.builder()
+                        .id(7L).user(user(ATHLETE)).event(shotPut).stage(EventStage.HEAT)
+                        .mark(new BigDecimal("62.400")).unit("M")
+                        .build()));
+        when(studentRepository.findWithUserByUserIdIn(any())).thenReturn(List.of());
+
+        MarkRowDTO row = service.getMarkSheet(SHOT_ID, null, null, EventStage.HEAT).getRows().get(0);
+
+        assertNull(row.getTime(), "62.4 metres is not a stopped time");
+    }
+
+    @Test
+    @DisplayName("the two-box shape an older client still sends is read too")
+    void theTwoBoxShapeStillSaves() {
+        var result = service.saveMarks(EIGHT_HUNDRED_ID, oneRow(BulkMarkRequest.Entry.builder()
+                .userId(ATHLETE)
+                .minutes(2)
+                .seconds(new BigDecimal("15.5"))
+                .build()));
+
+        assertEquals(1, result.getSaved());
+        var saved = org.mockito.ArgumentCaptor.forClass(EventResult.class);
+        verify(resultRepository).save(saved.capture());
+        assertEquals(0, new BigDecimal("135.5").compareTo(saved.getValue().getMark()));
+    }
+
     // ---------------------------------------------------------- read back
 
     @Test

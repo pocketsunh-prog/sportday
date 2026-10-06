@@ -81,20 +81,26 @@ class EventFinalFormatTest {
     }
 
     @Test
-    @DisplayName("a race over 400M is timed in minutes and seconds")
+    @DisplayName("the 400M and over, and both relays, are timed in minutes and seconds")
     void longRacesAreTimedInMinutes() {
+        assertTrue(event(Event.EventType.RUN_400M, null).usesMinutesAndSeconds());
+        assertTrue(event(Event.EventType.HURDLES_400M, null).usesMinutesAndSeconds());
         assertTrue(event(Event.EventType.RUN_800M, null).usesMinutesAndSeconds());
         assertTrue(event(Event.EventType.RUN_1500M, null).usesMinutesAndSeconds());
         assertTrue(event(Event.EventType.RUN_5000M, null).usesMinutesAndSeconds());
+        // A relay is run and timed exactly like the race it is.
+        assertTrue(event(Event.EventType.RELAY_4X100M, null).usesMinutesAndSeconds());
+        assertTrue(event(Event.EventType.RELAY_4X400M, null).usesMinutesAndSeconds());
     }
 
     @ParameterizedTest
     @EnumSource(value = Event.EventType.class,
-            names = {"RUN_800M", "RUN_1500M", "RUN_5000M"},
+            names = {"RUN_400M", "HURDLES_400M", "RUN_800M", "RUN_1500M", "RUN_5000M",
+                    "RELAY_4X100M", "RELAY_4X400M"},
             mode = EnumSource.Mode.EXCLUDE)
-    @DisplayName("400M and below, and every field event, is not")
+    @DisplayName("200M and below, the short hurdles, and every field event, is not")
     void shortRacesAndFieldEventsAreNot(Event.EventType type) {
         assertFalse(event(type, null).usesMinutesAndSeconds(),
-                type + " is recorded as a plain number");
+                type + " is recorded as a plain number of seconds");
     }
 }

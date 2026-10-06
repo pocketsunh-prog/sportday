@@ -234,14 +234,20 @@ public class RelayTeamService {
         // above and the applicant list below, which needs to know who is already on
         // one. A query per applicant is exactly what this avoids.
         List<RelayTeamMember> members = relayTeamMemberRepository.findForEventWithUser(event.getId());
+        // And the class scope once for the whole page too: the applicant list and the
+        // runners each team may still be given are filtered by the same rule. The
+        // register those runners come from is read once as well, and shared with the
+        // teams below.
+        Set<String> mayActFor = mayActFor();
+        List<Student> pool = relayPool(event);
         // A relay with no kind is undivided and derives no teams, and none are
         // invented here. It may still have teams made by hand, though — a teacher can
         // build one out of chosen applicants without the event ever being divided —
         // and those are reported, because they are really there and the page has to
         // be able to show and fill them. The applicants are the applicants either
         // way: the page needs them to decide whether this relay can be grouped at all.
-        return RelayEventTeamsDTO.of(event, describe(event, teams, members),
-                applicantsFor(event, members));
+        return RelayEventTeamsDTO.of(event, describe(event, teams, members, mayActFor, pool),
+                applicantsFor(event, members, mayActFor));
     }
 
     // ============================================================ the applicants
@@ -272,7 +278,17 @@ public class RelayTeamService {
      *
      * @param members the event's legs, already read, to find who is placed
      */
-    private List<RelayApplicantDTO> applicantsFor(Event event, List<RelayTeamMember> members) {
+    /**
+     * The classes the signed-in caller may act for, asked <strong>once per page</strong>
+     * — the applicant list and the runners a team may still be given are filtered by
+     * the same rule, so asking twice would be two queries for one answer.
+     */
+    private Set<String> mayActFor() {
+        return new LinkedHashSet<>(teacherClassService.classesMayActFor());
+    }
+
+    private List<RelayApplicantDTO> applicantsFor(Event event, List<RelayTeamMember> members,
+                                                  Set<String> mayActFor) {
         if (event.getId() == null) {
             return List.of();
         }
@@ -282,15 +298,7 @@ public class RelayTeamService {
             return List.of();
         }
 
-        Map<Long, RelayTeam> teamByUser = new HashMap<>();
-        for (RelayTeamMember member : members) {
-            if (member.getUser() != null && member.getUser().getId() != null
-                    && member.getTeam() != null) {
-                // One leg per athlete per event, so first-wins and last-wins are the
-                // same answer; the entries are kept in case that ever stops being true.
-                teamByUser.putIfAbsent(member.getUser().getId(), member.getTeam());
-            }
-        }
+        Map<Long, RelayTeam> teamByUser = teamByUser(members);
 
         Set<Long> userIds = new LinkedHashSet<>();
         for (Enrollment entry : entries) {
@@ -307,7 +315,6 @@ public class RelayTeamService {
             }
         }
 
-        Set<String> mayActFor = new LinkedHashSet<>(teacherClassService.classesMayActFor());
         List<RelayApplicantDTO> applicants = new ArrayList<>(entries.size());
         for (Enrollment entry : entries) {
             if (entry.getUser() == null || entry.getUser().getId() == null) {
@@ -344,6 +351,26 @@ public class RelayTeamService {
         }
         applicants.sort(APPLICANT_ORDER);
         return applicants;
+    }
+
+    /**
+     * Which team of this event each athlete already runs for, by user id — read from
+     * the legs the board has already loaded.
+     *
+     * <p>One leg per athlete per event, so first-wins and last-wins are the same
+     * answer; the entries are kept in case that ever stops being true. It answers two
+     * questions at once: whether an applicant is placed, and whether a student the
+     * register offers a team can still be added to it.</p>
+     */
+    private static Map<Long, RelayTeam> teamByUser(List<RelayTeamMember> members) {
+        Map<Long, RelayTeam> teamByUser = new HashMap<>();
+        for (RelayTeamMember member : members) {
+            if (member.getUser() != null && member.getUser().getId() != null
+                    && member.getTeam() != null) {
+                teamByUser.putIfAbsent(member.getUser().getId(), member.getTeam());
+            }
+        }
+        return teamByUser;
     }
 
     /**
@@ -423,9 +450,10 @@ public class RelayTeamService {
                     + "teams cannot be derived from the register.");
         }
 
-        List<Student> candidates = event.isFormScoped()
-                ? studentRepository.findActiveBySexAndForm(event.getSex(), event.getForm().trim())
-                : studentRepository.findActiveBySexAndGrade(event.getSex(), event.getGrade());
+        List<Student> candidates = relayPool(event);
+        // The board this returns carries the runners each team may still be given, so
+        // the page after a derive offers them without a second read.
+        Set<String> mayActFor = mayActFor();
 
         // The teams the roster calls for: one key per class, or per house, that the
         // event's own scope — its form, or its grade — and division actually contains.
@@ -517,8 +545,9 @@ public class RelayTeamService {
                 .pruned(pruned)
                 .keptWithRunners(keptWithRunners)
                 .eligibleStudents(candidates.size())
-                .board(RelayEventTeamsDTO.of(event, describe(event, after, afterMembers),
-                        applicantsFor(event, afterMembers)))
+                .board(RelayEventTeamsDTO.of(event,
+                        describe(event, after, afterMembers, mayActFor, candidates),
+                        applicantsFor(event, afterMembers, mayActFor)))
                 .build();
     }
 
@@ -1692,7 +1721,8 @@ public class RelayTeamService {
     }
 
     private List<RelayTeamDTO> describe(Event event, List<RelayTeam> teams,
-                                        List<RelayTeamMember> all) {
+                                        List<RelayTeamMember> all, Set<String> mayActFor,
+                                        List<Student> pool) {
         List<RelayTeam> ordered = new ArrayList<>(teams);
         ordered.sort(TEAM_ORDER);
 
@@ -1702,13 +1732,117 @@ public class RelayTeamService {
             byTeam.computeIfAbsent(teamId, key -> new ArrayList<>()).add(member);
         }
         Map<Long, Student> rosters = rostersFor(all);
+        Map<String, List<RelayApplicantDTO>> candidates =
+                candidatesByTeamKey(event, all, mayActFor, pool);
 
         List<RelayTeamDTO> described = new ArrayList<>(ordered.size());
         for (RelayTeam team : ordered) {
+            // A team made by hand is no class's and no house's, so the register offers
+            // it nobody and it keeps the empty list: it is filled through the tick list
+            // and the create form instead.
+            List<RelayApplicantDTO> forThisTeam = team.getKind() == null
+                    ? List.of()
+                    : candidates.getOrDefault(team.getTeamKey(), List.of());
             described.add(RelayTeamDTO.from(team,
-                    byTeam.getOrDefault(team.getId(), List.of()), rosters));
+                    byTeam.getOrDefault(team.getId(), List.of()), rosters, forThisTeam));
         }
         return described;
+    }
+
+    /**
+     * The students the register offers each derived team of this event, by the team's
+     * key — a class ({@code 1A}) or a house ({@code Red}) — with everyone already
+     * running in the event left out.
+     *
+     * <p><strong>The pool is the one a derive draws from</strong>, so the board offers
+     * exactly what a re-derive could place: the event's own scope, its form across
+     * grades or its grade, in its division, read through
+     * {@link #teamKeyOf(RelayTeamKind, Student)} — the same two calls
+     * {@link #deriveTeams(Long, boolean)} makes. A student already on a team of this
+     * event is not offered: one leg each, so they are nothing to add.</p>
+     *
+     * <p>This is what the board's "add a runner" list is built from, and it is why a
+     * runner who has just been <strong>removed</strong> from a team appears on it
+     * again. It is deliberately not the event's list of applicants: a form relay's
+     * teams are one per class of that form, filled from the register, and the students
+     * running in it need never have entered it.</p>
+     *
+     * <p>Empty — and free — for an event that is not divided, and for one whose scope
+     * or division is not set, because there is no group to offer anybody for. One
+     * query for the register and one for the caller's classes, whatever the number of
+     * teams.</p>
+     */
+    private Map<String, List<RelayApplicantDTO>> candidatesByTeamKey(
+            Event event, List<RelayTeamMember> members, Set<String> mayActFor,
+            List<Student> pool) {
+        RelayTeamKind kind = event.getRelayTeamKind();
+        if (kind == null || pool.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<Long, RelayTeam> placed = teamByUser(members);
+        Map<String, List<RelayApplicantDTO>> byKey = new LinkedHashMap<>();
+        for (Student student : pool) {
+            if (student.getUser() == null || student.getUser().getId() == null) {
+                continue;
+            }
+            if (placed.containsKey(student.getUser().getId())) {
+                // Already running in this event, so there is no leg to give them.
+                continue;
+            }
+            if (!mayActFor.contains(StudentPasswordPolicy.normalizeClass(student.getClassName()))) {
+                // Outside the caller's classes: the add would be refused, so the board
+                // does not offer them either.
+                continue;
+            }
+            String key = teamKeyOf(kind, student);
+            if (key == null) {
+                continue;
+            }
+            byKey.computeIfAbsent(key, ignored -> new ArrayList<>()).add(candidateFrom(student));
+        }
+        for (List<RelayApplicantDTO> candidates : byKey.values()) {
+            // The register's own reading order, the same one the applicant list uses.
+            candidates.sort(APPLICANT_ORDER);
+        }
+        return byKey;
+    }
+
+    /**
+     * The register a divided relay's teams are drawn from — the event's form across
+     * grades, or its grade — or none when there is nothing to draw from: an event that
+     * has not been divided has no group to offer anybody for, and one without a
+     * division or a scope cannot be read.
+     *
+     * <p>One query, asked by the derive for the teams it makes and by the board for the
+     * runners each team may still be given, so a page costs one read of the register
+     * however many teams it shows.</p>
+     */
+    private List<Student> relayPool(Event event) {
+        if (event.getRelayTeamKind() == null || event.getSex() == null
+                || (!event.isFormScoped() && event.getGrade() == null)) {
+            return List.of();
+        }
+        return event.isFormScoped()
+                ? studentRepository.findActiveBySexAndForm(event.getSex(), event.getForm().trim())
+                : studentRepository.findActiveBySexAndGrade(event.getSex(), event.getGrade());
+    }
+
+    /** One student the register offers a team, in the shape the board renders. */
+    private static RelayApplicantDTO candidateFrom(Student student) {
+        return RelayApplicantDTO.builder()
+                .userId(student.getUser() == null ? null : student.getUser().getId())
+                .studentRef(student.getStudentId())
+                .name(student.getName())
+                .form(student.getForm())
+                .className(student.getClassName())
+                .classNumber(student.getClassNumber())
+                .classLabel(student.getClassLabel())
+                .house(student.getHouse())
+                .houseCode(student.getHouseCode())
+                // A candidate is by definition on no team of this event.
+                .placed(false)
+                .build();
     }
 
     private Map<Long, Student> rostersFor(List<RelayTeamMember> members) {

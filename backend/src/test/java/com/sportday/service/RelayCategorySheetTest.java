@@ -95,11 +95,15 @@ class RelayCategorySheetTest {
         assertEquals(7, PdfSheetService.columnCount(field),
                 "a field sheet's three attempts are the shape a relay must not take");
 
-        assertEquals(Event.EventType.UNIT_TRACK, PdfSheetService.unitFor(relay),
-                "a relay's marks are seconds");
-        assertEquals(Event.EventType.UNIT_TRACK, PdfSheetService.unitFor(relayGroup("TRACK", twoTeams())),
-                "and it stays seconds on a row that has not been migrated yet");
-        assertEquals(Event.EventType.UNIT_FIELD, PdfSheetService.unitFor(field));
+        assertEquals(StopwatchTime.SHAPE, PdfSheetService.unitFor(relay),
+                "a relay is timed the school's way: minutes, seconds and milliseconds");
+        assertEquals(StopwatchTime.SHAPE, PdfSheetService.unitFor(relayGroup("TRACK", twoTeams())),
+                "and a row that has not been migrated yet is headed the same way");
+        // The heading follows the EVENT TYPE, which on this odd fixture still says
+        // RELAY_4X100M even though the category was forced to FIELD: a 4x100M is a
+        // stopwatch race, so its Record heading is the shape it is timed in. What the
+        // FIELD category decides here is the layout — three attempt boxes, not one.
+        assertEquals(StopwatchTime.SHAPE, PdfSheetService.unitFor(field));
     }
 
     @Test

@@ -411,7 +411,9 @@ export default function ResultsPage() {
                 <thead>
                   <tr>
                     <th>{t('marks.rank')}</th>
-                    <th>{t('results.athlete')}</th>
+                    {/* A relay's line is a team's, so the column it is named in
+                        says `Team` there — the same wording the mark grid uses. */}
+                    <th>{selected?.relay ? t('relay.team') : t('results.athlete')}</th>
                     <th>{t('results.result')}</th>
                     <th>{t('results.notes')}</th>
                     <th>{t('events.date')}</th>
@@ -443,7 +445,12 @@ export default function ResultsPage() {
                                   ? '🥉'
                                   : idx + 1}
                         </td>
-                        <td>{result.fullName || result.username}</td>
+                        <td>
+                          {/* A relay is run and scored by team, so its row is named
+                              by the team; an individual row is named by the athlete
+                              exactly as it always was. */}
+                          {result.teamLabel || result.fullName || result.username}
+                        </td>
                         <td>
                           <strong>{mark.value}</strong>
                           {mark.suffix}
@@ -616,7 +623,8 @@ export default function ResultsPage() {
                   <thead>
                     <tr>
                       <th>{t('results.place')}</th>
-                      <th>{t('results.athlete')}</th>
+                      {/* The placings of a relay are its teams'. */}
+                      <th>{standings.relay ? t('relay.team') : t('results.athlete')}</th>
                       <th>{t('championships.colGrade')}</th>
                       <th>{t('students.form')}</th>
                       <th>{t('championships.colClass')}</th>
@@ -653,10 +661,15 @@ export default function ResultsPage() {
                                     : placing.place}
                           </td>
                           <td>
-                            {placing.name}
-                            <span className="muted" style={{ marginLeft: '0.4rem' }}>
-                              {placing.studentRef}
-                            </span>
+                            {/* On a relay the placing is the team's: the team's own
+                                name, and no student id — the same blank the marking
+                                sheet and the mark grid leave on a team line. */}
+                            {placing.teamLabel || placing.name}
+                            {!placing.teamLabel && (
+                              <span className="muted" style={{ marginLeft: '0.4rem' }}>
+                                {placing.studentRef}
+                              </span>
+                            )}
                           </td>
                           <td>{label('grade.short', placing.grade)}</td>
                           <td>{formText(placing, t)}</td>

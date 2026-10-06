@@ -2,6 +2,7 @@ package com.sportday.service;
 
 import com.sportday.dto.RelayApplicantDTO;
 import com.sportday.dto.RelayEventTeamsDTO;
+import com.sportday.dto.RelayTeamDTO;
 import com.sportday.entity.Enrollment;
 import com.sportday.entity.Event;
 import com.sportday.entity.EventCategory;
@@ -96,6 +97,7 @@ class RelayApplicantListTest {
     private User teacher;
     private Student oneAFirst;
     private Student oneASecond;
+    private Student oneAThird;
     private Student oneB;
     private Student tenB;
 
@@ -119,6 +121,7 @@ class RelayApplicantListTest {
         // the names sort.
         oneAFirst = student(11L, "S0011", "Chan Tai Man", "1A", 1, "Red");
         oneASecond = student(12L, "S0012", "Chao Mei Ling", "1A", 2, "Green");
+        oneAThird = student(16L, "S0016", "Yip Ho Yin", "1A", 3, "Red");
         oneB = student(13L, "S0013", "Lee Ka Yan", "1B", 1, " blue ");
         tenB = student(14L, "S0014", "Wong Siu Fung", "10B", 1, "Yellow");
 
@@ -220,6 +223,26 @@ class RelayApplicantListTest {
                 .distinct()
                 .sorted()
                 .toList());
+        // The register a team is offered runners from, filtered the way the queries
+        // filter it: by division and grade, or by division and form.
+        when(studentRepository.findActiveBySexAndGrade(any(), any())).thenAnswer(invocation -> {
+            Sex sex = invocation.getArgument(0);
+            Grade grade = invocation.getArgument(1);
+            return students.values().stream()
+                    .filter(roster -> roster.getSex() == sex && roster.getGrade() == grade)
+                    .toList();
+        });
+        when(studentRepository.findActiveBySexAndForm(any(), anyString())).thenAnswer(invocation -> {
+            Sex sex = invocation.getArgument(0);
+            String form = invocation.getArgument(1);
+            return students.values().stream()
+                    .filter(roster -> roster.getSex() == sex && form.equals(roster.getForm()))
+                    .toList();
+        });
+        when(relayTeamRepository.findById(anyLong())).thenAnswer(invocation -> {
+            Long teamId = invocation.getArgument(0);
+            return teams.stream().filter(team -> teamId.equals(team.getId())).findFirst();
+        });
         // The entries, filtered the way the query filters them: by event and by status.
         when(enrollmentRepository.findConfirmedWithUserByEvent(anyLong(), any())).thenAnswer(invocation -> {
             Long eventId = invocation.getArgument(0);
@@ -242,6 +265,138 @@ class RelayApplicantListTest {
         SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
                 caller.getUsername(), "n/a",
                 List.of(new SimpleGrantedAuthority("ROLE_" + caller.getRole().name()))));
+    }
+
+    // ============================================ the runners a team may still be given
+
+    /** One team's "add a runner" list, by team id. */
+    private static List<Long> candidatesOf(RelayEventTeamsDTO board, Long teamId) {
+        return board.getTeams().stream()
+                .filter(team -> teamId.equals(team.getId()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("no team " + teamId + " on the board"))
+                .getCandidates().stream()
+                .map(RelayApplicantDTO::getUserId)
+                .toList();
+    }
+
+    @Test
+    @DisplayName("a derived team is offered the register's students of its own class")
+    void aDerivedTeamIsOfferedItsOwnClass() {
+        signedInAs(admin);
+        RelayTeam oneATeam = team(1L, RelayTeamKind.FORM, "1A", "1A");
+        team(2L, RelayTeamKind.FORM, "1B", "1B");
+        // A team somebody made by hand: no class's and no house's, so the register
+        // offers it nobody and it is filled through the tick list instead.
+        teams.add(RelayTeam.builder().id(3L).event(event).teamKey("Mixed").label("Mixed")
+                .handMade(true).build());
+        // One 1A student runs for 1A, another for the hand-made team.
+        runs(oneATeam, oneAFirst, 1);
+        runs(teams.get(2), oneASecond, 1);
+
+        RelayEventTeamsDTO board = service.getBoard(EVENT_ID);
+
+        assertEquals(List.of(16L), candidatesOf(board, 1L),
+                "1A's own class, minus the two already running in this event");
+        assertEquals(List.of(13L), candidatesOf(board, 2L), "1B's own class");
+        assertTrue(candidatesOf(board, 3L).isEmpty(),
+                "a hand-made team is no class's, so nothing is offered for it");
+
+        // Every candidate is a student who is on no team yet, and carries the
+        // register's own facts so the list can be rendered without another lookup.
+        RelayApplicantDTO candidate = board.getTeams().stream()
+                .filter(team -> 1L == team.getId())
+                .findFirst().orElseThrow()
+                .getCandidates().get(0);
+        assertEquals("S0016", candidate.getStudentRef());
+        assertEquals("Yip Ho Yin", candidate.getName());
+        assertEquals("1A", candidate.getClassName());
+        assertEquals("Red", candidate.getHouse());
+        assertEquals(Boolean.FALSE, candidate.getPlaced());
+        assertNull(candidate.getTeamId(), "a candidate is on no team by construction");
+        assertNull(candidate.getTeamLabel());
+    }
+
+    @Test
+    @DisplayName("a form relay is offered its form's classes, not the students who entered")
+    void aFormRelayIsOfferedItsFormsClasses() {
+        signedInAs(admin);
+        // A Form 1 relay: teams 1A and 1B whatever grade their students are in. The
+        // entrants below are Form 5 and 6 students — the live shape of a relay that
+        // was entered before it was scoped to a form — and they can join no team.
+        event.setForm("1");
+        team(1L, RelayTeamKind.FORM, "1A", "1A");
+        team(2L, RelayTeamKind.FORM, "1B", "1B");
+        Student formFive = student(21L, "S0021", "Ng Ka Ho", "5A", 1, "Red");
+        entered(formFive, Enrollment.EnrollmentStatus.CONFIRMED);
+
+        RelayEventTeamsDTO board = service.getBoard(EVENT_ID);
+
+        assertEquals(List.of(21L), board.getApplicants().stream()
+                        .map(RelayApplicantDTO::getUserId).toList(),
+                "the applicant list is still the entrants");
+        assertEquals(List.of(11L, 12L, 16L), candidatesOf(board, 1L),
+                "1A is offered the register's Form 1 class 1A — nobody on a team yet");
+        assertEquals(List.of(13L), candidatesOf(board, 2L));
+        assertFalse(candidatesOf(board, 1L).contains(21L),
+                "a Form 5 entrant cannot run in a Form 1 relay and is offered no team");
+    }
+
+    @Test
+    @DisplayName("a runner removed from a team is offered back to it: Remove moves them to Add a runner")
+    void aRemovedRunnerIsOfferedBack() {
+        signedInAs(admin);
+        RelayTeam oneA = team(1L, RelayTeamKind.FORM, "1A", "1A");
+        RelayTeamMember first = runs(oneA, oneAFirst, 2);
+        runs(oneA, oneASecond, 3);
+        // The runner also entered the event, so both views of the board can be held to
+        // the same answer: placed before the removal, unplaced after it.
+        entered(oneAFirst, Enrollment.EnrollmentStatus.CONFIRMED);
+        when(relayTeamMemberRepository.findByTeamIdAndUserId(1L, 11L)).thenReturn(Optional.of(first));
+        when(studentRepository.findWithUserByUserId(11L)).thenReturn(Optional.of(oneAFirst));
+        // The mock repository must really forget the leg, as the delete does.
+        doAnswer(invocation -> {
+            members.remove(invocation.getArgument(0));
+            return null;
+        }).when(relayTeamMemberRepository).delete(any(RelayTeamMember.class));
+
+        // Before: only the third 1A student is unplaced, so that is all the team is
+        // offered, and the applicant list says the runner is on 1A.
+        assertEquals(List.of(16L), candidatesOf(service.getBoard(EVENT_ID), 1L));
+        RelayApplicantDTO placed = service.getBoard(EVENT_ID).getApplicants().get(0);
+        assertEquals(Boolean.TRUE, placed.getPlaced());
+        assertEquals("1A", placed.getTeamLabel());
+
+        service.removeRunner(1L, 11L);
+
+        // After: the runner is on no team, so the add-a-runner list offers them
+        // straight back — and the legs are closed up behind them.
+        assertEquals(List.of(11L, 16L), candidatesOf(service.getBoard(EVENT_ID), 1L),
+                "the removed runner is back in the team's Add a runner list");
+        RelayTeamDTO after = service.getBoard(EVENT_ID).getTeams().get(0);
+        assertEquals(1, after.getMembers().size());
+        assertEquals(12L, after.getMembers().get(0).getUserId());
+        assertEquals(1, after.getMembers().get(0).getLeg(), "leg 2 closes up to leg 1");
+        RelayApplicantDTO unplaced = service.getBoard(EVENT_ID).getApplicants().get(0);
+        assertEquals(Boolean.FALSE, unplaced.getPlaced(), "and the applicant list agrees");
+        assertNull(unplaced.getTeamId());
+    }
+
+    @Test
+    @DisplayName("a teacher is offered only the classes they may act for, and nobody else")
+    void aTeacherIsOfferedOnlyTheirOwnClasses() {
+        signedInAs(teacher);
+        when(teacherClassRepository.findClassNamesByUserIdOrderByClassNameAsc(TEACHER_ID))
+                .thenReturn(List.of("1A"));
+        team(1L, RelayTeamKind.FORM, "1A", "1A");
+        team(2L, RelayTeamKind.FORM, "1B", "1B");
+
+        RelayEventTeamsDTO board = service.getBoard(EVENT_ID);
+
+        assertEquals(List.of(11L, 12L, 16L), candidatesOf(board, 1L),
+                "the teacher's own class, everybody in it unplaced");
+        assertTrue(candidatesOf(board, 2L).isEmpty(),
+                "and nothing for a class they may not act for — the add would be refused");
     }
 
     // ============================================ who is an applicant, and what they carry

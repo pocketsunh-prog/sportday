@@ -37,6 +37,15 @@ public class EventRecordDTO {
     private BigDecimal mark;
     private String unit;
 
+    /**
+     * {@link #mark} as it reads, with its unit: {@code 14.123s} on a sprint,
+     * {@code 1.04.123s} on a race timed on a stopwatch (the 400M and over, and both
+     * relays), {@code 18.12M} in the field. A record shown beside a result must read
+     * the same way that result does, so this is written by the same
+     * {@code MarkFormatter} the results and the sheet use.
+     */
+    private String displayMark;
+
     /** {@code BASELINE}, {@code RESULT}, or {@code NONE} while the record is empty. */
     private String source;
 
@@ -63,6 +72,13 @@ public class EventRecordDTO {
     private LocalDate previousAchievedOn;
     private Boolean hasPrevious;
 
+    /**
+     * {@link #previousMark} as it reads, with its unit — the record that stood
+     * before this one. Written the same way {@link #displayMark} is, so the "what
+     * it beat" line reads in the same shape as the mark that beat it.
+     */
+    private String previousDisplayMark;
+
     private LocalDateTime updatedAt;
 
     public static EventRecordDTO from(EventRecord record, String holderStudentRef) {
@@ -79,6 +95,11 @@ public class EventRecordDTO {
                 .gradeLabel(record.getGrade() == null ? null : record.getGrade().getLabel())
                 .mark(record.getMark())
                 .unit(record.getUnit())
+                // The mark reads the way a result of the same event reads: the shape
+                // comes from the one formatter, so the records page and the results
+                // page cannot spell a 400M two ways.
+                .displayMark(com.sportday.service.MarkFormatter.formatWithUnit(
+                        record.getMark(), type, record.getUnit()))
                 .source(record.getSource().name())
                 .holderUserId(record.getHolder() == null ? null : record.getHolder().getId())
                 .holderStudentRef(holderStudentRef)
@@ -94,6 +115,8 @@ public class EventRecordDTO {
                 .previousHolderName(record.getPreviousHolderName())
                 .previousAchievedOn(record.getPreviousAchievedOn())
                 .hasPrevious(record.getHasPrevious())
+                .previousDisplayMark(com.sportday.service.MarkFormatter.formatWithUnit(
+                        record.getPreviousMark(), type, record.getUnit()))
                 .updatedAt(record.getUpdatedAt())
                 .build();
     }

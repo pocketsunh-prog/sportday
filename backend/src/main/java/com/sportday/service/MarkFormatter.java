@@ -17,17 +17,25 @@ import java.math.RoundingMode;
  * <pre>
  *   14.123   a 100M         14.123s      14.123秒
  *   64.123   a 400M         1.04.123s    1分04.123秒
+ *   48.123   a 4x100M       0.48.123s    0分48.123秒
  *   135.5    an 800M        2.15.500s    2分15.500秒
  *   18.12    a shot put     18.12M       18.12米
  * </pre>
  *
- * <p>A time under a minute is just the seconds. Over a minute it gains a minutes
- * part, with the seconds padded to two digits so the columns line up — {@code 1.04}
- * rather than {@code 1.4}, which would read as a tenth of a second. The separator is
- * a full stop throughout, matching how the school writes times on paper.</p>
+ * <p><strong>A race timed on a stopwatch — the 400M and over, and both relays —
+ * reads as {@code M.SS.mmm}</strong>, the shape the school writes: minutes,
+ * seconds, milliseconds, all three fields always there. Which races those are is
+ * {@link Event.EventType#usesMinutesAndSeconds()}, the one rule, and the shape
+ * itself is {@link StopwatchTime}, the one home of it — this class only decides
+ * <em>when</em> it applies. A time under a minute keeps its leading zero,
+ * {@code 0.48.123}, so the column reads as one shape from top to bottom.</p>
  *
- * <p>The number is trimmed of trailing zeros, so a mark entered as {@code 18.120}
- * reads back as {@code 18.12} and one entered as {@code 58} as {@code 58}.</p>
+ * <p><strong>A sprint is unchanged.</strong> A 60M, a 100M, a 200M and the short
+ * hurdles are timed in seconds alone — {@code 14.123} — and a field event reads in
+ * metres. For a mark with no event type to go on, the old rule still holds: the
+ * unit decides, and a time of a minute or more gains a minutes part with the
+ * seconds padded to two digits so the columns line up — {@code 1.04} rather than
+ * {@code 1.4}, which would read as a tenth of a second.</p>
  */
 public final class MarkFormatter {
 
@@ -51,6 +59,12 @@ public final class MarkFormatter {
     /**
      * The mark as it reads, with no unit: {@code 14.123}, {@code 1.04.123},
      * {@code 18.12}. Null in, null out.
+     *
+     * <p>A race timed on a stopwatch — 400M and over, and both relays — reads as
+     * {@code M.SS.mmm} through {@link StopwatchTime}, whatever the size of the mark.
+     * Everything else is unchanged: a short sprint is the seconds it was, trimmed of
+     * trailing zeros, and a time of a minute or more with no event type to go on
+     * keeps the old minutes-and-padded-seconds shape.</p>
      */
     public static String format(BigDecimal mark, Event.EventType type, String unit) {
         if (mark == null) {
@@ -62,7 +76,14 @@ public final class MarkFormatter {
         if (value.signum() < 0) {
             return value.toPlainString();
         }
-        if (!isTime(type, unit) || value.compareTo(SIXTY) < 0) {
+        if (!isTime(type, unit)) {
+            return value.toPlainString();
+        }
+        if (type != null && type.usesMinutesAndSeconds()) {
+            // The one shape the school writes a long race in: 0.48.123, 1.04.123.
+            return StopwatchTime.format(value);
+        }
+        if (value.compareTo(SIXTY) < 0) {
             return value.toPlainString();
         }
         BigDecimal[] split = value.divideAndRemainder(SIXTY);

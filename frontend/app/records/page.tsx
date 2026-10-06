@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { api, RecordDTO, RecordSource } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n';
-import { formatDate } from '@/lib/format';
+import { formatDate, resultMark } from '@/lib/format';
 
 type Grouping = 'category' | 'event';
 
@@ -67,7 +67,7 @@ function defaultUnit(record: RecordDTO): string {
 
 export default function RecordsPage() {
   const { user, isLoading } = useAuth();
-  const { t, label } = useI18n();
+  const { t, label, lang } = useI18n();
   const router = useRouter();
   const [records, setRecords] = useState<RecordDTO[]>([]);
   const [loading, setLoading] = useState(true);
@@ -335,6 +335,19 @@ export default function RecordsPage() {
                       record.manualMark !== undefined && record.manualMark !== null;
                     const editing = editingId === record.id;
                     const busy = savingId === record.id || clearingId === record.id;
+                    /*
+                     * The standing mark reads exactly as the result that set it
+                     * does — through the server's own displayMark, so a 400M reads
+                     * 1.04.123s here as it does on the results page and the sheet.
+                     * The mark an administrator typed in is left as it was typed.
+                     */
+                    const mark = resultMark(
+                      record.displayMark,
+                      record.mark,
+                      record.unit,
+                      lang,
+                      label
+                    );
                     return (
                       <Fragment key={record.id}>
                         <tr>
@@ -365,8 +378,8 @@ export default function RecordsPage() {
                               <span className="muted">{t('records.noMark')}</span>
                             ) : (
                               <>
-                                <strong>{record.mark}</strong>{' '}
-                                {record.unit ? label('unit', record.unit) : ''}
+                                <strong>{mark.value}</strong>
+                                {mark.suffix}
                               </>
                             )}
                           </td>
@@ -409,10 +422,16 @@ export default function RecordsPage() {
                           <td>{record.achievedOn ? formatDate(record.achievedOn) : '-'}</td>
                           <td>
                             {record.hasPrevious ? (
+                              /* What it beat, read the same way the mark that beat
+                                 it is: the server's own displayMark when it has one,
+                                 and the raw mark with its unit otherwise. */
                               t('records.previousLine', {
                                 name: record.previousHolderName || '-',
-                                mark: record.previousMark ?? '-',
-                                unit: record.unit ? label('unit', record.unit) : '',
+                                mark: record.previousDisplayMark ?? String(record.previousMark ?? '-'),
+                                unit:
+                                  record.previousDisplayMark || !record.unit
+                                    ? ''
+                                    : ` ${label('unit', record.unit)}`,
                                 date: formatDate(record.previousAchievedOn),
                               })
                             ) : (

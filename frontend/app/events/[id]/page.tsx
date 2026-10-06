@@ -112,7 +112,8 @@ export default function EventDetailPage() {
             <thead>
               <tr>
                 <th>{t('marks.rank')}</th>
-                <th>{t('results.athlete')}</th>
+                {/* A relay's rows are its teams'. */}
+                <th>{event.relay ? t('relay.team') : t('results.athlete')}</th>
                 <th>{t('results.result')}</th>
                 <th>{t('results.notes')}</th>
               </tr>
@@ -123,7 +124,9 @@ export default function EventDetailPage() {
                 return (
                   <tr key={result.id}>
                     <td>{idx + 1}</td>
-                    <td>{result.fullName || result.username}</td>
+                    {/* A relay is run and scored by team, so its line is named by
+                        the team — never by the runner the row hangs off. */}
+                    <td>{result.teamLabel || result.fullName || result.username}</td>
                     <td>
                       <strong>{shown.value}</strong>
                       {shown.suffix}

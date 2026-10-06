@@ -176,6 +176,26 @@ class EventGroupSheetsRelaySkipTest {
     }
 
     @Test
+    @DisplayName("a ready relay's groups carry the event's teams, in the order the grid marks them")
+    void aReadyRelayCarriesItsTeams() {
+        List<EventGroupDTO> rendered = groups.getGroupsWithAthletesFiltered(null, null);
+
+        EventGroupDTO relay = rendered.stream()
+                .filter(dto -> READY_RELAY_GROUP_ID == dto.getId())
+                .findFirst().orElseThrow();
+        // The sheet's lines are the event's teams, not the heat's entrants: a form
+        // relay's teams are one per class of that form, and the students who entered
+        // the event need not be the ones running in it.
+        assertEquals(List.of("5A", "5B"), relay.getRelayTeamLabels(),
+                "the teams travel with every group of the relay");
+
+        EventGroupDTO sprint = rendered.stream()
+                .filter(dto -> SPRINT_GROUP_ID == dto.getId())
+                .findFirst().orElseThrow();
+        assertNull(sprint.getRelayTeamLabels(), "an individual event carries no teams");
+    }
+
+    @Test
     @DisplayName("a relay that is ready is on the run like any other event")
     void aReadyRelayIsOnTheRun() {
         List<EventGroupDTO> rendered = groups.getGroupsWithAthletesFiltered(null, null);

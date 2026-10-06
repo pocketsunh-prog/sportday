@@ -14,12 +14,18 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * <p>Requirement: a 100M reads {@code 14.123s}, a 400M {@code 1.04.123s}, a shot put
  * {@code 18.12M}.</p>
+ *
+ * <p>And, for a race timed on a stopwatch — the 400M and over and the two relays —
+ * the school's own shape <strong>{@code M.SS.mmm}</strong>: minutes, seconds and
+ * milliseconds, all three fields, a leading zero minute when the race was under a
+ * minute ({@code 0.48.123s}). A sprint is deliberately untouched.</p>
  */
 class MarkFormatterTest {
 
     private static final Event.EventType HUNDRED = Event.EventType.RUN_100M;
     private static final Event.EventType FOUR_HUNDRED = Event.EventType.RUN_400M;
     private static final Event.EventType EIGHT_HUNDRED = Event.EventType.RUN_800M;
+    private static final Event.EventType RELAY = Event.EventType.RELAY_4X100M;
     private static final Event.EventType SHOT = Event.EventType.SHOT_PUT;
 
     private static String time(String mark, Event.EventType type) {
@@ -45,6 +51,38 @@ class MarkFormatterTest {
     }
 
     @Test
+    @DisplayName("a 400M under a minute keeps its leading zero minute")
+    void fourHundredMetresUnderAMinuteKeepsZero() {
+        assertEquals("0.48.123", time("48.123", FOUR_HUNDRED));
+        assertEquals("0.48.123s", MarkFormatter.formatWithUnit(
+                new BigDecimal("48.123"), FOUR_HUNDRED, "s"));
+    }
+
+    @Test
+    @DisplayName("a relay is timed exactly like the race it is")
+    void aRelayReadsAsTheRaceItIs() {
+        assertEquals("0.44.000", time("44", RELAY),
+                "a 4x100M under a minute still reads as minutes, seconds and milliseconds");
+        assertEquals("1.03.500", time("63.5", Event.EventType.RELAY_4X400M));
+    }
+
+    @Test
+    @DisplayName("the 400M hurdles is one of the races timed on a stopwatch")
+    void theFourHundredHurdlesReadsAsMinutes() {
+        assertEquals("1.02.000", time("62", Event.EventType.HURDLES_400M));
+    }
+
+    @Test
+    @DisplayName("a short sprint is unchanged, whatever the mark")
+    void aShortSprintIsUnchanged() {
+        assertEquals("14.123", time("14.123", HUNDRED));
+        assertEquals("21.5", time("21.5", Event.EventType.RUN_200M));
+        assertEquals("7.4", time("7.4", Event.EventType.RUN_60M));
+        assertEquals("13.8", time("13.8", Event.EventType.HURDLES_100M));
+        assertEquals("14.2", time("14.2", Event.EventType.HURDLES_110M));
+    }
+
+    @Test
     @DisplayName("a shot put reads in metres")
     void aShotPutReadsInMetres() {
         assertEquals("18.12", MarkFormatter.format(new BigDecimal("18.12"), SHOT, "M"));
@@ -66,32 +104,35 @@ class MarkFormatterTest {
     // ----------------------------------------------------------- boundaries
 
     @Test
-    @DisplayName("a time just under a minute has no minutes part")
+    @DisplayName("a time just under a minute has no minutes part on a sprint")
     void justUnderAMinuteHasNoMinutes() {
         assertEquals("59.999", time("59.999", HUNDRED));
         assertEquals("59", time("59", HUNDRED));
+        // The same mark on a 400M is a stopped time, so it keeps the leading zero.
+        assertEquals("0.59.999", time("59.999", FOUR_HUNDRED));
     }
 
     @Test
     @DisplayName("a time of exactly a minute reads as one minute, no seconds")
     void exactlyAMinute() {
-        assertEquals("1.00", time("60", FOUR_HUNDRED));
+        assertEquals("1.00.000", time("60", FOUR_HUNDRED));
     }
 
     @Test
     @DisplayName("a whole number of seconds past a minute is padded, not bare")
     void wholeSecondsArePadded() {
-        // "1.4" would read as a tenth of a second, so the seconds field is padded.
-        assertEquals("1.04", time("64", FOUR_HUNDRED));
-        assertEquals("2.05", time("125", EIGHT_HUNDRED));
+        // "1.4" would read as a tenth of a second, so the seconds field is padded —
+        // and the milliseconds are three digits, so 1.04.000 and not 1.04.
+        assertEquals("1.04.000", time("64", FOUR_HUNDRED));
+        assertEquals("2.05.000", time("125", EIGHT_HUNDRED));
     }
 
     @Test
-    @DisplayName("a long race keeps its fractions")
+    @DisplayName("a long race keeps its fractions as milliseconds")
     void aLongRaceKeepsItsFractions() {
-        assertEquals("2.15.5", time("135.5", EIGHT_HUNDRED));
-        assertEquals("2.15.25", time("135.25", EIGHT_HUNDRED));
-        assertEquals("16.40", time("1000", Event.EventType.RUN_5000M));
+        assertEquals("2.15.500", time("135.5", EIGHT_HUNDRED));
+        assertEquals("2.15.250", time("135.25", EIGHT_HUNDRED));
+        assertEquals("16.40.000", time("1000", Event.EventType.RUN_5000M));
     }
 
     @Test
@@ -104,12 +145,14 @@ class MarkFormatterTest {
     // -------------------------------------------------------------- details
 
     @Test
-    @DisplayName("trailing zeros are trimmed, so a mark reads as it was meant")
-    void trailingZerosAreTrimmed() {
+    @DisplayName("trailing zeros are trimmed on a sprint, and filled in on a long race")
+    void trailingZeros() {
         assertEquals("18.12", MarkFormatter.format(new BigDecimal("18.1200"), SHOT, "M"));
         assertEquals("18.12M", MarkFormatter.formatWithUnit(new BigDecimal("18.120"), SHOT, "M"));
-        assertEquals("58", time("58.00", HUNDRED));
-        assertEquals("2.15.5", time("135.500", EIGHT_HUNDRED));
+        assertEquals("58", time("58.00", HUNDRED), "a sprint reads as the seconds it is");
+        assertEquals("0.58.000", time("58.00", FOUR_HUNDRED),
+                "the same mark on a stopped race carries all three fields");
+        assertEquals("2.15.500", time("135.500", EIGHT_HUNDRED));
     }
 
     @Test
@@ -136,12 +179,16 @@ class MarkFormatterTest {
         assertEquals("18.12M", MarkFormatter.formatWithUnit(new BigDecimal("18.12"), null, "metres"));
         assertEquals("64.2M", MarkFormatter.formatWithUnit(new BigDecimal("64.2"), null, "M"),
                 "a bare M is a measurement, so 64.2 is not a time");
+        // With no type there is no rule saying "timed on a stopwatch", so the old
+        // shape stands: a minutes part only over a minute, and no filled-in fields.
+        assertEquals("1.04", MarkFormatter.format(new BigDecimal("64"), null, "s"));
     }
 
     @Test
     @DisplayName("a negative mark is shown as stored rather than given a minutes part")
     void aNegativeMarkIsNotSplit() {
         assertEquals("-5", MarkFormatter.format(new BigDecimal("-5"), HUNDRED, "s"));
+        assertEquals("-5", MarkFormatter.format(new BigDecimal("-5"), FOUR_HUNDRED, "s"));
     }
 
     // ------------------------------------------------------------ outcomes

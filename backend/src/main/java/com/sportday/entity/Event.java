@@ -595,12 +595,29 @@ public class Event {
         }
 
         /**
-         * True for a race longer than 400M, where a time reads better as minutes and
-         * seconds than as a bare count of them — a helper writes 2:15, not 135. The
-         * mark is still stored in seconds, so nothing downstream changes.
+         * True for a race long enough to be timed on a stopwatch — <strong>the one
+         * place that decides it</strong>, asked by the mark-entry grid, by the DTO
+         * the grid is drawn from and by {@code MarkFormatter}, rather than each
+         * testing event types for itself.
+         *
+         * <p>The school's rule: the track races of <strong>400M and over</strong> —
+         * the 400M, the 400M hurdles, the 800M, the 1500M and the 5000M — <em>and
+         * both relays</em>. A 4x100M and a 4x400M are run and timed exactly like the
+         * race they are, and their time is written the same way.</p>
+         *
+         * <p>Deliberately not the 60M, 100M or 200M or the short hurdles: a sprint is
+         * timed in seconds alone, {@code 14.123}, and stays that way. The field
+         * events are not races at all.</p>
+         *
+         * <p>What it decides is only how a mark <em>reads</em> and how it is
+         * <em>typed</em> — {@code M.SS.mmm}, see {@code StopwatchTime}. The mark is
+         * still stored as a plain number of seconds, so nothing downstream of the
+         * entry changes.</p>
          */
         public boolean usesMinutesAndSeconds() {
-            return this == RUN_800M || this == RUN_1500M || this == RUN_5000M;
+            return this == RUN_400M || this == HURDLES_400M
+                    || this == RUN_800M || this == RUN_1500M || this == RUN_5000M
+                    || isRelay();
         }
 
         /**

@@ -78,6 +78,28 @@ public class EventGroupDTO {
     @Builder.Default
     private List<EnrollmentDTO> athletes = new ArrayList<>();
 
+    /**
+     * The <strong>relay teams this group's sheet is drawn with</strong>, in the order
+     * the mark grid lists them — one entry per team, the school's own name for it
+     * ({@code 1A}, {@code B Grade Green}) — or null/empty on an individual event and
+     * on a relay that has no teams yet.
+     *
+     * <p><strong>A relay sheet's lines are the event's teams, not the heat's
+     * entrants.</strong> A relay is run and scored by team, and its teams belong to
+     * the <em>event</em> while {@link #athletes} is the group's own roster of
+     * entries — the two are not the same list: a form relay's teams are one per class
+     * of that form, built from the register, and the students who happened to enter
+     * the event need not be the ones running in it. Reading the team names off the
+     * roster therefore printed the entrants' names on a sheet whose lines are teams.
+     * This field is what the sheet draws those lines from, so the paper a helper marks
+     * and the grid they type into name the same teams in the same order.</p>
+     *
+     * <p>Resolved once per event while the group is built (see
+     * {@code EventGroupService}), so a whole-programme print run costs no per-sheet
+     * lookup here.</p>
+     */
+    private List<String> relayTeamLabels;
+
     public static EventGroupDTO from(EventGroup group) {
         var event = group.getEvent();
         var stage = group.getStageOrDefault();

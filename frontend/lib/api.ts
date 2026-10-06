@@ -346,9 +346,11 @@ export interface EventDTO {
    */
   directToFinalAutomatic?: boolean;
   /**
-   * True for a race longer than 400M (800M / 1500M / 5000M), whose time a helper
-   * reads off a stopwatch: it is written as minutes and seconds, not as a bare
-   * count of seconds.
+   * True for a race timed on a stopwatch — the 400M and over (including the 400M
+   * hurdles) and both relays, the server's one rule. Its time is written
+   * `M.SS.mmm` — `1.04.123`, `0.48.123` — in one box rather than as a bare count
+   * of seconds. A 60M, a 100M, a 200M and the short hurdles are not: a sprint is
+   * timed in seconds alone, and stays that way.
    */
   timeInMinutes?: boolean;
   /**
@@ -691,6 +693,18 @@ export interface EventGroupDTO {
   sheetSize: SheetSize;
   /** Always `[]` on list responses; populated by `GET /groups/{id}`. */
   athletes: EnrollmentDTO[];
+  /**
+   * The relay teams this group's marking sheet is drawn with, in the order the mark
+   * grid lists them — `1A`, `1B`, … for a form relay, `B Grade Green` for a house
+   * one. Absent on an individual event and on a relay that has no teams yet.
+   *
+   * The sheet's lines are the *event's* teams, not the heat's entrants: a form
+   * relay's teams are one per class of that form, built from the register, and the
+   * students who entered the event need not be the ones running in it. So `athletes`
+   * (who entered, and who the heat is allocated from) and this list (what the sheet
+   * and the grid name) are deliberately different lists.
+   */
+  relayTeamLabels?: string[];
 }
 
 export interface AllocateGroupsResultDTO {
@@ -770,12 +784,24 @@ export interface EventResultDTO {
   /** `M` in the field, `s` on the track. */
   unit?: string;
   /**
-   * The mark as the sport writes it, with its unit: `14.123s`, `1.04.123s` over
-   * a minute, `2.15.5s` for the long distances, `18.12M` in the field. The full
-   * stops and the padded seconds are the sport's own notation, so render this
-   * through `resultMark()` rather than re-deriving it from `mark` / `unit`.
+   * The mark as the sport writes it, with its unit: `14.123s`, `1.04.123s` on a
+   * race timed on a stopwatch, `0.48.123s` when that race was under a minute,
+   * `18.12M` in the field. The full stops and the filled-in fields are the
+   * school's own notation, so render this through `resultMark()` rather than
+   * re-deriving it from `mark` / `unit`.
    */
   displayMark?: string;
+  /**
+   * The relay team this row is a time **for**, and the team's own name — `1A`,
+   * `B Grade Green`. Both absent on an individual event's row.
+   *
+   * A relay is run and scored by team, so a list of an event's results names the
+   * team. The row still carries `userId` / `username` / `fullName`, deliberately:
+   * that is the team's anchor runner, so "what did this athlete run?" still
+   * answers, with the team beside it.
+   */
+  teamId?: number;
+  teamLabel?: string;
   /**
    * A field event's attempts, in order. A miss arrives as an explicit `null`, so
    * the positions line up; an attempt that was never taken is left off the end.
@@ -838,9 +864,19 @@ export interface MarkRowDTO {
   /** The best mark. For a field event that is the best of `attempts`. */
   mark?: number;
   /**
-   * A race longer than 400M's time the way a stopwatch reads it: the whole
-   * minutes and the seconds left over. `mark` still carries the total in
-   * seconds, which is what the rest of the app uses.
+   * A race timed on a stopwatch's time the way the box shows it, exactly:
+   * `M.SS.mmm` — `1.04.123`, `0.48.123`. `mark` still carries the total in
+   * seconds, which is what the rest of the app compares.
+   *
+   * This is what the box is filled with, and it is written by the server from the
+   * same grammar that parses it back, so what is on screen is what the mark is.
+   * Absent on an event that is not timed this way, and on a row with no mark.
+   */
+  time?: string;
+  /**
+   * The whole minutes of `mark`, and the seconds left over. Still sent for
+   * callers that read the parts rather than the text — the shape the box used to
+   * be drawn in.
    */
   minutes?: number;
   seconds?: number;
@@ -928,9 +964,9 @@ export interface MarkSheetDTO {
   /** `M` in the field, `s` on the track. */
   defaultUnit?: string;
   /**
-   * True for a race longer than 400M, where a time is typed as minutes and
-   * seconds — a helper writes 2:15, not 135. The rows then carry `minutes` and
-   * `seconds` beside `mark`.
+   * True for a race timed on a stopwatch, where the time is typed into one box in
+   * the school's own shape: `M.SS.mmm`. The rows then carry `time` beside `mark`.
+   * See `EventDTO.timeInMinutes` for which races those are.
    */
   timeInMinutes?: boolean;
   /** How many attempts a row on this sheet carries: 3 in the field, 1 on the track. */
@@ -959,10 +995,15 @@ export interface MarkEntryInput {
   /** The single mark a track row is recorded with. */
   mark?: number | null;
   /**
-   * A race longer than 400M may send its time as whole minutes and the seconds
-   * left over instead of `mark`; the seconds part has to be under 60. When both
-   * shapes are sent, these two win and the server works `mark` out as the total
-   * in seconds.
+   * A race timed on a stopwatch sends the time as the helper typed it —
+   * `1.04.123`, `0.48.123`, `48.123` — and the server parses it with the one
+   * grammar that also writes the box, refusing anything that is not a time rather
+   * than reading it as a number. See `lib/stopwatch.ts`.
+   */
+  time?: string | null;
+  /**
+   * The same time as whole minutes and the seconds left over — the shape the box
+   * used to be drawn in. Read only when `time` is absent; the grid sends `time`.
    */
   minutes?: number | null;
   seconds?: number | null;
@@ -1346,6 +1387,22 @@ export interface RelayTeamDTO {
   complete?: boolean;
   /** The runners, leg 1 first, any reserves last. */
   members: RelayTeamMemberDTO[];
+  /**
+   * The students who may still be **added to this team** — what the board's "add a
+   * runner" list is drawn from, so a runner who has just been removed from a team is
+   * offered straight back.
+   *
+   * The pool is the register the team's own group offers: the class `1A` of a form
+   * relay, or one house of a grade relay, in the event's division and scope, with
+   * everyone already running in this event left out — and nobody the caller may not
+   * act for. It is deliberately not the applicant list: a form relay's teams are
+   * filled from the register, and the students running in it need never have entered
+   * the event.
+   *
+   * `[]` on a team made by hand: it is no class's and no house's, so the register
+   * offers it nobody.
+   */
+  candidates?: RelayApplicantDTO[];
 }
 
 /**
@@ -1613,6 +1670,13 @@ export interface RecordDTO {
   /** The mark that stands. Absent while `source` is `NONE`. */
   mark?: number;
   unit?: string;
+  /**
+   * The standing mark as it reads, with its unit: `14.123s` on a sprint,
+   * `1.04.123s` on a race timed on a stopwatch, `18.12M` in the field. Render it
+   * through `resultMark()` rather than showing `mark` and `unit` separately, so a
+   * record reads exactly as the result that set it does.
+   */
+  displayMark?: string;
   source: RecordSource;
   /** Present only when a recorded result holds the record. */
   holderUserId?: number;
@@ -1630,6 +1694,8 @@ export interface RecordDTO {
   manualAchievedOn?: string;
   /** The mark this record beat. Only meaningful when `hasPrevious`. */
   previousMark?: number | null;
+  /** That mark as it reads, with its unit — the same shape `displayMark` uses. */
+  previousDisplayMark?: string;
   previousHolderName?: string | null;
   previousAchievedOn?: string | null;
   hasPrevious: boolean;
@@ -1698,9 +1764,19 @@ export interface ChampionshipHouseRowDTO {
 export interface ChampionshipPlacingDTO {
   place: number;
   userId: number;
-  /** The student id string, e.g. `S0056`. */
+  /** The student id string, e.g. `S0056`. Absent on a relay team's placing. */
   studentRef: string;
+  /**
+   * The athlete's name — or, on a relay, the **team's** own name, because a relay
+   * is run and scored by team. `teamLabel` tells the two apart.
+   */
   name: string;
+  /**
+   * The relay team this placing is for, and the team's own name — `1A`,
+   * `B Grade Green`. Both absent on an individual event's placing.
+   */
+  teamId?: number;
+  teamLabel?: string;
   grade: string;
   className: string;
   /** The form the class belongs to — `5` for `5D`; absent when it names none. */

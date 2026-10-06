@@ -189,6 +189,44 @@ class PdfResultServiceTest {
                 .build();
     }
 
+    /**
+     * A relay team's placing. The name and student id are deliberately the anchor
+     * runner's, so a sheet that printed them would be caught.
+     */
+    private static ChampionsDTO.PlacingDTO teamPlacing(int place, long anchorUserId, String team,
+                                                       String display, int points) {
+        return ChampionsDTO.PlacingDTO.builder()
+                .place(place)
+                .userId(anchorUserId)
+                .studentRef("F%04d".formatted(anchorUserId))
+                .name("Finalist " + anchorUserId)
+                .teamId(70L + place)
+                .teamLabel(team)
+                .grade("A")
+                .className("5A")
+                .house("Red")
+                .mark(new BigDecimal("44.500"))
+                .unit("s")
+                .displayMark(display)
+                .points(points)
+                .build();
+    }
+
+    /** A relay line: the team the line stands for, and the anchor runner's name. */
+    private static EnrollmentDTO teamAthlete(long userId, String team) {
+        return EnrollmentDTO.builder()
+                .userId(userId)
+                .studentRef("S%04d".formatted(userId))
+                .name("Athlete " + userId)
+                .grade("A")
+                .className("5A")
+                .classNumber(1)
+                .house("Red")
+                .lane(1)
+                .relayTeamLabel(team)
+                .build();
+    }
+
     /** The final has been run: the standings are decided by it. */
     private void finalWasRun(List<ChampionsDTO.PlacingDTO> placings) {
         when(championService.standingsFor(SPRINT_ID)).thenReturn(
@@ -303,6 +341,54 @@ class PdfResultServiceTest {
                 "the faster heat time is ranked first within its heat");
         assertTrue(order.indexOf("7.43s") < order.indexOf("7.434s"),
                 "the heat mark is printed in the heats, the final's in the final");
+    }
+
+    @Test
+    @DisplayName("a relay's line is the team's, in the placings and in the heats")
+    void aRelayLineIsTheTeams() throws Exception {
+        when(eventGroupService.getGroupsWithAthletes(SPRINT_ID)).thenReturn(List.of(
+                heat(1, List.of(teamAthlete(21, "5A"), teamAthlete(22, "5B"))),
+                finalGroup()));
+        when(resultRepository.findByEventIdAndStageOrderByMarkAsc(SPRINT_ID, EventStage.HEAT))
+                .thenReturn(List.of(heatResult(21, "44.500", "s"), heatResult(22, "45.100", "s")));
+        when(championService.standingsFor(SPRINT_ID)).thenReturn(
+                standings("Boys 4x100M Relay · B Grade", Event.EventType.RELAY_4X100M,
+                        EventStage.FINAL.name(), true,
+                        List.of(teamPlacing(1, 21, "B Grade Green", "0.44.500s", 30),
+                                teamPlacing(2, 22, "B Grade Yellow", "0.45.100s", 20))));
+
+        byte[] pdf = service.renderEventResults(SPRINT_ID);
+
+        String text = textOf(pdf);
+        // The team's own name, on the team's line.
+        assertTrue(text.contains("B Grade Green"), "the relay's line names the team");
+        assertTrue(text.contains("B Grade Yellow"));
+        // And not the runner the result row happens to hang off.
+        assertFalse(text.contains("Finalist 21"), "the anchor runner is not named as the holder");
+        assertFalse(text.contains("Finalist 22"));
+        assertFalse(text.contains("F0021"), "and their student id is not printed either");
+        // The heats behind the final name the teams too, not the four runners.
+        assertTrue(text.contains("5A") && text.contains("5B"), "the heat lines name the teams");
+        assertFalse(text.contains("Athlete 21"), "a relay's heat line names no runner");
+        assertFalse(text.contains("S0021"), "and carries no student id");
+        // The team's time still reads in the school's own shape.
+        assertTrue(text.contains("0.44.500s"));
+    }
+
+    @Test
+    @DisplayName("an individual event's line is completely unchanged")
+    void anIndividualLineIsUnchanged() throws Exception {
+        when(championService.standingsFor(DISTANCE_ID)).thenReturn(
+                standings("Boys 800M A Grade", Event.EventType.RUN_800M,
+                        EventStage.HEAT.name(), false,
+                        List.of(placing(1, 21, "2.15.500s", 9))));
+
+        byte[] pdf = service.renderEventResults(DISTANCE_ID);
+
+        String text = textOf(pdf);
+        assertTrue(text.contains("Finalist 21"), "the athlete is named");
+        assertTrue(text.contains("F0021"), "with their student id");
+        assertTrue(text.contains("2.15.500s"), "and their time in the school's shape");
     }
 
     @Test

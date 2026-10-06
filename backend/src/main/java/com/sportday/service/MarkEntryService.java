@@ -302,6 +302,12 @@ public class MarkEntryService {
                             ? new ArrayList<>(result.getAttempts()) : null)
                     .minutes(minutesOf(result == null ? null : result.getMark()))
                     .seconds(secondsOf(result == null ? null : result.getMark()))
+                    // The one box the grid shows for a race timed on a stopwatch, and
+                    // the very text it parses back with — so what is on screen is what
+                    // the mark is, exactly. Null on every other event, and on a row
+                    // with no mark. See StopwatchTime.
+                    .time(event.usesMinutesAndSeconds() && result != null
+                            ? StopwatchTime.format(result.getMark()) : null)
                     .heatMark(heat == null ? null : heat.getMark())
                     .heatOutcome(heat == null ? null : heat.getOutcomeOrDefault().name())
                     .heatDisplayMark(MarkFormatter.formatRecord(heat, type, defaultUnit))
@@ -513,21 +519,42 @@ public class MarkEntryService {
             }
 
             // A field event gives three attempts and counts the best of them; a race
-            // over 400M is typed as minutes and seconds; anything else is one mark.
+            // timed on a stopwatch is typed as one M.SS.mmm time; anything else is one
+            // mark.
             List<BigDecimal> attempts = field ? fieldAttempts(row) : null;
             BigDecimal value;
             if (field) {
                 value = bestAttempt(attempts);
-            } else if (event.usesMinutesAndSeconds()
-                    && (row.getMinutes() != null || row.getSeconds() != null)) {
-                BigDecimal asSeconds = totalSeconds(row.getMinutes(), row.getSeconds());
-                if (asSeconds == null) {
-                    outcome.setFailed(outcome.getFailed() + 1);
-                    outcome.addError(userId, "The seconds part of a time must be under 60 — "
-                            + "write 2 minutes 15 seconds as 2 and 15, not as 1 and 75.");
-                    continue;
+            } else if (event.usesMinutesAndSeconds()) {
+                String typed = row.getTime();
+                if (typed != null && !typed.isBlank()) {
+                    try {
+                        value = StopwatchTime.parse(typed);
+                    } catch (IllegalArgumentException ex) {
+                        // A time was typed and it is not one of the accepted shapes. It
+                        // is refused outright — never read as a count of seconds and
+                        // never quietly dropped — so a mistyped time cannot be stored as
+                        // a number that merely looks plausible. The grammar and the
+                        // wording both live in StopwatchTime.
+                        outcome.setFailed(outcome.getFailed() + 1);
+                        outcome.addError(userId, ex.getMessage());
+                        continue;
+                    }
+                } else if (row.getMinutes() != null || row.getSeconds() != null) {
+                    // A client still speaking the two-box shape. The same refusal, in
+                    // the same place the grid's own text is checked.
+                    BigDecimal asSeconds = totalSeconds(row.getMinutes(), row.getSeconds());
+                    if (asSeconds == null) {
+                        outcome.setFailed(outcome.getFailed() + 1);
+                        outcome.addError(userId, "The seconds part of a time must be under 60 — "
+                                + "write 2 minutes 15 seconds as 2 minutes and 15 seconds, "
+                                + "not as 1 and 75.");
+                        continue;
+                    }
+                    value = asSeconds;
+                } else {
+                    value = row.getMark();
                 }
-                value = asSeconds;
             } else {
                 value = row.getMark();
             }

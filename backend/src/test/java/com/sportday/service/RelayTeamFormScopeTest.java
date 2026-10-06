@@ -497,15 +497,18 @@ class RelayTeamFormScopeTest {
 
         RelayTeamDerivationDTO result = service.deriveTeams(EVENT_ID, false);
 
+        // It is the grade query the derive asked, once, exactly as before — and never
+        // the form one. Checked before the board is read below, because a board read
+        // asks the register once too: it is what the runners each team may still be
+        // given are offered from.
+        verify(studentRepository).findActiveBySexAndGrade(Sex.MALE, Grade.B);
+        verify(studentRepository, never()).findActiveBySexAndForm(any(), any());
+
         // The event's own grade is B, so only Form 1's B-grade classes are teams: 1A
         // and 1B, plus 1C, 2A and 10B. 1D — 1D holds a C-grade athlete alone — is not.
         assertEquals(List.of("1A", "1B", "1C", "2A", "10B"), teamKeys());
         assertFalse(teamKeys().contains("1D"), "a class of another grade is not a team");
         assertEquals(5, result.getEligibleStudents());
-
-        // And it is the grade query that was asked, exactly as before.
-        verify(studentRepository).findActiveBySexAndGrade(Sex.MALE, Grade.B);
-        verify(studentRepository, never()).findActiveBySexAndForm(any(), any());
 
         assertNull(board().getForm(), "no form, so no scope is invented");
         assertNull(board().getFormLabel());

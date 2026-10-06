@@ -28,10 +28,12 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
+import java.util.Set;
 
 /**
  * Splits the confirmed entries of an event into heats, and reads the field of a
@@ -207,7 +209,9 @@ public class EventGroupService {
         }
         beginRender();
         try {
-            return groupsOf(eventId).stream().map(group -> withAthletes(group, false)).toList();
+            List<EventGroup> groups = groupsOf(eventId);
+            List<String> relayLabels = relayTeamLabelsOf(groups);
+            return groups.stream().map(group -> withAthletes(group, false, relayLabels)).toList();
         } finally {
             endRender();
         }
@@ -220,7 +224,7 @@ public class EventGroupService {
                 .orElseThrow(() -> new ResourceNotFoundException("Group not found with id: " + groupId));
         beginRender();
         try {
-            return withAthletes(group, true);
+            return withAthletes(group, true, relayTeamLabelsOf(List.of(group)));
         } finally {
             endRender();
         }
@@ -234,7 +238,9 @@ public class EventGroupService {
         }
         beginRender();
         try {
-            return groupsOf(eventId).stream().map(group -> withAthletes(group, true)).toList();
+            List<EventGroup> groups = groupsOf(eventId);
+            List<String> relayLabels = relayTeamLabelsOf(groups);
+            return groups.stream().map(group -> withAthletes(group, true, relayLabels)).toList();
         } finally {
             endRender();
         }
@@ -325,7 +331,8 @@ public class EventGroupService {
             .thenComparingInt(group -> group.getGroupNumber() == null ? Integer.MAX_VALUE : group.getGroupNumber());
 
     private List<EventGroupDTO> describe(List<EventGroup> groups) {
-        return groups.stream().map(group -> withAthletes(group, false)).toList();
+        List<String> relayLabels = relayTeamLabelsOf(groups);
+        return groups.stream().map(group -> withAthletes(group, false, relayLabels)).toList();
     }
 
     /** One athlete's place in a group. */
@@ -354,15 +361,61 @@ public class EventGroupService {
                 .toList();
     }
 
-    private EventGroupDTO withAthletes(EventGroup group, boolean includeAthletes) {
+    private EventGroupDTO withAthletes(EventGroup group, boolean includeAthletes,
+                                       List<String> relayLabels) {
         EventGroupDTO dto = EventGroupDTO.from(group);
         withRecord(dto, group.getEvent());
         withStandard(dto, group.getEvent());
+        // The event's own teams travel with every group of a relay, whether or not
+        // the roster is carried: they are what the sheet's lines are, and they are
+        // not the same list as the entrants. Null for an individual event.
+        if (!relayLabels.isEmpty()) {
+            dto.setRelayTeamLabels(relayLabels);
+        }
         if (!includeAthletes) {
             return dto;
         }
         dto.setAthletes(athletesOf(group));
         return dto;
+    }
+
+    /**
+     * The relay teams of one event, as the sheet names them — one label per team, in
+     * the order the teams were made, which is the order the mark grid lists them in.
+     *
+     * <p><strong>The teams belong to the event, not to the heat.</strong> They are
+     * read here rather than taken off the group's roster, because a relay's teams are
+     * one per class (or per house) of the event and the group's roster is the
+     * students who entered it: for a form relay those are different sets, and a sheet
+     * drawn from the roster printed the entrants' names where the team's name belongs.
+     * The whole print run shares one read per event, so a relay with several heats
+     * still costs a single query.</p>
+     *
+     * <p>Empty for an individual event — no query at all — and for a relay with no
+     * teams yet, which the sheet draws as it always did (and which the readiness gate
+     * refuses to print in any case). A team with no runners is not listed: a team
+     * nobody has filled has no label to read from its legs, and a relay cannot be
+     * marked until every team is full.</p>
+     */
+    private List<String> relayTeamLabelsOf(List<EventGroup> groups) {
+        if (groups.isEmpty()) {
+            return List.of();
+        }
+        Event event = groups.get(0).getEvent();
+        if (event == null || !event.isRelay() || event.getId() == null) {
+            return List.of();
+        }
+        Set<String> labels = new LinkedHashSet<>();
+        for (com.sportday.entity.RelayTeamMember member
+                : relayTeamMemberRepository.findForEventWithUser(event.getId())) {
+            // Ordered by team id and leg, so a team's four legs collapse into its one
+            // line and the teams keep the order they were created in.
+            String label = member.getTeam() == null ? null : member.getTeam().getLabel();
+            if (label != null && !label.isBlank()) {
+                labels.add(label.trim());
+            }
+        }
+        return List.copyOf(labels);
     }
 
     // ------------------------------------ the school record and the required standard

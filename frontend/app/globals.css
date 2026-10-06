@@ -688,29 +688,18 @@ code {
   width: 8rem;
 }
 
-/* A race over 400M is timed as minutes and seconds: two boxes that read as one
-   value, inside the one cell and no taller than the single box they replace. */
+/* A race timed on a stopwatch is written in the school's own shape — minutes,
+   seconds and milliseconds — in one box, so the cell reads as the one value it
+   is and needs no colon between two of them. */
 .marks-time {
-  display: flex;
-  align-items: center;
-  gap: 0.2rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
-/* Two boxes and the colon of a stopwatch time need more room than the single
-   mark box; the ABS / DQ choice beside them needs a little more again. */
+/* The stopwatch box and the ABS / DQ choice beside it need more room than a
+   sprint's single mark box. */
 .marks-table .col-mark:has(.marks-outcome) {
   width: 12rem;
-}
-
-.marks-time-part {
-  width: 3.1rem;
-  min-width: 0;
-  text-align: right;
-}
-
-.marks-time-colon {
-  color: #555;
-  font-weight: 600;
 }
 
 .marks-time-warning {
@@ -740,10 +729,10 @@ code {
   min-width: 0;
 }
 
-/* The two boxes of a stopwatch time keep their own layout and share the line
-   with the outcome choice. */
+/* A stopwatch time is eight characters wide — 1.04.123 — so its one box takes
+   more of the line than a sprint's, and shares it with the outcome choice. */
 .marks-outcome .marks-time {
-  flex: 1 1 auto;
+  flex: 1 1 5rem;
   min-width: 0;
 }
 

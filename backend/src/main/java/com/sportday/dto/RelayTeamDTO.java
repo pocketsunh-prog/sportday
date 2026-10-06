@@ -74,9 +74,45 @@ public class RelayTeamDTO {
     /** The runners, leg 1 first, any reserves last. */
     private List<RelayTeamMemberDTO> members;
 
+    /**
+     * The students who may still be <strong>added to this team</strong> — the register
+     * this team's group offers, with everyone already running in this event left out.
+     * This is what the board's "add a runner" list is drawn from, so a runner who has
+     * just been removed from a team is offered straight back.
+     *
+     * <p><strong>A team's group is a class or a house, and the register is what says
+     * who is in it.</strong> The pool is read from the same place a derive reads it —
+     * the event's own scope, its form across grades or its grade, in its division, and
+     * the team's own key ({@link #teamKey}): the class {@code 1A} of a form relay, or
+     * one house of a grade relay. A student is offered only when they are not already
+     * on a team of this event (one leg each, so a placed student is nothing to add) and
+     * only when the caller may act for their class, which is the same rule an add is
+     * judged by — a board can never offer a student the add would then refuse.</p>
+     *
+     * <p>Deliberately <em>not</em> the event's list of applicants. An applicant is
+     * someone who entered the event, and on a form relay the teams are one per class of
+     * that form, filled from the register: the students running in it need never have
+     * entered it, so a list of entrants holds nobody who can join the team, and a
+     * runner removed from one had no way back.</p>
+     *
+     * <p>{@code []} on a team made by hand: it is no class's and no house's, so the
+     * register has no group to offer it, and it is filled through the tick list and the
+     * create form instead. The shape is {@link RelayApplicantDTO} because that is the
+     * one shape this board uses for "a student who can be placed" — {@code placed} is
+     * false and {@code teamId} null on every one of them by construction.</p>
+     */
+    private List<RelayApplicantDTO> candidates;
+
     /** Builds the team from its members, read together with the team itself. */
     public static RelayTeamDTO from(RelayTeam team, List<RelayTeamMember> members,
                                     Map<Long, Student> rosters) {
+        return from(team, members, rosters, List.of());
+    }
+
+    /** Builds the team from its members and the students it may still be given. */
+    public static RelayTeamDTO from(RelayTeam team, List<RelayTeamMember> members,
+                                    Map<Long, Student> rosters,
+                                    List<RelayApplicantDTO> candidates) {
         int legCount = team.getLegCount();
         List<RelayTeamMember> ordered = new ArrayList<>(members == null ? List.of() : members);
         ordered.sort(Comparator.comparingInt(m -> m.getLeg() == null ? Integer.MAX_VALUE : m.getLeg()));
@@ -103,6 +139,7 @@ public class RelayTeamDTO {
                 .memberCount(rows.size())
                 .complete(legCount > 0 && rows.size() >= legCount)
                 .members(rows)
+                .candidates(candidates == null ? new ArrayList<>() : new ArrayList<>(candidates))
                 .build();
     }
 }

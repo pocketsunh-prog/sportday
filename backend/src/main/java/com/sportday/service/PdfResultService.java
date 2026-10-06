@@ -49,6 +49,13 @@ import java.util.Set;
  * The result reads the way the sport writes it — {@code 14.123s}, {@code 1.04.123s},
  * {@code 18.12M} — because a wall sheet is read, not compared.</p>
  *
+ * <p><strong>A relay's line is the team's.</strong> A relay is run and scored by
+ * team, so its placing prints the team's own name — {@code 1A}, {@code B Grade
+ * Green} — and leaves the identity cells that belong to a person (student id,
+ * grade, class) blank, exactly as the marking sheet and the mark grid do. The
+ * house stays, because that is what a relay's points count for. An individual
+ * event's line is untouched.</p>
+ *
  * <p>Where an event ran heats and then a final, both are printed: the heats first,
  * one sub-table per heat under {@code 初賽 Heats}, and then the final's placings
  * under {@code 決賽 Final}. The heats are qualifying only, so they carry no points
@@ -255,12 +262,21 @@ public class PdfResultService {
             }
             for (HeatRow row : heat.rows()) {
                 EnrollmentDTO athlete = row.athlete();
+                // A relay's heat line is the team's, exactly as its placing is: the
+                // team's own name, and the cells that identify a person left blank.
+                // An individual's line is printed as it always was.
+                String team = teamLabelOf(athlete);
                 table.addCell(bodyCell(row.place(), Element.ALIGN_CENTER, false));
-                table.addCell(bodyCell(nullSafe(athlete.getStudentRef()), Element.ALIGN_LEFT, false));
-                table.addCell(bodyCell(nullSafe(athlete.getName()), Element.ALIGN_LEFT, false));
-                table.addCell(bodyCell(nullSafe(athlete.getGrade()), Element.ALIGN_CENTER, false));
-                table.addCell(bodyCell(nullSafe(athlete.getClassName()), Element.ALIGN_CENTER, false));
-                table.addCell(bodyCell(nullSafe(athlete.getHouse()), Element.ALIGN_LEFT, false));
+                table.addCell(bodyCell(team != null ? "-" : nullSafe(athlete.getStudentRef()),
+                        Element.ALIGN_LEFT, false));
+                table.addCell(bodyCell(team != null ? team : nullSafe(athlete.getName()),
+                        Element.ALIGN_LEFT, false));
+                table.addCell(bodyCell(team != null ? "-" : nullSafe(athlete.getGrade()),
+                        Element.ALIGN_CENTER, false));
+                table.addCell(bodyCell(team != null ? "-" : nullSafe(athlete.getClassName()),
+                        Element.ALIGN_CENTER, false));
+                table.addCell(bodyCell(team != null ? "-" : nullSafe(athlete.getHouse()),
+                        Element.ALIGN_LEFT, false));
                 // The result reads as the sport writes it: 14.123s, 18.12M.
                 table.addCell(bodyCell(row.result(), Element.ALIGN_RIGHT, false));
             }
@@ -282,18 +298,53 @@ public class PdfResultService {
         }
         for (ChampionsDTO.PlacingDTO placing : standings.getPlacings()) {
             table.addCell(bodyCell(placeText(placing), Element.ALIGN_CENTER, false));
-            table.addCell(bodyCell(nullSafe(placing.getStudentRef()), Element.ALIGN_LEFT, false));
-            table.addCell(bodyCell(nullSafe(placing.getName()), Element.ALIGN_LEFT, false));
+            table.addCell(bodyCell(studentRefText(placing), Element.ALIGN_LEFT, false));
+            table.addCell(bodyCell(nameText(placing), Element.ALIGN_LEFT, false));
             table.addCell(bodyCell(nullSafe(placing.getGrade()), Element.ALIGN_CENTER, false));
             table.addCell(bodyCell(nullSafe(placing.getClassName()), Element.ALIGN_CENTER, false));
             table.addCell(bodyCell(nullSafe(placing.getHouse()), Element.ALIGN_LEFT, false));
             // The result reads as the sport writes it: 14.123s, 1.04.123s, 18.12M —
             // or ABS / DQ for an athlete who was absent or disqualified.
-            table.addCell(bodyCell(resultText(placing), Element.ALIGN_RIGHT,
-                    placing.isSchoolRecord()));
+            table.addCell(bodyCell(resultText(placing, eventTypeOf(standings.getEventType())),
+                    Element.ALIGN_RIGHT, placing.isSchoolRecord()));
             table.addCell(bodyCell(pointsText(placing), Element.ALIGN_CENTER, false));
         }
         document.add(table);
+    }
+
+    /**
+     * The name a placing prints under. <strong>A relay's placing is the team's</strong>,
+     * so the team's own name — {@code 1A}, {@code B Grade Green} — is what the line
+     * reads, and never the runner the result row happens to hang off: a relay is run
+     * and scored by team and the sheet must say so. Read through
+     * {@link ChampionsDTO.PlacingDTO#getTeamLabel()} first so the sheet is right even
+     * for a caller that built the placings by hand; an individual event has no team
+     * label at all and prints the athlete's name exactly as it always did.
+     */
+    private static String nameText(ChampionsDTO.PlacingDTO placing) {
+        String team = teamLabelOf(placing);
+        return nullSafe(team != null ? team : placing.getName());
+    }
+
+    /**
+     * The student id cell. A team's line has no student id — the same blank the
+     * marking sheet and the mark grid leave on a relay line — so a team's four
+     * runners are never mistaken for the owner of the team's one time.
+     */
+    private static String studentRefText(ChampionsDTO.PlacingDTO placing) {
+        return teamLabelOf(placing) != null ? "-" : nullSafe(placing.getStudentRef());
+    }
+
+    /** A relay placing's team name, or null on an individual event's placing. */
+    private static String teamLabelOf(ChampionsDTO.PlacingDTO placing) {
+        String team = placing.getTeamLabel();
+        return team == null || team.isBlank() ? null : team.trim();
+    }
+
+    /** A relay athlete line's team name, or null on an individual event's line. */
+    private static String teamLabelOf(EnrollmentDTO athlete) {
+        String team = athlete.getRelayTeamLabel();
+        return team == null || team.isBlank() ? null : team.trim();
     }
 
     /**
@@ -318,11 +369,21 @@ public class PdfResultService {
         document.add(heading);
     }
 
-    /** The result with its unit, noting a school record beside it. */
-    private static String resultText(ChampionsDTO.PlacingDTO placing) {
+    /**
+     * The result with its unit, noting a school record beside it.
+     *
+     * <p>The mark is already written the sport's way by the service that built the
+     * placings. A placing that arrived without one is written here through
+     * {@link MarkFormatter} rather than as a bare count of seconds, so a 400M still
+     * prints {@code 1.04.123s} and a relay {@code 0.48.123s} however the standings
+     * were built.</p>
+     */
+    private static String resultText(ChampionsDTO.PlacingDTO placing, Event.EventType type) {
         String display = placing.getDisplayMark();
         if (display == null) {
-            display = placing.getMark() == null ? "-" : placing.getMark().toPlainString();
+            display = placing.getMark() == null
+                    ? "-"
+                    : MarkFormatter.formatWithUnit(placing.getMark(), type, placing.getUnit());
         }
         return placing.isSchoolRecord() ? display + " ★" : display;
     }

@@ -68,9 +68,11 @@ class EventCategoryRelayTest {
         assertTrue(MarkFormatter.isTime(Event.EventType.RELAY_4X400M, "s"),
                 "the event's own type decides, not the unit beside the mark");
 
-        assertEquals("48.123s", MarkFormatter.formatWithUnit(
-                new BigDecimal("48.123"), Event.EventType.RELAY_4X100M, "s"));
-        assertEquals("48.123s", MarkFormatter.formatWithUnit(
+        assertEquals("0.48.123s", MarkFormatter.formatWithUnit(
+                new BigDecimal("48.123"), Event.EventType.RELAY_4X100M, "s"),
+                "a relay is timed the school's way: minutes, seconds and milliseconds, "
+                        + "a leading zero minute when it is under one");
+        assertEquals("0.48.123s", MarkFormatter.formatWithUnit(
                 new BigDecimal("48.123"), Event.EventType.RELAY_4X100M, "metres"),
                 "a relay is never printed as a distance, whatever unit a row carries");
         assertTrue(MarkFormatter.formatWithUnit(

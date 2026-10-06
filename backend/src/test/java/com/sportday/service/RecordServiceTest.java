@@ -110,6 +110,38 @@ class RecordServiceTest {
         givenResultsFor(type, grade, results);
     }
 
+    /**
+     * A relay team's time: the row is the team's, anchored on its first runner. The
+     * team is what the record is held by — see {@code EventResult#relayTeam}.
+     */
+    private void relayResult(long userId, String mark, Grade grade, Event.EventType type,
+                             String teamLabel) {
+        User athlete = User.builder().id(userId).username("S000" + userId)
+                .fullName("Athlete " + userId).build();
+        results.add(EventResult.builder()
+                .id(userId)
+                .user(athlete)
+                .event(event(type, grade))
+                .relayTeam(RelayTeam.builder()
+                        .id(900L + userId).teamKey(teamLabel).label(teamLabel).build())
+                .stage(EventStage.HEAT)
+                .mark(new BigDecimal(mark))
+                .unit(type.getDefaultUnit())
+                .build());
+        rosters.add(Student.builder()
+                .id(userId)
+                .user(athlete)
+                .studentId("S000" + userId)
+                .name("Athlete " + userId)
+                .grade(grade)
+                .className("3A")
+                .house("Red")
+                .dob(LocalDate.of(2011, 5, 5))
+                .sex(SEX)
+                .enabled(true)
+                .build());
+    }
+
     private void givenResultsFor(Event.EventType type, Grade grade, List<EventResult> forGrade) {
         when(resultRepository.findByEventTypeAndSexAndGrade(type, SEX, grade)).thenReturn(forGrade);
         when(studentRepository.findWithUserByUserIdIn(any())).thenReturn(rosters);
@@ -199,6 +231,28 @@ class RecordServiceTest {
         assertEquals(new BigDecimal("11.000"), saved.getValue().getMark(),
                 "the B grade record ignores the A and C grade marks");
         assertEquals(Grade.B, saved.getValue().getGrade());
+    }
+
+    @Test
+    @DisplayName("a relay's record is held by the TEAM, not by the runner the row hangs off")
+    void aRelayRecordIsHeldByTheTeam() {
+        relayResult(1, "45.500", Grade.B, Event.EventType.RELAY_4X100M, "B Grade Green");
+        relayResult(2, "47.000", Grade.B, Event.EventType.RELAY_4X100M, "B Grade Yellow");
+        givenResultsFor(Event.EventType.RELAY_4X100M, Grade.B);
+        when(recordRepository.findByEventTypeAndSexAndGrade(
+                Event.EventType.RELAY_4X100M, SEX, Grade.B)).thenReturn(Optional.empty());
+
+        service.recomputeFor(Event.EventType.RELAY_4X100M, SEX, Grade.B);
+
+        ArgumentCaptor<EventRecord> saved = ArgumentCaptor.forClass(EventRecord.class);
+        verify(recordRepository, org.mockito.Mockito.atLeastOnce()).save(saved.capture());
+        assertEquals("B Grade Green", saved.getValue().getHolderName(),
+                "the school's own name for the team, not the anchor runner's");
+        assertEquals(new BigDecimal("45.500"), saved.getValue().getMark(),
+                "and the team's time, read in the school's own shape");
+        assertEquals("0.45.500s",
+                MarkFormatter.formatWithUnit(saved.getValue().getMark(),
+                        Event.EventType.RELAY_4X100M, saved.getValue().getUnit()));
     }
 
     @Test

@@ -21,27 +21,6 @@ function errorText(err: unknown, fallback: string): string {
   return err instanceof Error && err.message ? err.message : fallback;
 }
 
-/**
- * The form a class belongs to: the leading run of digits of the class name, so
- * `1A`, `1B` and `1C` are all Form 1, and `10B` is Form 10 rather than Form 1.
- * Leading zeros are dropped, so `01A` is Form 1 as well.
- *
- * This is the frontend's copy of the server's `RelayTeamService.formKeyOf`, and
- * it is used only to narrow the *candidate list*: the server is still the one
- * that decides, and refuses an ineligible pick with a message worth showing.
- */
-function formKeyOf(className: string | undefined | null): string | null {
-  if (!className) return null;
-  const trimmed = className.trim();
-  let end = 0;
-  while (end < trimmed.length && trimmed[end] >= '0' && trimmed[end] <= '9') end += 1;
-  if (end === 0) return null;
-  const digits = trimmed.slice(0, end);
-  let first = 0;
-  while (first < digits.length - 1 && digits[first] === '0') first += 1;
-  return digits.slice(first);
-}
-
 /** A student is shown as `S0440 · Chan Tai Man · 5D 8 · Red (R)`. */
 function studentLabel(student: {
   studentRef?: string | null;
@@ -62,63 +41,37 @@ function studentLabel(student: {
   return parts.join(' · ');
 }
 
-/** One group of applicants on the list: their class, or their house team. */
-interface ApplicantGroup {
-  key: string;
-  /** What the group is headed with — `5D` or `Yellow House`. */
-  label: string;
-  rows: RelayApplicantDTO[];
-}
-
 /**
- * The relay team board for one event: the teams, their runners, and the students
- * who applied.
+ * The relay team board for one event: the teams, their runners and their order.
  *
  * A relay is divided into form or house teams on the event itself; this board is
- * where those teams are derived from the roster, filled and ordered — **and where
- * a teacher groups the students who applied to the relay into those teams**. The
- * applicant list is the list of confirmed entrants: with form, class and house
- * (and the house's short code) beside each, and each one saying whether they are
- * already on a team.
+ * where those teams are **derived from the roster**, filled, renamed and ordered
+ * — one team per class of a form relay, or one per house of a grade relay.
  *
- * ## Two ways to make a team, and they are told apart
+ * ## Filling a team
  *
- * 1. **By hand, from the ticked students** — the primary way, and the one the
- *    school asked for: tick any applicants, **type the team's own name** as free
- *    text, and press create. `POST .../relay-events/{eventId}/teams` with
- *    `{name, userIds}` makes exactly that team in one action — a team that is
- *    not one class's and not one house's, which is why the derived kinds below
- *    can never express it.
- * 2. **Derive the roster's own teams** — kept, because it is still how a `FORM`
- *    or a `HOUSE` relay gets its class or house teams:
- *    `POST .../relay-teams/derive` creates one team per class, or per house of
- *    the event's grade, from the *roster*.
+ * Every team's own card carries the register's students for that team's group —
+ * its class, or its house — who are not already running in this event. The list
+ * is the server's own pool (`RelayTeamDTO.candidates`), read from the same place
+ * a derive reads it, so a runner is added out of the register the team is
+ * actually drawn from **and a runner who has just been removed comes straight
+ * back into it**. Every refusal the server sends is shown verbatim.
  *
- * Both are on screen, so both say what they do: the derive button is labelled as
- * the roster's class/house teams, and the hand-made form right beside the tick
- * list is labelled as one team out of exactly the students ticked, under a name
- * the teacher types. Nothing about the two is left to guesswork.
- *
- * The server enforces everything that matters about a hand-made squad — four
- * runners and at most one reserve, a name that is neither blank nor over 40
- * characters nor already used in the event, and every runner's grade, division
- * and one-team-per-event rule — and **every message it sends is shown verbatim**
- * beside the create button, never swallowed and never reworded. A refused create
- * writes nothing, so the tick boxes are left exactly as they were to fix the name
- * and retry.
- *
- * A hand-made team comes back with `handMade: true` and carries no kind at all,
- * so a later derive can never match, rename or prune it. Its card says so, with
- * a badge naming it a hand-made team.
+ * A **hand-made** team — built out of chosen students under a typed name — is not
+ * one class's and not one house's, so the register offers it nobody: its card
+ * carries no add list, and it is drawn with a badge saying it is the school's own
+ * team rather than the roster's. Such a team is made through the relay team API
+ * (`POST .../teams`), which still supports it; this page no longer carries the
+ * tick-list form that used to make one from the students who entered.
  *
  * ## One page, both roles
  *
  * The same page serves a teacher and an administrator: `/api/teacher/**` admits
  * ADMIN and TEACHER alike and runs the same service, so the role only picks which
- * family of endpoints is called (see `api.relayBase`). A teacher sees their own
- * classes' applicants — the students they may place — while the teams themselves
- * are the event's whole set, because a house team spans classes. Only the
- * administrator's extra — removing every team of the event — is held back.
+ * family of endpoints is called (see `api.relayBase`). A teacher is offered only
+ * their own classes' students — the ones they may place — while the teams
+ * themselves are the event's whole set, because a house team spans classes. Only
+ * the administrator's extra — removing every team of the event — is held back.
  */
 export default function AdminEventRelayPage() {
   const params = useParams();
@@ -133,31 +86,8 @@ export default function AdminEventRelayPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  /**
-   * Why **the create** was refused, in the server's own words, or our own when it
-   * sent none. It is kept apart from the page's general `error` because it is
-   * bound to the create button: the teacher pressed that, so that is where the
-   * reason belongs. A refused create writes nothing on the server, so the ticks
-   * are deliberately left exactly as they were for a retry.
-   */
-  const [createError, setCreateError] = useState<string | null>(null);
   /** Whether a derivation should also drop empty teams the roster no longer calls for. */
   const [prune, setPrune] = useState(false);
-  /**
-   * The students ticked on the applicant list, **in the order they were ticked**.
-   *
-   * The order is the running order: the first ticked student runs leg 1. It is an
-   * array rather than a set so that order survives, and unticking removes the
-   * student from it without disturbing anybody else's place.
-   */
-  const [ticked, setTicked] = useState<number[]>([]);
-  /**
-   * The team name being typed for the team about to be made out of the ticked
-   * students. Free text, exactly what the school writes on the sheet.
-   */
-  const [teamName, setTeamName] = useState('');
-  /** Whether the list is narrowed to the applicants nobody has placed yet. */
-  const [unplacedOnly, setUnplacedOnly] = useState(false);
   /** The team name being typed, keyed by team id. */
   const [names, setNames] = useState<Record<number, string>>({});
   /** Which team's name field is open, if any. */
@@ -190,13 +120,11 @@ export default function AdminEventRelayPage() {
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
-    setCreateError(null);
     try {
       const eventResult = await api.getEvent(eventId);
       setEvent(eventResult);
       setOrder({});
       setNames({});
-      setTicked([]);
       if (isRelayEventType(eventResult.type)) {
         const boardResult = await api.getRelayTeams(eventId, role);
         setBoard(boardResult);
@@ -218,180 +146,6 @@ export default function AdminEventRelayPage() {
 
   const relay = !!event && isRelayEventType(event.type);
   const teams = useMemo(() => board?.teams ?? [], [board]);
-  const applicants = useMemo(() => board?.applicants ?? [], [board]);
-
-  /** Every athlete already running in this event, across every team of it. */
-  const runningUserIds = useMemo(() => {
-    const ids = new Set<number>();
-    teams.forEach(team => {
-      (team.members ?? []).forEach(member => {
-        if (member.userId !== undefined && member.userId !== null) ids.add(member.userId);
-      });
-    });
-    return ids;
-  }, [teams]);
-
-  const teamById = useMemo(() => {
-    const map = new Map<number, RelayTeamDTO>();
-    teams.forEach(team => map.set(team.id, team));
-    return map;
-  }, [teams]);
-
-  /**
-   * The **derived** team one applicant would run for: the team they are already
-   * on, or else the team of their own class (a form relay) or their own house (a
-   * house relay).
-   *
-   * A **hand-made** team is deliberately never proposed here. It is not one
-   * class's and not one house's, so nothing about an applicant's register record
-   * points at it — the only way into one is to tick the student and create, or to
-   * be added to it by hand from its own card. Its `kind` is null, which is the
-   * structural reason it can never be matched here.
-   *
-   * This is only a *proposal*. The server decides, and refuses a pick that does
-   * not belong to the team with its own wording.
-   */
-  const targetTeamFor = useCallback(
-    (applicant: RelayApplicantDTO): RelayTeamDTO | null => {
-      if (applicant.teamId !== undefined && applicant.teamId !== null) {
-        return teamById.get(applicant.teamId) ?? null;
-      }
-      const className = (applicant.className ?? '').trim().toUpperCase();
-      const form = applicant.form ?? formKeyOf(applicant.className);
-      const house = (applicant.house ?? '').trim();
-      const match = teams.find(team => {
-        // A hand-made team belongs to no class and no house: skip it explicitly.
-        if (team.handMade || !team.kind) return false;
-        const key = (team.teamKey ?? '').trim();
-        if (!key) return false;
-        if (team.kind === 'HOUSE') return house !== '' && key.toLowerCase() === house.toLowerCase();
-        // A form relay is a class relay: the key is the class name, and a team
-        // keyed with a bare form number is one derived before the class split.
-        if (className && key.toUpperCase() === className) return true;
-        return !!form && key === form;
-      });
-      return match ?? null;
-    },
-    [teamById, teams]
-  );
-
-  /** The applicants on screen: all of them, or only those still unplaced. */
-  const visibleApplicants = useMemo(
-    () => (unplacedOnly ? applicants.filter(item => !item.placed) : applicants),
-    [applicants, unplacedOnly]
-  );
-
-  /**
-   * The applicant list grouped by class — the order the server returns, which is
-   * form numerically (Form 2 before Form 10), then class, then class number, then
-   * name. Grouping by class is what a teacher ticks down, and the groups come out
-   * of the server's own order rather than a second sort here.
-   */
-  const groups = useMemo<ApplicantGroup[]>(() => {
-    const built: ApplicantGroup[] = [];
-    let lastKey = '';
-    visibleApplicants.forEach(applicant => {
-      const classLabel = classText(applicant);
-      const key = classLabel || '—';
-      if (key !== lastKey || built.length === 0) {
-        built.push({ key, label: key, rows: [] });
-        lastKey = key;
-      }
-      built[built.length - 1].rows.push(applicant);
-    });
-    return built;
-  }, [visibleApplicants]);
-
-  /** The applicants by account, for naming one the tick list is warning about. */
-  const applicantById = useMemo(() => {
-    const map = new Map<number, RelayApplicantDTO>();
-    applicants.forEach(item => map.set(item.userId, item));
-    return map;
-  }, [applicants]);
-
-  /**
-   * The students ticked, in the order they were ticked — which is the leg order
-   * the create sends, so the first student ticked runs leg 1.
-   */
-  const selectedIds = ticked;
-
-  /**
-   * The ticked students the server is certain to refuse, with the reason: an
-   * applicant who is already on another team of this event. They are shown here
-   * *before* the create is pressed, and their tick box is disabled rather than
-   * left to fail, because the refusal — one leg per athlete per event — is not
-   * something the teacher can fix by trying again.
-   */
-  const tickConflicts = useMemo(
-    () =>
-      selectedIds
-        .map(userId => applicantById.get(userId))
-        .filter((item): item is RelayApplicantDTO => !!item)
-        .filter(item => !!item.placed || runningUserIds.has(item.userId)),
-    [selectedIds, applicantById, runningUserIds]
-  );
-
-  /**
-   * Whether the ticks already name more runners than one team may hold — the
-   * event's own cap, four legs and at most one reserve. The server refuses it with
-   * its own wording; saying so here means the teacher is not left to discover it
-   * from a refusal.
-   */
-  const memberCap = board?.memberCap ?? event?.relayMemberCap ?? null;
-  const overCap = memberCap !== null && selectedIds.length > memberCap;
-
-  /**
-   * Whether a student may be ticked into the team about to be made.
-   *
-   * A student who already runs in **another team of this event** may not: the
-   * server refuses it — one leg per athlete per event — and there is nothing a
-   * teacher can do about it from here, so the tick box is disabled with the
-   * reason on screen beside it rather than left to fail on the create.
-   */
-  const canTick = (applicant: RelayApplicantDTO): boolean =>
-    !runningUserIds.has(applicant.userId);
-
-  /** Why a student cannot be ticked, in the board's own words. */
-  const tickBlockedReason = (applicant: RelayApplicantDTO): string | null => {
-    if (!runningUserIds.has(applicant.userId)) return null;
-    if (applicant.placed) {
-      return t('relay.tickBlockedPlaced', {
-        team: applicant.teamLabel || t('relay.placed'),
-      });
-    }
-    // On a team the server has not linked back to this applicant yet — the board
-    // is a moment stale, but the rule is the same and so is the reason.
-    return t('relay.tickBlockedRunning');
-  };
-
-  const setTick = (userId: number, on: boolean) => {
-    setTicked(prev => {
-      if (!on) return prev.filter(id => id !== userId);
-      // Appended, not sorted: the tick order is the running order.
-      return prev.includes(userId) ? prev : [...prev, userId];
-    });
-    setCreateError(null);
-    setNotice(null);
-  };
-
-  /** Ticks or unticks a whole group — one class at a time, which is the usual job. */
-  const setGroup = (rows: RelayApplicantDTO[], on: boolean) => {
-    setTicked(prev => {
-      if (!on) {
-        const drop = new Set(rows.map(row => row.userId));
-        return prev.filter(id => !drop.has(id));
-      }
-      const held = new Set(prev);
-      return [...prev, ...rows.map(row => row.userId).filter(id => !held.has(id))];
-    });
-    setCreateError(null);
-    setNotice(null);
-  };
-
-  const clearSelection = () => {
-    setTicked([]);
-    setCreateError(null);
-  };
 
   /* ---------------- the board: derive, remove ---------------- */
 
@@ -440,62 +194,6 @@ export default function AdminEventRelayPage() {
     }
   };
 
-  /* ---------------- making a team out of the ticked students ---------------- */
-
-  /**
-   * Creates **one team** out of exactly the students ticked, under the name typed.
-   *
-   * This is the school's own flow and the primary way a team is made: tick any
-   * applicants, type the team's name — `1A`, `B Grade Yellow`, whatever goes on
-   * the sheet — and press create. The team is not required to be one class's or
-   * one house's, which is exactly what a derived team cannot be.
-   *
-   * The tick order is the leg order: the first student ticked runs leg 1. Fewer
-   * than four is allowed and the team is reported incomplete; the server refuses
-   * anything past the event's own cap, a blank or over-long or already-used name,
-   * and any runner who is in the wrong grade or division or already running.
-   *
-   * On a refusal the ticks are **not** touched: nothing was written on the server,
-   * so the teacher fixes the name and presses create again without re-ticking. The
-   * server's message is put on screen word for word beside this button.
-   */
-  const handleCreateTeam = async () => {
-    const name = teamName.trim();
-    if (name === '') {
-      // The server refuses a blank name too, but there is no reason to make a
-      // round trip for something the page can see.
-      setCreateError(t('relay.createNeedsName'));
-      return;
-    }
-    if (selectedIds.length === 0) {
-      setCreateError(t('relay.createNeedsTicks'));
-      return;
-    }
-    setBusy('create');
-    setCreateError(null);
-    setError(null);
-    setNotice(null);
-    try {
-      // `selectedIds` is the tick order, which the server takes as the leg order.
-      const created = await api.createRelayTeam(eventId, name, selectedIds, role);
-      const made = created.label || name;
-      const runCount = created.memberCount ?? selectedIds.length;
-      setTeamName('');
-      setTicked([]);
-      setOrder({});
-      await refreshBoard();
-      setNotice(t('relay.createDone', { team: made, count: runCount }));
-    } catch (err) {
-      // The server's own wording, verbatim: a blank name, one over 40 characters,
-      // one this event already holds, a sixth runner, a runner from the wrong
-      // grade or division, a runner already on another team of this event. The
-      // ticks stay as they are so the name can be fixed and the create retried.
-      setCreateError(errorText(err, t('relay.createFailed')));
-    } finally {
-      setBusy(null);
-    }
-  };
-
   /* ---------------- runners ---------------- */
 
   const refreshBoard = useCallback(async () => {
@@ -503,17 +201,22 @@ export default function AdminEventRelayPage() {
     setBoard(boardResult);
   }, [eventId, role]);
 
-  const handleAddOne = async (team: RelayTeamDTO, userId: number) => {
+  /**
+   * Adds one student to a team, out of the list that team's own card offers — the
+   * register's students for its class or house. The candidate is handed in rather
+   * than looked up, so the notice can name them without the page holding a second
+   * copy of the pool.
+   */
+  const handleAddOne = async (team: RelayTeamDTO, candidate: RelayApplicantDTO) => {
+    const userId = candidate.userId;
     setBusy(`add-${team.id}`);
     setError(null);
     setNotice(null);
     try {
       await api.addRelayRunner(team.id, userId, null, role);
-      const applicant = applicants.find(item => item.userId === userId);
       setNotice(
-        t('relay.added', { name: applicant?.name || userId, team: team.label || '' })
+        t('relay.added', { name: candidate.name || userId, team: team.label || '' })
       );
-      setTick(userId, false);
       setOrder(prev => {
         const next = { ...prev };
         delete next[team.id];
@@ -643,8 +346,6 @@ export default function AdminEventRelayPage() {
   }
 
   const undivided = board !== null && !board.relayTeamKind;
-  const placedCount = board?.placedCount ?? 0;
-  const unplacedCount = board?.unplacedCount ?? 0;
   /** A team short of its legs — what the board has to warn about, never hide. */
   const shortTeams = teams.filter(team => !team.complete);
 
@@ -714,10 +415,10 @@ export default function AdminEventRelayPage() {
         </div>
 
         {/*
-          The **derive** control. This is not how a team is normally made any more:
-          it exists for a FORM or HOUSE relay, whose class or house teams come out
-          of the roster itself. It is labelled as that, against the hand-made form
-          further down, so the two are never mistaken for one another.
+          The **derive** control: it makes a FORM or HOUSE relay's class or house
+          teams out of the roster itself, one per class or one per house, and is the
+          way this board's teams come into being. Each one is then filled from its
+          own card below.
         */}
         <div className="mt-3">
           <h4>{t('relay.deriveTitle')}</h4>
@@ -763,239 +464,6 @@ export default function AdminEventRelayPage() {
           {!isAdmin && <p className="muted mt-2">{t('relay.undividedTeacherHint')}</p>}
         </div>
       )}
-
-      {/* ---------------- who applied ---------------- */}
-
-      <div className="card">
-        <div className="flex justify-between items-center">
-          <h2>{t('relay.applicantsTitle')}</h2>
-          <div className="pill-actions">
-            <span className="badge badge-info">
-              {t('relay.applicantCount', { count: board?.applicantCount ?? 0 })}
-            </span>
-            <span className={unplacedCount > 0 ? 'badge badge-warning' : 'badge badge-success'}>
-              {t('relay.unplacedCount', { count: unplacedCount })}
-            </span>
-            <span className="badge badge-info">
-              {t('relay.placedCount', { count: placedCount })}
-            </span>
-          </div>
-        </div>
-        <p className="muted mt-2">{t('relay.applicantsHint')}</p>
-
-        {applicants.length === 0 ? (
-          /* "Nobody applied" and "no applicant is yours to place" are different
-             answers, and a teacher with no classes at all is refused everybody. */
-          <p className="muted mt-2">{isAdmin ? t('relay.noApplicants') : t('relay.noApplicantsMine')}</p>
-        ) : (
-          <>
-            <div className="pill-actions mt-3">
-              <label className="checkbox-line">
-                <input
-                  type="checkbox"
-                  checked={unplacedOnly}
-                  onChange={e => setUnplacedOnly(e.target.checked)}
-                />
-                {t('relay.unplacedOnly')}
-              </label>
-            </div>
-
-            {/*
-              The **hand-made** team form: the primary way a team is made. Tick any
-              applicants, type the name, press create. It sits directly above the
-              tick list, and says what it does in its own words, so it cannot be
-              confused with the derive control in the card above.
-            */}
-            <div className="card mt-3">
-              <div className="flex justify-between items-center">
-                <h4>{t('relay.createTitle')}</h4>
-                <span
-                  className={selectedIds.length > 0 ? 'badge badge-info' : 'badge badge-warning'}
-                >
-                  {/* How many are ticked — what the create is about to make. */}
-                  {t('relay.tickedCount', { count: selectedIds.length })}
-                </span>
-              </div>
-              <p className="muted mt-2">{t('relay.createFlow')}</p>
-
-              <div className="toolbar mt-2">
-                <div className="form-group" style={{ minWidth: '20rem' }}>
-                  <label htmlFor="relay-new-team-name">{t('relay.createNameLabel')}</label>
-                  <input
-                    id="relay-new-team-name"
-                    type="text"
-                    maxLength={40}
-                    placeholder={t('relay.createNamePlaceholder')}
-                    value={teamName}
-                    onChange={e => {
-                      setTeamName(e.target.value);
-                      setCreateError(null);
-                    }}
-                  />
-                </div>
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  disabled={
-                    busy === 'create' || selectedIds.length === 0 || teamName.trim() === ''
-                  }
-                  onClick={handleCreateTeam}
-                >
-                  {busy === 'create' ? t('relay.creating') : t('relay.createTeam')}
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  disabled={selectedIds.length === 0}
-                  onClick={clearSelection}
-                >
-                  {t('relay.clearSelection')}
-                </button>
-              </div>
-
-              {selectedIds.length > 0 && (
-                <p className="muted mt-2">{t('relay.createOrderHint')}</p>
-              )}
-
-              {overCap && (
-                <div className="alert alert-warning mt-2">
-                  {t('relay.createOverCap', {
-                    count: selectedIds.length,
-                    cap: memberCap ?? 0,
-                    legs: board?.legsPerTeam ?? event.relayTeamSize ?? 0,
-                  })}
-                </div>
-              )}
-
-              {tickConflicts.length > 0 && (
-                <div className="alert alert-warning mt-2">
-                  {t('relay.createConflict', {
-                    names: tickConflicts
-                      .map(item => item.name || item.studentRef || item.userId)
-                      .join(', '),
-                  })}
-                </div>
-              )}
-
-              {/*
-                Every refusal the server sent for **this** create, in its own words
-                and bound to the button that failed. A refused create writes
-                nothing, so the ticks above are untouched and the name can be fixed
-                and the create pressed again.
-              */}
-              {createError && (
-                <div className="alert alert-error mt-2">
-                  <strong>{t('relay.createRefused')}</strong>
-                  <p>{createError}</p>
-                  <p className="muted">{t('relay.createTicksKept')}</p>
-                </div>
-              )}
-            </div>
-
-            {groups.length === 0 ? (
-              <p className="muted mt-2">{t('relay.noUnplaced')}</p>
-            ) : (
-              groups.map(group => (
-                <div key={group.key} className="mt-3">
-                  <div className="flex justify-between items-center">
-                    <h4>
-                      {group.label} <span className="muted">({group.rows.length})</span>
-                    </h4>
-                    <div className="pill-actions">
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-secondary"
-                        disabled={!group.rows.some(canTick)}
-                        onClick={() => setGroup(group.rows.filter(canTick), true)}
-                      >
-                        {t('relay.tickGroup')}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-secondary"
-                        onClick={() => setGroup(group.rows, false)}
-                      >
-                        {t('relay.untickGroup')}
-                      </button>
-                    </div>
-                  </div>
-                  <div className="table-wrap mt-2">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th className="col-narrow">{t('relay.tick')}</th>
-                          <th>{t('students.colId')}</th>
-                          <th>{t('students.colName')}</th>
-                          <th>{t('relay.form')}</th>
-                          <th>{t('marks.class')}</th>
-                          <th>{t('students.colHouse')}</th>
-                          <th>{t('relay.team')}</th>
-                          <th>{t('common.actions')}</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {group.rows.map(applicant => {
-                          const team = targetTeamFor(applicant);
-                          const tickable = canTick(applicant);
-                          const blocked = tickable ? null : tickBlockedReason(applicant);
-                          return (
-                            <tr key={applicant.userId}>
-                              <td>
-                                {/* A student already on a team of this event cannot
-                                    be ticked into another: the server refuses it
-                                    and the reason is on screen beside the box. */}
-                                <input
-                                  type="checkbox"
-                                  aria-label={studentLabel(applicant)}
-                                  disabled={!tickable}
-                                  checked={selectedIds.includes(applicant.userId)}
-                                  onChange={e => setTick(applicant.userId, e.target.checked)}
-                                />
-                              </td>
-                              <td>{applicant.studentRef || '-'}</td>
-                              <td>{applicant.name || '-'}</td>
-                              <td>{formText(applicant, t)}</td>
-                              <td>{classText(applicant)}</td>
-                              <td>{houseText(applicant)}</td>
-                              <td>
-                                {applicant.placed ? (
-                                  <span className="badge badge-success">
-                                    {applicant.teamLabel || t('relay.placed')}
-                                  </span>
-                                ) : team ? (
-                                  /* Where this student would go in a *derived*
-                                     team — their own class or house. The server
-                                     still decides. */
-                                  <span className="badge badge-info">{team.label}</span>
-                                ) : (
-                                  <span className="badge badge-warning">{t('relay.noTeamYet')}</span>
-                                )}
-                                {blocked && <div className="muted">{blocked}</div>}
-                              </td>
-                              <td>
-                                {tickable && team && (
-                                  <button
-                                    type="button"
-                                    className="btn btn-sm btn-success"
-                                    disabled={busy === `add-${team.id}`}
-                                    onClick={() => handleAddOne(team, applicant.userId)}
-                                  >
-                                    {t('relay.add')}
-                                  </button>
-                                )}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              ))
-            )}
-          </>
-        )}
-      </div>
 
       {/* ---------------- the teams ---------------- */}
 
@@ -1222,19 +690,23 @@ export default function AdminEventRelayPage() {
 
             <p className="muted mt-2">{t('relay.orderHint')}</p>
 
-            {/* Adding one student to this team by hand, for the case the tick list
-                does not cover. Only the applicants still unplaced are offered, and
-                only the team the derivation rule points them at — a hand-made team
-                is no class's and no house's, so nothing points at it and it is
-                filled through the tick list and the create form above instead. */}
-            {(() => {
-              const addable = applicants.filter(
-                item => !item.placed && !runningUserIds.has(item.userId) && targetTeamFor(item)?.id === team.id
-              );
+            {/* Adding one student to this team by hand, out of the register the
+                team's own group offers — its class on a form relay, its house on a
+                house one — with everyone already running in this event left out.
+
+                The server decides that pool (`team.candidates`), so the list is the
+                same one a re-derive would place and a runner who has just been
+                **removed** from a team comes back here, which is what the remove
+                button is for. A team made by hand is no class's and no house's and
+                has no such pool at all, so it is drawn without this table, and the
+                note under its badge says it is not the roster's. */}
+            {!team.handMade && (() => {
+              const addable = team.candidates ?? [];
               if (addable.length === 0) {
                 return (
                   <div className="mt-3">
                     <h4>{t('relay.addRunner')}</h4>
+                    <p className="muted">{t('relay.addRunnerHint')}</p>
                     <p className="muted">{t('relay.noCandidates')}</p>
                   </div>
                 );
@@ -1242,6 +714,7 @@ export default function AdminEventRelayPage() {
               return (
                 <div className="mt-3">
                   <h4>{t('relay.addRunner')}</h4>
+                  <p className="muted">{t('relay.addRunnerHint')}</p>
                   <div className="table-wrap mt-2">
                     <table>
                       <thead>
@@ -1254,19 +727,19 @@ export default function AdminEventRelayPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {addable.map(applicant => {
+                        {addable.map(candidate => {
                           return (
-                            <tr key={applicant.userId}>
-                              <td>{studentLabel(applicant)}</td>
-                              <td>{formText(applicant, t)}</td>
-                              <td>{classText(applicant)}</td>
-                              <td>{houseText(applicant)}</td>
+                            <tr key={candidate.userId}>
+                              <td>{studentLabel(candidate)}</td>
+                              <td>{formText(candidate, t)}</td>
+                              <td>{classText(candidate)}</td>
+                              <td>{houseText(candidate)}</td>
                               <td>
                                 <button
                                   type="button"
                                   className="btn btn-sm btn-success"
                                   disabled={busy === `add-${team.id}`}
-                                  onClick={() => handleAddOne(team, applicant.userId)}
+                                  onClick={() => handleAddOne(team, candidate)}
                                 >
                                   {busy === `add-${team.id}` ? t('relay.adding') : t('relay.add')}
                                 </button>

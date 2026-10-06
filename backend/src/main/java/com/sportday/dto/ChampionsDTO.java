@@ -122,6 +122,23 @@ public class ChampionsDTO {
         private Long userId;
         private String studentRef;
         private String name;
+
+        /**
+         * The relay team this placing is <em>for</em>, and the team's own name as the
+         * school writes it — {@code 1A}, {@code B Grade Green}. Both null on an
+         * individual event's placing.
+         *
+         * <p><strong>A relay is run and scored by team</strong>, so a relay's placings
+         * read by the team and not by the runner the row happens to hang off. On such
+         * a row {@link #name} is the team's name too — every existing consumer of a
+         * placings table therefore names the team without being taught about it — and
+         * {@link #studentRef}, {@link #grade}, {@link #className} and {@link #form} are
+         * left empty, exactly as the marking sheet and the mark grid leave a team
+         * line's identity cells blank. {@link #house} is kept, because that is what a
+         * relay's points count for.</p>
+         */
+        private Long teamId;
+        private String teamLabel;
         private String grade;
         private String className;
 

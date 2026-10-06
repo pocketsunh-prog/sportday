@@ -193,8 +193,8 @@ class EventStandardSheetTest {
 
         assertTrue(text.contains("標準 Standard 64.123 s"),
                 "the standard is on the sheet with its unit: " + text);
-        assertTrue(text.contains("紀錄 Record 54.321s"),
-                "and the record it sits under is still there");
+        assertTrue(text.contains("紀錄 Record 0.54.321s"),
+                "and the record it sits under is still there, in the shape a 400M is timed in");
     }
 
     @Test
@@ -241,7 +241,7 @@ class EventStandardSheetTest {
         for (String column : List.of("學號", "姓名", "級別", "成績", "備註")) {
             assertTrue(plain.contains(column), column + " is still on the sheet");
         }
-        assertTrue(plain.contains("紀錄 Record 54.321s"), "and so is the record line");
+        assertTrue(plain.contains("紀錄 Record 0.54.321s"), "and so is the record line");
     }
 
     @Test

@@ -601,20 +601,24 @@ class PdfSheetServiceTest {
     }
 
     @Test
-    @DisplayName("a race over 400M is headed M:S, because that is how it is timed")
-    void aLongRaceIsHeadedInMinutesAndSeconds() {
-        assertEquals("M:S", PdfSheetService.unitFor(group("RUN_800M", "TRACK")));
-        assertEquals("M:S", PdfSheetService.unitFor(group("RUN_1500M", "TRACK")));
-        assertEquals("M:S", PdfSheetService.unitFor(group("RUN_5000M", "TRACK")));
+    @DisplayName("the 400M and over, and both relays, are headed in the shape they are timed in")
+    void aLongRaceIsHeadedInTheShapeItIsTimedIn() {
+        for (String type : new String[]{"RUN_400M", "HURDLES_400M", "RUN_800M", "RUN_1500M",
+                "RUN_5000M", "RELAY_4X100M"}) {
+            assertEquals(StopwatchTime.SHAPE, PdfSheetService.unitFor(group(type, "TRACK")),
+                    type + " is written " + StopwatchTime.SHAPE);
+        }
+        assertEquals(StopwatchTime.SHAPE, PdfSheetService.unitFor(group("RELAY_4X400M", "RELAY")),
+                "a relay's own category is headed the same way as the race it is");
     }
 
     @Test
     @DisplayName("everything else keeps the unit it had")
     void everythingElseKeepsItsUnit() {
         assertEquals("s", PdfSheetService.unitFor(group("RUN_60M", "TRACK")));
-        assertEquals("s", PdfSheetService.unitFor(group("RUN_400M", "TRACK")));
-        assertEquals("s", PdfSheetService.unitFor(group("HURDLES_400M", "TRACK")));
-        assertEquals("s", PdfSheetService.unitFor(group("RELAY_4X100M", "TRACK")));
+        assertEquals("s", PdfSheetService.unitFor(group("RUN_100M", "TRACK")));
+        assertEquals("s", PdfSheetService.unitFor(group("RUN_200M", "TRACK")));
+        assertEquals("s", PdfSheetService.unitFor(group("HURDLES_110M", "TRACK")));
         assertEquals("M", PdfSheetService.unitFor(group("SHOT_PUT", "FIELD")));
         assertEquals("M", PdfSheetService.unitFor(group("LONG_JUMP", "FIELD")));
     }

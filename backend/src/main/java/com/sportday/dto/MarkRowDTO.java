@@ -107,9 +107,22 @@ public class MarkRowDTO {
     private Boolean newRecord;
 
     /**
-     * The mark the way a stopwatch reads it, for a race longer than 400M: the whole
-     * minutes and the seconds left over. {@link #mark} still carries the total in
-     * seconds, which is what everything downstream uses.
+     * The mark the way the school writes a long race: {@code 1.04.123},
+     * {@code 0.48.123}. {@link #mark} still carries the total in seconds, which is
+     * what everything downstream uses.
+     *
+     * <p><strong>This is what the grid's one box shows</strong>, and it is
+     * {@link com.sportday.service.StopwatchTime#format(java.math.BigDecimal)}, so
+     * what is on screen parses back to exactly this mark — see
+     * {@link com.sportday.service.StopwatchTime#parse(String)}. Null on an event
+     * that is not timed this way, and on a row with no mark at all.</p>
+     */
+    private String time;
+
+    /**
+     * The whole minutes of {@link #mark}, and the seconds left over. Kept beside
+     * {@link #time} for callers that read the parts rather than the text — the
+     * shape the box used to be drawn in, and still the way a stopped time splits.
      */
     private Integer minutes;
     private BigDecimal seconds;

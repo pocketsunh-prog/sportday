@@ -20,11 +20,12 @@ export interface ResultMark {
 /**
  * Splits a result into its mark and its unit.
  *
- * The API sends `displayMark` already formatted with its unit — `14.123s` on
- * the track, `1.04.123s` when a 400M runs over a minute, `2.15.5s` for the long
- * distances, `18.12M` in the field. The full stops and the padded seconds are
- * the notation the sport itself writes, so the mark is never re-derived from
- * `mark` / `unit` and never reformatted.
+ * The API sends `displayMark` already formatted with its unit — `14.123s` on a
+ * sprint, `1.04.123s` on a race timed on a stopwatch (the 400M and over, and both
+ * relays), `0.48.123s` when such a race was under a minute, `18.12M` in the
+ * field. The full stops and the filled-in fields are the notation the school
+ * itself writes, so the mark is never re-derived from `mark` / `unit` and never
+ * reformatted.
  *
  * The unit, though, is a word the reader wants in their own language: `s` and
  * `M` are language-neutral on the sheet but the school asked for 秒 and 米 in

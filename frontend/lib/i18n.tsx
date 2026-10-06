@@ -286,16 +286,16 @@ const en = {
   'marks.remark': 'Remark',
   'marks.unit': 'Unit',
   /*
-   * A race over 400M is timed on a stopwatch, so its mark is two boxes — whole
-   * minutes and the seconds left over — under a single `M:S` heading.
+   * A race timed on a stopwatch — the 400M and over, and both relays — is
+   * written the way the school writes it: minutes, seconds, milliseconds. One
+   * box, one shape, and the column heading says which.
    */
-  'unit.M:S': 'M:S',
-  'marks.minutes': 'Minutes',
-  'marks.seconds': 'Seconds',
-  'marks.minutesShort': 'M',
-  'marks.secondsShort': 'S',
-  'marks.secondsLimit':
-    '{who}: the seconds part of a time must be under 60 — write 2 minutes 15 seconds as 2 and 15, not as 1 and 75.',
+  'marks.timeFormat': 'M.SS.mmm',
+  'marks.timePlaceholder': '1.04.123',
+  'marks.timeBadShape':
+    '{who}: "{value}" is not a time — write M.SS.mmm, e.g. 1.04.123, 0.48.123 or 48.123.',
+  'marks.timeSecondsLimit':
+    '{who}: the seconds part of a time must be under 60 — write 2 minutes 15 seconds as 2.15.000, not as 1.75.000.',
   'marks.attempt': 'Attempt {n}',
   'marks.best': 'Best',
   'marks.fieldHint':
@@ -624,7 +624,7 @@ const en = {
   'records.colHolder': 'Holder',
   'records.colAchieved': 'Achieved on',
   'records.colPrevious': 'What it beat',
-  'records.previousLine': '{name} — {mark} {unit} on {date}',
+  'records.previousLine': '{name} — {mark}{unit} on {date}',
   'records.firstRecord': 'First record',
   'records.colSource': 'Source',
   'records.sourceBaseline': 'Typed in by hand',
@@ -1182,7 +1182,6 @@ const en = {
   'teacher.removeConfirm': 'Remove {name}’s entry to {event}?',
 
   /* ---------------- relay teams ---------------- */
-  'relay.title': 'Relay teams',
   'relay.boardTitle': 'Relay team board',
   'relay.subtitle':
     'Divide the relay into form or house teams, then name a runner for each leg and set the running order.',
@@ -1203,13 +1202,13 @@ const en = {
     'With reserves allowed a team may name up to twice its legs — four runners and four reserves for a 4x100M.',
   'relay.undividedTitle': 'This relay is undivided',
   'relay.undividedHint':
-    'An undivided relay has no derived teams. Set the relay kind on the event to Form or House to derive the roster’s class or house teams — or leave it undivided and build teams by hand from the applicants below, naming each one yourself.',
+    'An undivided relay has no derived teams. Set the relay kind on the event to Form or House to derive the roster’s class or house teams and fill them here.',
   'relay.setKind': 'Set the relay kind on the event',
   'relay.derive': 'Derive the roster’s class or house teams',
   'relay.deriving': 'Deriving…',
   'relay.deriveTitle': 'Derive the class or house teams from the roster',
   'relay.deriveExplanation':
-    'This makes the roster’s own teams and nothing else: one team per class on a form relay, one team per house on a house relay, taken from the register — not from anybody you tick. It is how a form or house relay gets its teams. To make one team out of the students you tick, under a name you type, use “Create the team from the ticked students” on the applicant list below. A team made that way is left alone by a derive: it is not one class’s and not one house’s, so it is never matched, renamed or dropped here.',
+    'This makes the roster’s own teams and nothing else: one team per class on a form relay, one team per house on a house relay, taken from the register. It is how a form or house relay gets its teams, and each team is then filled from its own Add a runner list. A team made by hand through the relay team API is left alone by a derive: it is not one class’s and not one house’s, so it is never matched, renamed or dropped here.',
   'relay.derivePrune': 'Also drop empty teams that are no longer on the roster',
   'relay.derived':
     'Derived — {created} team(s) created, {kept} kept, {pruned} dropped, from {eligible} eligible students.',
@@ -1222,9 +1221,7 @@ const en = {
   'relay.removedAll': 'Removed {count} relay team(s).',
   'relay.removeAllFailed': 'Failed to remove the relay teams',
   'relay.teamCount': '{count} team(s)',
-  'relay.runnerCount': '{count} runner(s)',
   'relay.complete': 'Complete',
-  'relay.incomplete': 'Incomplete',
   'relay.legsFilled': '{filled} of {legs} legs filled',
   'relay.noRunners': 'No runner named yet.',
   'relay.leg': 'Leg',
@@ -1232,18 +1229,17 @@ const en = {
   'relay.runners': 'Runners',
   'relay.addRunner': 'Add a runner',
   'relay.addRunnerHint':
-    'Only students eligible for this team are offered — the event’s own division and grade, and the team’s form or house. The server refuses anyone else, and its message is shown as it stands.',
-  'relay.pickCandidate': 'Choose a student…',
+    'The register’s own students for this team are listed — the event’s division and its form or grade, in this team’s class or house, and nobody already running in this event. A runner you remove comes back here.',
   'relay.add': 'Add',
   'relay.adding': 'Adding…',
   'relay.added': 'Added {name} to {team}.',
   'relay.addFailed': 'Could not add the runner',
   'relay.noCandidates': 'No eligible student is left to add to this team.',
   'relay.remove': 'Remove',
-  'relay.removeConfirm': 'Remove {name} from {team}?',
-  'relay.removed': 'Removed {name} from {team}.',
+  'relay.removeConfirm':
+    'Remove {name} from {team}? They go back to the Add a runner list below.',
+  'relay.removed': 'Removed {name} from {team} — they are offered again under Add a runner.',
   'relay.removeFailed': 'Could not remove the runner',
-  'relay.order': 'Running order',
   'relay.orderHint': 'Leg 1 runs first. Move a runner up or down, then save the order.',
   'relay.moveUp': 'Move up',
   'relay.moveDown': 'Move down',
@@ -1255,7 +1251,6 @@ const en = {
   'relay.openBoard': 'Relay teams',
   'relay.backToGroups': 'Back to heats & sheets',
   'relay.backToTeacher': 'Back to my students',
-  'relay.studentsLoadFailed': 'Failed to load the student register',
 
   /*
    * Making a team out of the students who applied. The school confirmed the flow:
@@ -1265,69 +1260,28 @@ const en = {
    * is labelled as such.
    */
   'relay.applicantsTitle': 'Students who applied',
-  'relay.applicantsHint':
-    'Every student with a confirmed entry in this relay, in register order — form, then class, then class number, then name. Tick the ones who make up a team, type that team’s name below and create it; the team does not have to be one class or one house. A student already running for another team of this event cannot be ticked: their box is disabled and the reason is beside them.',
-  'relay.applicantCount': '{count} applicant(s)',
-  'relay.placedCount': '{count} already on a team',
-  'relay.unplacedCount': '{count} still unplaced',
-  'relay.noApplicants': 'No student has applied to this relay event yet.',
-  'relay.noApplicantsMine':
-    'None of your own classes has a student entered in this relay, so there is nobody here for you to place. An administrator sees the whole event.',
-  'relay.unplacedOnly': 'Show only the unplaced',
-  'relay.noUnplaced': 'Every applicant is already on a team.',
-  'relay.tickedCount': '{count} ticked',
-  'relay.clearSelection': 'Clear the ticks',
 
   /* making one team by hand, out of exactly the ticked students */
-  'relay.createTitle': 'Create a team from the ticked students',
-  'relay.createFlow':
-    'This makes one team out of exactly the students you tick, under the name you type — a team that is not one class’s and not one house’s, which is what a derived team cannot be. Tick them in running order (the first ticked runs leg 1), type the team’s own name as free text and press create. A team of fewer than four is allowed and reported as incomplete; the server refuses more than its legs plus one reserve, and every refusal below is its own wording, word for word. The ticks are kept when a create is refused, so a name can be fixed and the create tried again.',
-  'relay.createNameLabel': 'Team name on the sheet (typed by you)',
-  'relay.createNamePlaceholder': 'e.g. 1A or B Grade Yellow',
-  'relay.createTeam': 'Create the team from the ticked students',
-  'relay.creating': 'Creating the team…',
-  'relay.createOrderHint':
-    'The team is built in the order you ticked, so the first student ticked runs leg 1.',
-  'relay.createOverCap':
-    '{count} students are ticked, and one team of this event holds at most {cap} — {legs} legs and at most one reserve. Untick some of them before creating.',
-  'relay.createConflict':
-    '{names} already run in another team of this event, so they cannot be ticked into a new one. Remove them from that team first.',
-  'relay.createRefused': 'The server refused this team, in its own words:',
-  'relay.createTicksKept':
-    'Nothing was created and your ticks are exactly as they were — fix the name or the selection and press create again.',
-  'relay.createNeedsName': 'Type the team’s name first — the server refuses a blank one.',
-  'relay.createNeedsTicks': 'Tick at least one student — a team needs runners.',
-  'relay.createDone': 'Created “{team}” with {count} runner(s).',
-  'relay.createFailed': 'Could not create the team',
   'relay.handMade': 'Hand-made team',
   'relay.handMadeHint':
     'This team was made by hand, not derived from the register: it is not one class’s and not one house’s, so it carries no form or house key. A later derive never touches it — it is never matched, renamed or dropped by one.',
   'relay.derivedForm': 'Derived class team',
   'relay.derivedHouse': 'Derived house team',
-  'relay.tickBlockedPlaced':
-    'Already runs for {team} in this event — one athlete runs one team, so they cannot be ticked into another.',
-  'relay.tickBlockedRunning':
-    'Already on a team of this event — one athlete runs one team, so they cannot be ticked into another.',
-  'relay.tick': 'Pick',
-  'relay.tickGroup': 'Tick this class',
-  'relay.untickGroup': 'Untick this class',
   'relay.form': 'Form',
   'relay.team': 'Team',
-  'relay.placed': 'Already on a team',
-  'relay.noTeamYet': 'No team yet',
   'relay.teamsTitle': 'The teams',
   'relay.noTeams':
-    'No team has been made for this event yet. Derive the roster’s class or house teams above, or tick applicants and create a team of your own.',
+    'No team has been made for this event yet. Derive the roster’s class or house teams above, then fill each one from its own Add a runner list.',
   'relay.undividedTeamsHint':
-    'An undivided relay has no derived teams, so a derive has nothing to make here. The applicants above can still be grouped: tick them and create a team under a name you type. To get the roster’s own teams as well, an administrator sets the event’s relay kind to Form or House.',
+    'An undivided relay has no derived teams, so a derive has nothing to make here. An administrator sets the event’s relay kind to Form or House, and the class or house teams can then be derived and filled on this board.',
   'relay.undividedTeacherHint':
-    'You can still make teams here: tick the applicants above, type the team’s name and create it. The roster’s own class or house teams need an administrator to set this event’s relay kind to Form or House first.',
+    'This relay is undivided, so it has no teams yet: an administrator sets the event’s relay kind to Form or House, and its class or house teams can then be derived and filled here.',
   'relay.shortTeams': '{count} team(s) short of a full relay',
   'relay.shortTeamsWarn':
     'These teams cannot run as they stand — {names}. A relay team must end up with four runners; a team with fewer is saved but incomplete, and its sheet is not a relay that can be run.',
   'relay.shortOfLegs': 'Short — {missing} runner(s) needed',
   'relay.incompleteWarn':
-    'This team has {filled} of its {legs} runners, so it cannot run yet. Tick its students on the applicant list — or add them one at a time below — until all {legs} legs are filled.',
+    'This team has {filled} of its {legs} runners, so it cannot run yet. Add the rest from this team’s own Add a runner list until all {legs} legs are filled.',
   'relay.allComplete': 'Every team is complete',
   'relay.reserveCount': '{count} reserve(s)',
   'relay.unnamed': 'Unnamed team',
@@ -1407,7 +1361,7 @@ const en = {
   /* ---------------- the teacher's way into a relay board ---------------- */
   'teacher.relayTitle': 'Relay events',
   'teacher.relayHint':
-    'Open a relay event to see the students who applied to it — with their form, class and house — and group them into that event’s teams. A relay is either a class relay (one team per class) or a house relay (one team per house of the event’s grade); you may place your own classes’ students, while every team of the event is shown so you can see who is running with whom.',
+    'Open a relay event to see its teams and fill them: every team’s own list offers the register’s students for its class or house, and a runner can be removed and put back as often as you like. A relay is either a class relay (one team per class) or a house relay (one team per house of the event’s grade); you may place your own classes’ students, while every team of the event is shown so you can see who is running with whom.',
   'teacher.relayEmpty': 'The programme has no relay event yet.',
   'teacher.relayAll': 'See every relay event',
 
@@ -1662,13 +1616,12 @@ const zh: Record<keyof typeof en, string> = {
   'standards.handSet': '手動設定',
   'marks.remark': '備註',
   'marks.unit': '單位',
-  'unit.M:S': '分:秒',
-  'marks.minutes': '分鐘',
-  'marks.seconds': '秒',
-  'marks.minutesShort': '分',
-  'marks.secondsShort': '秒',
-  'marks.secondsLimit':
-    '{who}：時間的秒數部分必須少於 60 — 2 分 15 秒請輸入 2 及 15，不要輸入 1 及 75。',
+  'marks.timeFormat': '分.秒.毫秒',
+  'marks.timePlaceholder': '1.04.123',
+  'marks.timeBadShape':
+    '{who}："{value}" 不是有效時間 — 請輸入 分.秒.毫秒，例如 1.04.123、0.48.123 或 48.123。',
+  'marks.timeSecondsLimit':
+    '{who}：時間的秒數部分必須少於 60 — 2 分 15 秒請輸入 2.15.000，不要輸入 1.75.000。',
   'marks.attempt': '第 {n} 次',
   'marks.best': '最佳',
   'marks.fieldHint': '田項 — 每人三次試擲。依次輸入，失敗留空，以最佳成績為準。',
@@ -1941,7 +1894,7 @@ const zh: Record<keyof typeof en, string> = {
   'records.colHolder': '保持者',
   'records.colAchieved': '締造日期',
   'records.colPrevious': '舊紀錄',
-  'records.previousLine': '{name} — {mark} {unit}（{date}）',
+  'records.previousLine': '{name} — {mark}{unit}（{date}）',
   'records.firstRecord': '首項紀錄',
   'records.colSource': '紀錄來源',
   'records.sourceBaseline': '人手輸入',
@@ -2447,7 +2400,6 @@ const zh: Record<keyof typeof en, string> = {
   'teacher.removeConfirm': '確定取消 {name} 在「{event}」的報名？',
 
   /* ---------------- relay teams ---------------- */
-  'relay.title': '接力隊伍',
   'relay.boardTitle': '接力隊伍編排',
   'relay.subtitle': '把接力項目分為班際或社際隊伍，然後為每一棒安排運動員並設定接力次序。',
   'relay.loading': '載入接力隊伍…',
@@ -2466,13 +2418,13 @@ const zh: Record<keyof typeof en, string> = {
   'relay.reservesHint': '容許後備時，每隊最多可安排棒數兩倍的人數 — 4x100M 即四名跑手及四名後備。',
   'relay.undividedTitle': '此接力項目尚未分隊',
   'relay.undividedHint':
-    '未分隊的接力項目沒有由名冊產生的隊伍。若要在項目設定中選擇班際或社際，即可由名冊產生班際或社際隊伍；亦可保持未分隊，直接在下方報名學生中自建隊伍並自行命名。',
+    '未分隊的接力項目沒有由名冊產生的隊伍。請在項目設定中選擇班際或社際，即可由名冊產生班際或社際隊伍，並在此加入跑手。',
   'relay.setKind': '在項目設定中選擇接力類別',
   'relay.derive': '由名冊產生班際或社際隊伍',
   'relay.deriving': '產生中…',
   'relay.deriveTitle': '由名冊產生班際或社際隊伍',
   'relay.deriveExplanation':
-    '此按鈕只會產生名冊本身的隊伍：班際接力每班一隊，社際接力每社一隊，全部取自名冊 — 與您勾選的學生無關。班際或社際接力就是這樣產生隊伍的。若要由您勾選的學生另組一隊並自行輸入隊名，請使用下方報名學生清單中的「以已勾選學生建立隊伍」。以此方式建立的隊伍不會被產生功能觸及：它不屬於任何班別或社，因此永遠不會被配對、改名或刪除。',
+    '此按鈕只會產生名冊本身的隊伍：班際接力每班一隊，社際接力每社一隊，全部取自名冊。班際或社際接力就是這樣產生隊伍的，之後可在各隊下方的「新增跑手」名單加入跑手。若隊伍是經接力隊伍 API 自建的，產生功能不會觸及它：它不屬於任何班別或社，因此永遠不會被配對、改名或刪除。',
   'relay.derivePrune': '同時刪除名冊上已不存在且沒有成員的空隊伍',
   'relay.derived': '已產生 — 新增 {created} 隊、保留 {kept} 隊、刪除 {pruned} 隊，合資格學生 {eligible} 人。',
   'relay.derivedKeptWithRunners': ' 另有 {count} 隊因已有成員而保留。',
@@ -2483,9 +2435,7 @@ const zh: Record<keyof typeof en, string> = {
   'relay.removedAll': '已移除 {count} 隊接力隊伍。',
   'relay.removeAllFailed': '無法移除接力隊伍',
   'relay.teamCount': '{count} 隊',
-  'relay.runnerCount': '{count} 名跑手',
   'relay.complete': '已齊人',
-  'relay.incomplete': '尚未齊人',
   'relay.legsFilled': '已安排 {filled} / {legs} 棒',
   'relay.noRunners': '尚未安排跑手。',
   'relay.leg': '棒次',
@@ -2493,18 +2443,16 @@ const zh: Record<keyof typeof en, string> = {
   'relay.runners': '跑手',
   'relay.addRunner': '新增跑手',
   'relay.addRunnerHint':
-    '只會列出合資格加入此隊的學生 — 項目所屬組別及級別，以及隊伍所屬班別或社。其他學生伺服器會拒絕，並會原樣顯示其訊息。',
-  'relay.pickCandidate': '請選擇學生…',
+    '此表列出註冊名單中可加入此隊的學生：項目的組別及其級別／級別範圍、此隊所屬的班別或社，且未在此項目中作賽。被移除的跑手會回到此名單。',
   'relay.add': '新增',
   'relay.adding': '新增中…',
   'relay.added': '已把 {name} 加入 {team}。',
   'relay.addFailed': '無法新增跑手',
   'relay.noCandidates': '此隊已沒有合資格的學生可加入。',
   'relay.remove': '移除',
-  'relay.removeConfirm': '確定把 {name} 從 {team} 移除？',
-  'relay.removed': '已把 {name} 從 {team} 移除。',
+  'relay.removeConfirm': '確定把 {name} 從 {team} 移除？移除後會回到下方的「新增跑手」名單。',
+  'relay.removed': '已把 {name} 從 {team} 移除 — 可在「新增跑手」再次加入。',
   'relay.removeFailed': '無法移除跑手',
-  'relay.order': '接力次序',
   'relay.orderHint': '第一棒先跑。把跑手上下移動，然後儲存次序。',
   'relay.moveUp': '上移',
   'relay.moveDown': '下移',
@@ -2516,67 +2464,31 @@ const zh: Record<keyof typeof en, string> = {
   'relay.openBoard': '接力隊伍',
   'relay.backToGroups': '返回分組及點名表',
   'relay.backToTeacher': '返回我的學生',
-  'relay.studentsLoadFailed': '無法載入學生名冊',
 
   /* 把報名接力的學生編成隊伍。伺服器沒有「以指定學生開設一隊」的端點，因此本頁的流程是：
      先由名冊產生班際或社際隊伍，再把已勾選的學生加入其所屬隊伍，最後為隊伍命名。 */
   'relay.applicantsTitle': '報名學生',
-  'relay.applicantsHint':
-    '所有已確認報名此接力項目的學生，按名冊次序排列 — 先級別、後班別、再班號、最後姓名。勾選要組成隊伍的學生，在下方輸入該隊隊名並建立隊伍；隊伍不一定要屬於同一班別或同一社。已代表此項目其他隊伍出賽的學生不能勾選：其方格會停用，原因顯示在旁。',
-  'relay.applicantCount': '{count} 名報名學生',
-  'relay.placedCount': '已有隊伍 {count} 人',
-  'relay.unplacedCount': '尚未編隊 {count} 人',
-  'relay.noApplicants': '此接力項目暫時未有學生報名。',
-  'relay.noApplicantsMine': '您任教班別沒有學生報名此接力項目，因此沒有可由您編隊的學生。管理員可看到整個項目。',
-  'relay.unplacedOnly': '只顯示尚未編隊的學生',
-  'relay.noUnplaced': '所有報名學生均已編入隊伍。',
-  'relay.tickedCount': '已勾選 {count} 人',
-  'relay.clearSelection': '清除勾選',
 
   /* 以勾選的學生親手建立一隊 */
-  'relay.createTitle': '以已勾選學生建立隊伍',
-  'relay.createFlow':
-    '此功能會以您勾選的學生組成一支隊伍，隊名由您輸入 — 該隊不屬於任何班別或社，這正是產生功能做不到的。請按接力次序勾選（第一位勾選的跑第一棒），以自由文字輸入隊名，然後按建立。不足四人的隊伍可以建立，只會顯示為尚未齊人；超過棒數加一名後備時伺服器會拒絕，下方所有拒絕訊息均為伺服器原文。建立被拒時勾選會保留，修正隊名後可直接再按建立。',
-  'relay.createNameLabel': '點名表上的隊名（由您輸入）',
-  'relay.createNamePlaceholder': '例如 1A 或 B Grade Yellow',
-  'relay.createTeam': '以已勾選學生建立隊伍',
-  'relay.creating': '建立隊伍中…',
-  'relay.createOrderHint': '隊伍按您勾選的次序組成，第一位勾選的學生跑第一棒。',
-  'relay.createOverCap':
-    '已勾選 {count} 名學生，而此項目的每隊最多 {cap} 人 — {legs} 棒加最多一名後備。請先取消部分勾選再建立。',
-  'relay.createConflict': '{names} 已代表此項目的另一支隊伍出賽，因此不能勾選加入新隊伍。請先把他們從該隊移除。',
-  'relay.createRefused': '伺服器拒絕此隊伍，以下是其原文訊息：',
-  'relay.createTicksKept': '並未建立任何隊伍，勾選亦完全保留 — 請修正隊名或人選後再按建立。',
-  'relay.createNeedsName': '請先輸入隊名 — 伺服器不接受空白隊名。',
-  'relay.createNeedsTicks': '請至少勾選一名學生 — 隊伍需要跑手。',
-  'relay.createDone': '已建立「{team}」，共 {count} 名跑手。',
-  'relay.createFailed': '無法建立隊伍',
   'relay.handMade': '自建隊伍',
   'relay.handMadeHint':
     '此隊為自建隊伍，並非由名冊產生：它不屬於任何班別或社，因此沒有班別或社的識別值。日後再按產生隊伍時不會影響此隊 — 它永遠不會被配對、改名或刪除。',
   'relay.derivedForm': '由名冊產生的班際隊伍',
   'relay.derivedHouse': '由名冊產生的社際隊伍',
-  'relay.tickBlockedPlaced': '已代表此項目的 {team} 出賽 — 一名運動員只跑一隊，因此不能勾選加入其他隊伍。',
-  'relay.tickBlockedRunning': '已代表此項目的隊伍出賽 — 一名運動員只跑一隊，因此不能勾選加入其他隊伍。',
-  'relay.tick': '選取',
-  'relay.tickGroup': '全選此班',
-  'relay.untickGroup': '取消此班',
   'relay.form': '級別',
   'relay.team': '隊伍',
-  'relay.placed': '已有隊伍',
-  'relay.noTeamYet': '尚未有隊伍',
   'relay.teamsTitle': '隊伍',
-  'relay.noTeams': '此項目尚未有任何隊伍。可在上方由名冊產生班際或社際隊伍，或勾選報名學生自建隊伍。',
+  'relay.noTeams': '此項目尚未有任何隊伍。請在上方由名冊產生班際或社際隊伍，然後在各隊下方的「新增跑手」名單加入跑手。',
   'relay.undividedTeamsHint':
-    '未分隊的接力項目沒有由名冊產生的隊伍。上方報名學生仍可編隊：勾選他們並自行輸入隊名建立隊伍。名冊本身的班際或社際隊伍，則需管理員先把此項目的接力類別設為班際或社際。',
+    '未分隊的接力項目沒有由名冊產生的隊伍，因此沒有可產生的隊伍。請管理員先把此項目的接力類別設為班際或社際，即可在此產生並加入跑手。',
   'relay.undividedTeacherHint':
-    '您仍可在此建立隊伍：勾選上方報名學生，輸入隊名後建立。名冊本身的班際或社際隊伍，則需管理員先把此項目的接力類別設為班際或社際。',
+    '此接力項目尚未分隊，因此未有隊伍：請管理員先把此項目的接力類別設為班際或社際，即可在此產生並加入跑手。',
   'relay.shortTeams': '{count} 隊人數不足',
   'relay.shortTeamsWarn':
     '以下隊伍按現狀不能出賽 — {names}。接力隊伍必須有四位跑手；人數不足的隊伍會獲儲存但尚未齊人，其點名表不能作接力賽使用。',
   'relay.shortOfLegs': '尚欠 {missing} 名跑手',
   'relay.incompleteWarn':
-    '此隊現有 {legs} 棒中的 {filled} 名跑手，尚未能出賽。請在報名學生清單勾選其學生 — 或在下方逐一加入 — 直至 {legs} 棒全部齊人。',
+    '此隊現有 {legs} 棒中的 {filled} 名跑手，尚未能出賽。請在此隊下方的「新增跑手」名單加入跑手，直至 {legs} 棒全部齊人。',
   'relay.allComplete': '所有隊伍均已齊人',
   'relay.reserveCount': '{count} 名後備',
   'relay.unnamed': '未命名隊伍',
@@ -2654,7 +2566,7 @@ const zh: Record<keyof typeof en, string> = {
   'relayEvents.printFailed': '無法列印記錄表',
   'teacher.relayTitle': '接力項目',
   'teacher.relayHint':
-    '開啟接力項目即可看到報名該項目的學生 — 連同級別、班別及社 — 並把他們編入該項目的隊伍。接力項目分為班際（每班一隊）及社際（該級別每社一隊）；您可安排自己任教班別的學生，而項目的所有隊伍均會顯示，讓您看到各隊的組合。',
+    '開啟接力項目即可看到其隊伍並加入跑手：每隊下方的名單會列出名冊上屬於該班別或社的學生，跑手可隨時移除並重新加入。接力項目分為班際（每班一隊）及社際（該級別每社一隊）；您可安排自己任教班別的學生，而項目的所有隊伍均會顯示，讓您看到各隊的組合。',
   'teacher.relayEmpty': '本年度暫時未有接力項目。',
   'teacher.relayAll': '查看所有接力項目',
 

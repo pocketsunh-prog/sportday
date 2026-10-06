@@ -23,6 +23,7 @@ import org.springframework.stereotype.Service;
 import java.io.ByteArrayOutputStream;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -56,6 +57,13 @@ import java.util.List;
  * there a line is the athlete, and their student id and name are printed. A relay whose
  * teams have not been derived carries no team labels and keeps that athlete-per-line
  * sheet.</p>
+ *
+ * <p><strong>Those teams are the event's, not the heat's.</strong> A relay's teams are
+ * one per class or per house of the event — for a form relay, the classes of that form —
+ * while the group's roster is the students who entered the event. The two are different
+ * lists, so the sheet takes its lines from the event's teams
+ * ({@link EventGroupDTO#getRelayTeamLabels()}) and never from the roster: drawn from the
+ * roster, a form relay printed the entrants' names where the class team's name belongs.</p>
  *
  * <p>Under the event name the sheet carries the event's <strong>school record</strong>
  * — the mark to beat — once per sheet, in the header block, for example
@@ -185,12 +193,27 @@ public class PdfSheetService {
             document.add(standard);
         }
 
+        /*
+         * The lines of this sheet, in the one place that decides them for every sheet
+         * the programme prints. A relay's lines are its TEAMS — the event's own, not
+         * the heat's entrants — and an individual event's are its athletes. Read here
+         * rather than beside the table, because the header counts what the lines are.
+         */
+        List<String> relayLines = relayLinesOf(group);
+
         StringBuilder meta = new StringBuilder();
         meta.append("項目 Event: ").append(nullSafe(group.getEventTypeLabel()));
         meta.append("  |  ").append(nullSafe(group.getCategoryLabel()));
         meta.append("  |  ").append(nullSafe(group.getSexLabel()));
         meta.append("  |  組別 Group: ").append(nullSafe(group.getLabel()));
-        meta.append("  |  人數 Entries: ").append(group.getAthleteCount()).append('/').append(group.getCapacity());
+        if (relayLines != null) {
+            // A relay's paper is its teams, so it counts teams: the entrants in the
+            // heat are not the lines below, and "9/24" beside four team lines reads
+            // as five sheets gone missing.
+            meta.append("  |  隊伍 Teams: ").append(relayLines.size());
+        } else {
+            meta.append("  |  人數 Entries: ").append(group.getAthleteCount()).append('/').append(group.getCapacity());
+        }
         meta.append("  |  紙張 Sheet: ").append(nullSafe(group.getSheetSize()));
 
         // The final is a stage of the same event; spell it out so a helper cannot
@@ -259,16 +282,6 @@ public class PdfSheetService {
         }
 
         List<EnrollmentDTO> athletes = group.getAthletes() == null ? List.of() : group.getAthletes();
-        /*
-         * A relay is run by teams, not by individuals: one time is written against the
-         * team, not four against the legs. So a relay sheet has one line per TEAM, and
-         * that line IS the team — the team's name and nothing else, because there is one
-         * record box beside it and one time to write in it. An individual event keeps one
-         * line per athlete, where the line is the athlete and their name is printed. A
-         * relay whose teams have not been derived carries no team labels at all and falls
-         * back to the athlete-per-line sheet it has always had.
-         */
-        List<String> relayLines = relayLinesOf(athletes);
         // Pad out to the group's capacity so a late entry can still be written in —
         // but a relay is padded to its teams, because empty team lines help nobody.
         int lines = relayLines == null ? athletes.size() : relayLines.size();
@@ -343,10 +356,38 @@ public class PdfSheetService {
      * for it, and printing "5A — Chan Tai Man, Lee Siu Ming" against one record box
      * would read as a mark for each of them.</p>
      *
-     * <p>Returning null is what keeps an individual event — where a line is the
-     * athlete, whose student id and name are printed — and a relay whose teams have not
-     * been derived on the athlete-per-line sheet; the two shapes cannot be confused for
-     * one another because the team labels are either there or they are not.</p>
+     * <p><strong>And the teams are the event's, not the heat's.</strong>
+     * {@link EventGroupDTO#getRelayTeamLabels()} is asked first, because a relay's teams
+     * are one per class or per house of the event while the group's roster is the
+     * students who entered it — for a form relay, whose teams are the classes of that
+     * form, the two are different sets, and a sheet drawn from the roster printed the
+     * entrants' names where the team's name belongs. A group that carries no team list
+     * falls back to the labels its own lines carry, and one with no labels at all — an
+     * individual event, or a relay whose teams have not been derived — keeps the
+     * athlete-per-line sheet it has always had.</p>
+     */
+    private static List<String> relayLinesOf(EventGroupDTO group) {
+        List<String> teams = new ArrayList<>();
+        if (group.getRelayTeamLabels() != null) {
+            for (String team : group.getRelayTeamLabels()) {
+                if (team != null && !team.isBlank() && !teams.contains(team.trim())) {
+                    teams.add(team.trim());
+                }
+            }
+        }
+        if (!teams.isEmpty()) {
+            return teams;
+        }
+        List<EnrollmentDTO> athletes = group.getAthletes() == null ? List.of() : group.getAthletes();
+        return relayLinesOf(athletes);
+    }
+
+    /**
+     * The team labels the group's own lines carry, or null when they carry none.
+     *
+     * <p>The shape a group built by a caller that knows only its lines still prints
+     * teams with; a real relay group is drawn from the event's teams instead, see
+     * {@link #relayLinesOf(EventGroupDTO)}.</p>
      */
     private static List<String> relayLinesOf(List<EnrollmentDTO> athletes) {
         boolean anyTeam = athletes.stream().anyMatch(a -> a.getRelayTeamLabel() != null);
@@ -493,14 +534,20 @@ public class PdfSheetService {
         return Math.max(min, Math.min(max, ideal));
     }
 
-    /** The unit this group's marks are recorded in, for the Record heading. */
+    /**
+     * The unit this group's marks are recorded in, for the Record heading.
+     *
+     * <p>A race timed on a stopwatch — the 400M and over, and both relays — is
+     * written <strong>{@code M.SS.mmm}</strong>, so that is what its heading says:
+     * the paper a helper writes on and the box they type into name the same shape,
+     * and the name itself comes from {@code StopwatchTime.SHAPE} rather than being
+     * spelled again here. Everything else keeps the unit it had.</p>
+     */
     static String unitFor(EventGroupDTO group) {
-        // A race over 400M is timed on a stopwatch, so its sheet reads M:S rather
-        // than a bare count of seconds.
         if (group.getEventType() != null) {
             try {
                 if (Event.EventType.valueOf(group.getEventType()).usesMinutesAndSeconds()) {
-                    return "M:S";
+                    return StopwatchTime.SHAPE;
                 }
             } catch (IllegalArgumentException ignored) {
                 // An event type this build does not know — fall back to the category.

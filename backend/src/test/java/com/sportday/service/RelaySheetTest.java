@@ -146,6 +146,34 @@ class RelaySheetTest {
     }
 
     @Test
+    @DisplayName("the event's teams win over the labels a roster happens to carry")
+    void theEventsTeamsAreTheLines() throws Exception {
+        // A group carries both: the event's own teams, and a roster whose lines name a
+        // team each. The event's teams are the sheet's lines — a relay's teams belong
+        // to the event, and a heat's roster is only who entered it.
+        EventGroupDTO group = EventGroupDTO.builder()
+                .id(11L).eventId(5L).eventName("Boys 4x100M Relay - Form 1")
+                .eventType("RELAY_4X100M").category(EventCategory.RELAY.name())
+                .sex(Sex.MALE.name()).grade(Grade.A.name())
+                .stage("HEAT").groupNumber(1).label("Heat 1").capacity(24).athleteCount(2)
+                .relayTeamLabels(List.of("1A", "1B"))
+                .athletes(List.of(
+                        runner("S0001", "Chan Tai Man", "A", "5A"),
+                        runner("S0002", "Lee Siu Ming", "A", "5B")))
+                .build();
+
+        String text = textOf(sheets.renderSheets(List.of(group)));
+        List<String> sheetLines = lines(text);
+
+        assertTrue(sheetLines.contains("1A") && sheetLines.contains("1B"),
+                "the event's class teams are the lines: " + text);
+        assertFalse(text.contains("5A") || text.contains("5B"),
+                "and the roster's own team labels are not: " + text);
+        assertFalse(text.contains("Chan Tai Man") || text.contains("Lee Siu Ming"),
+                "and no runner is named: " + text);
+    }
+
+    @Test
     @DisplayName("an undivided relay is refused with its reason, not printed as an athlete sheet")
     void anUndividedRelayIsRefused() {
         // Every relay event in the programme starts like this: no kind, so no teams.

@@ -63,9 +63,24 @@ public class BulkMarkRequest {
         private List<BigDecimal> attempts;
 
         /**
-         * For a race longer than 400M, the time as a stopwatch reads it — whole
-         * minutes and the seconds left over. Sent instead of {@code mark}, which the
-         * server works out as the total in seconds.
+         * For a race timed on a stopwatch — the 400M and over, and both relays —
+         * the time as the helper typed it: {@code 1.04.123}, {@code 0.48.123} or
+         * {@code 48.123}.
+         *
+         * <p>This is the shape the grid sends, and it is parsed by
+         * {@link com.sportday.service.StopwatchTime#parse(String)} — one home for the
+         * grammar, shared with the text the grid was drawn from. A value that is not
+         * one of the accepted shapes is <strong>refused</strong> with the reason, so a
+         * mistyped time can never be stored as a number that merely looks plausible.
+         * Sent instead of {@link #mark}, which the server works out as the total in
+         * seconds.</p>
+         */
+        private String time;
+
+        /**
+         * The same time as whole minutes and the seconds left over, from a client
+         * that still speaks the two-box shape. Read only when {@link #time} is absent
+         * or blank; the grid itself sends {@link #time}.
          */
         private Integer minutes;
         private BigDecimal seconds;

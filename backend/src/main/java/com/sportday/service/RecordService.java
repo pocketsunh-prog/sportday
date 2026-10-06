@@ -198,7 +198,13 @@ public class RecordService {
             record.setMark(winner.getMark());
             record.setUnit(winner.getUnit());
             record.setHolder(winner.getUser());
-            record.setHolderName(displayName(winner.getUser(), rosters));
+            // A relay's record is the TEAM's, so it is held by the school's own name
+            // for the team — 1A, B Grade Green — and not by the runner the row is
+            // anchored to. An individual event's record is held by the athlete, as it
+            // always was. See EventResult#relayTeam.
+            record.setHolderName(winner.getRelayTeam() != null
+                    ? winner.getRelayTeam().getLabel()
+                    : displayName(winner.getUser(), rosters));
             record.setResult(winner);
             record.setEvent(winner.getEvent());
             record.setAchievedOn(winner.getEvent().getEventDate());

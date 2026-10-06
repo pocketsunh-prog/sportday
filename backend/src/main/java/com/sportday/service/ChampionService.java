@@ -5,6 +5,7 @@ import com.sportday.dto.SportDaySettingsDTO;
 import com.sportday.entity.Event;
 import com.sportday.entity.EventResult;
 import com.sportday.entity.EventStage;
+import com.sportday.entity.RelayTeam;
 import com.sportday.entity.Student;
 import com.sportday.exception.ResourceNotFoundException;
 import com.sportday.repository.EventGroupRepository;
@@ -165,14 +166,25 @@ public class ChampionService {
         int place = 1;
         for (EventResult result : ranked) {
             Student roster = rosters.get(result.getUser().getId());
+            // A relay's placing is the TEAM's, so it is named by the team: the team's
+            // own label in the Name column, and the identity cells that belong to a
+            // person — student id, grade, class, form — left empty, exactly as the
+            // marking sheet and the mark grid leave them on a team line. The house is
+            // kept, because a relay's points count for a house.
+            RelayTeam team = result.getRelayTeam();
             placings.add(ChampionsDTO.PlacingDTO.builder()
                     .place(place)
                     .userId(result.getUser().getId())
-                    .studentRef(roster != null ? roster.getStudentId() : result.getUser().getUsername())
-                    .name(roster != null ? roster.getName() : result.getUser().getFullName())
-                    .grade(roster != null && roster.getGrade() != null ? roster.getGrade().name() : null)
-                    .className(roster != null ? roster.getClassName() : null)
-                    .form(roster != null ? roster.getForm() : null)
+                    .studentRef(team != null ? null
+                            : roster != null ? roster.getStudentId() : result.getUser().getUsername())
+                    .name(team != null ? team.getLabel()
+                            : roster != null ? roster.getName() : result.getUser().getFullName())
+                    .teamId(team == null ? null : team.getId())
+                    .teamLabel(team == null ? null : team.getLabel())
+                    .grade(team == null && roster != null && roster.getGrade() != null
+                            ? roster.getGrade().name() : null)
+                    .className(team == null && roster != null ? roster.getClassName() : null)
+                    .form(team == null && roster != null ? roster.getForm() : null)
                     .house(roster != null ? roster.getHouse() : null)
                     .houseCode(roster != null ? roster.getHouseCode() : null)
                     .mark(result.getMark())
@@ -189,14 +201,20 @@ public class ChampionService {
         // sheet that omits them would read as if they never competed.
         for (EventResult result : notPlaced) {
             Student roster = rosters.get(result.getUser().getId());
+            RelayTeam team = result.getRelayTeam();
             placings.add(ChampionsDTO.PlacingDTO.builder()
                     .place(0)
                     .userId(result.getUser().getId())
-                    .studentRef(roster != null ? roster.getStudentId() : result.getUser().getUsername())
-                    .name(roster != null ? roster.getName() : result.getUser().getFullName())
-                    .grade(roster != null && roster.getGrade() != null ? roster.getGrade().name() : null)
-                    .className(roster != null ? roster.getClassName() : null)
-                    .form(roster != null ? roster.getForm() : null)
+                    .studentRef(team != null ? null
+                            : roster != null ? roster.getStudentId() : result.getUser().getUsername())
+                    .name(team != null ? team.getLabel()
+                            : roster != null ? roster.getName() : result.getUser().getFullName())
+                    .teamId(team == null ? null : team.getId())
+                    .teamLabel(team == null ? null : team.getLabel())
+                    .grade(team == null && roster != null && roster.getGrade() != null
+                            ? roster.getGrade().name() : null)
+                    .className(team == null && roster != null ? roster.getClassName() : null)
+                    .form(team == null && roster != null ? roster.getForm() : null)
                     .house(roster != null ? roster.getHouse() : null)
                     .houseCode(roster != null ? roster.getHouseCode() : null)
                     .mark(null)
