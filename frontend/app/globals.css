@@ -47,6 +47,80 @@ body {
   color: #e94560;
 }
 
+/*
+ * The menu is grouped into dropdowns, because a flat row of fourteen links
+ * wrapped onto a second line and pushed the header's height around.
+ *
+ * The right-hand side wraps deliberately: when it does not fit, the links flow
+ * onto another line rather than overflowing off-screen, which is what a teacher
+ * on a tablet would otherwise be left with.
+ */
+.navbar .nav-right {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  row-gap: 0.35rem;
+}
+
+.nav-dropdown {
+  position: relative;
+  margin-left: 1.5rem;
+}
+
+/* Styled as a link, because it reads as one — it is the menu's own label. */
+.nav-dropdown-toggle {
+  background: none;
+  border: none;
+  color: white;
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0;
+}
+
+.nav-dropdown-toggle:hover,
+.nav-dropdown-toggle[aria-expanded='true'] {
+  color: #e94560;
+}
+
+/*
+ * The menu is usable without a mouse, so where the caret is has to be visible.
+ * Only on :focus-visible, so a mouse click does not leave a ring behind.
+ */
+.nav-dropdown-toggle:focus-visible,
+.navbar .nav-dropdown-menu a:focus-visible {
+  outline: 2px solid #e94560;
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+
+.nav-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  right: 0;
+  z-index: 50;
+  min-width: 12rem;
+  display: flex;
+  flex-direction: column;
+  background: #1a1a2e;
+  border: 1px solid #2f2f4a;
+  border-radius: 6px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+  padding: 0.35rem 0;
+}
+
+/* Left-aligned inside the panel, whatever the header's own spacing is. */
+.navbar .nav-dropdown-menu a {
+  margin-left: 0;
+  padding: 0.45rem 0.9rem;
+  white-space: nowrap;
+}
+
+.navbar .nav-dropdown-menu a:hover {
+  background: #2f2f4a;
+}
+
 .btn {
   display: inline-block;
   padding: 0.6rem 1.5rem;

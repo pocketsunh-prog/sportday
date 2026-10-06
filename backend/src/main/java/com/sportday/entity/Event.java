@@ -127,6 +127,27 @@ public class Event {
     @Column(name = "standard", precision = 10, scale = 3)
     private java.math.BigDecimal standard;
 
+    /**
+     * Where {@link #standard} came from: <strong>true</strong> when it was inherited
+     * from the grade and division's default ({@link StandardDefault}), false when a
+     * person typed it on this event.
+     *
+     * <p>This one flag is what makes updating a default safe. "Apply now" re-points
+     * the events that <em>follow</em> the default and leaves the exceptions alone,
+     * and without a record of which is which there is no way to tell a number that
+     * was inherited from a number that was chosen — they are the same column. A
+     * forced apply ({@code mode=ALL}) deliberately overwrites both and says so.</p>
+     *
+     * <p>Nullable on purpose, exactly like {@link #directToFinal}. Null reads as
+     * false through {@link #isStandardInherited()}, so every standard already on file
+     * — the column did not exist when it was typed — is treated as <strong>hand-set
+     * and therefore never quietly overwritten</strong>. That is the conservative
+     * reading: an unattributed number has no proof it came from a default, so it is
+     * left alone and reported as kept.</p>
+     */
+    @Column(name = "standard_is_default")
+    private Boolean standardIsDefault;
+
     private String location;
 
     /** Hard cap on confirmed entries. Generous by default so a whole year group can enter. */
@@ -333,6 +354,33 @@ public class Event {
     @Transient
     public boolean isDraft() {
         return Boolean.TRUE.equals(draft);
+    }
+
+    /**
+     * True when this event's {@link #standard} came from the grade and division's
+     * {@link StandardDefault} rather than from somebody typing it on this event.
+     *
+     * <p>Null — a standard set before the column existed — reads as <strong>false</strong>,
+     * so a number with no record of where it came from is treated as hand-set and is
+     * never overwritten by an "apply the default" run. Only an explicit
+     * {@code mode=ALL} apply rewrites it, and that is a decision the administrator
+     * makes with the count in front of them.</p>
+     */
+    @Transient
+    public boolean isStandardInherited() {
+        return Boolean.TRUE.equals(standardIsDefault);
+    }
+
+    /**
+     * Points this event's standard at the default it inherits, or marks the value it
+     * already holds as hand-set when {@code defaultId} is null.
+     *
+     * @param value     the standard to hold, or null for none
+     * @param defaultId the default it came from, or null when it was typed here
+     */
+    public void setStandardFromDefault(java.math.BigDecimal value, Long defaultId) {
+        this.standard = value;
+        this.standardIsDefault = defaultId != null;
     }
 
     /**

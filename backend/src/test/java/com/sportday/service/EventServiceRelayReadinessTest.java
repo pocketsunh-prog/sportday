@@ -10,6 +10,7 @@ import com.sportday.repository.EnrollmentRepository;
 import com.sportday.repository.EventGroupRepository;
 import com.sportday.repository.EventRepository;
 import com.sportday.repository.EventResultRepository;
+import com.sportday.repository.StandardDefaultRepository;
 import com.sportday.repository.RelayTeamMemberRepository;
 import com.sportday.repository.RelayTeamRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -69,6 +70,8 @@ class EventServiceRelayReadinessTest {
     @Mock private SeasonService seasonService;
     @Mock private FinalQualificationService finalQualificationService;
     @Mock private RelayTeamService relayTeamService;
+    /** The school's per-grade default standard, read when an event is created. */
+    @Mock private StandardDefaultRepository standardDefaultRepository;
     @Mock private RelayTeamRepository relayTeamRepository;
     @Mock private RelayTeamMemberRepository relayTeamMemberRepository;
 
@@ -113,7 +116,8 @@ class EventServiceRelayReadinessTest {
         service = new EventService(eventRepository, enrollmentRepository, eventGroupRepository,
                 eventResultRepository, settingsService, recordService, seasonService,
                 finalQualificationService, relayTeamService,
-                new RelayReadiness(relayTeamRepository, relayTeamMemberRepository));
+                new RelayReadiness(relayTeamRepository, relayTeamMemberRepository),
+                standardDefaultRepository);
 
         when(settingsService.maxEntriesFor(any())).thenReturn(2);
         when(enrollmentRepository.countByEventIdAndStatus(any(), any())).thenReturn(0L);

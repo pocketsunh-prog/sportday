@@ -8,6 +8,7 @@ import com.sportday.repository.EnrollmentRepository;
 import com.sportday.repository.EventGroupRepository;
 import com.sportday.repository.EventRepository;
 import com.sportday.repository.EventResultRepository;
+import com.sportday.repository.StandardDefaultRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -61,6 +62,8 @@ class EventStandardUpdateTest {
     @Mock private FinalQualificationService finalQualificationService;
     @Mock private RelayTeamService relayTeamService;
     @Mock private RelayReadiness relayReadiness;
+    /** The school's per-grade default standard, read when an event is created. */
+    @Mock private StandardDefaultRepository standardDefaultRepository;
 
     @InjectMocks private EventService service;
 
@@ -129,6 +132,22 @@ class EventStandardUpdateTest {
 
         assertEquals("12.5 M", updated.getStandardLabel());
         assertEquals(0, new BigDecimal("12.5").compareTo(updated.getStandard()));
+    }
+
+    @Test
+    @DisplayName("a number typed here is marked as hand-set, so an apply will not replace it")
+    void aNumberTypedHereIsHandSet() {
+        Event event = existing(Event.EventType.RUN_400M, null);
+        when(eventRepository.findById(EVENT_ID)).thenReturn(Optional.of(event));
+
+        EventDTO updated = service.updateEvent(EVENT_ID, standardRequest("64.123"));
+
+        assertEquals(0, new BigDecimal("64.123").compareTo(updated.getStandard()));
+        // The rule that keeps "apply the grade default" safe: a number somebody typed
+        // on this event is the school's own — even when it happens to equal the
+        // default — and only an explicit mode=ALL apply may replace it.
+        assertFalse(updated.getStandardFromDefault(), "this number is not the default's");
+        assertFalse(event.isStandardInherited());
     }
 
     @Test

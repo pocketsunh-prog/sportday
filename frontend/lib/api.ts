@@ -406,6 +406,23 @@ export interface EventDTO {
   /** True to remove the standard, since an omitted number means "leave it alone". */
   clearStandard?: boolean;
   /**
+   * True when this event's standard came from the **grade and division default**
+   * rather than from somebody typing it on this event.
+   *
+   * It is what tells a number that *follows* the school's default from one that
+   * is this race's own exception, and only the first is re-pointed when the
+   * default changes. Absent or false means hand-set.
+   */
+  standardFromDefault?: boolean;
+  /**
+   * Asks for this event's standard to be taken from its grade and division's
+   * default. Sent instead of `standard`, so a page can offer "use the grade
+   * default" as one action rather than looking the number up and echoing it back.
+   *
+   * Refused when there is no default for the event's type, grade and division.
+   */
+  useDefaultStandard?: boolean;
+  /**
    * True when this event is one that carries a required standard at all: the
    * track races of 400M and over, and every field event.
    *
@@ -520,6 +537,59 @@ export interface EventDefaultsResultDTO {
   eventDate: string;
   includeField: boolean;
   totalEvents: number;
+}
+
+/**
+ * One **default required standard** — the number a whole event type, grade and
+ * sex division inherits — as `GET /admin/standard-defaults` lists it.
+ *
+ * The key is `type` × `grade` × `sex`, and the sex division is part of it on
+ * purpose: the live programme holds a Boys 400M and a Girls 400M at every grade,
+ * so a default keyed on grade alone would give both races one qualifying time.
+ */
+export interface StandardDefaultDTO {
+  /** Enum name, e.g. `RUN_400M`. */
+  type: string;
+  /** Human label, e.g. `400M`. */
+  typeLabel: string;
+  category: EventCategory;
+  grade: Grade;
+  /** e.g. `A Grade`. */
+  gradeLabel: string;
+  sex: EventSex;
+  /** e.g. `男 Boys`. */
+  sexLabel: string;
+  /** The qualifying mark, or null for "this school sets no standard here". */
+  standard?: number | null;
+  /** e.g. `64 s`. The default with its unit. */
+  standardLabel?: string;
+  /** `s` on the track, `M` in the field. */
+  unit?: string;
+  /** `RUN_400M|A|MALE` — the one spelling of the key, so a client need not join it. */
+  key?: string;
+  /** Set when this describes an *event* an apply changed rather than a default. */
+  eventId?: number;
+  eventName?: string;
+  standardFromDefault?: boolean;
+}
+
+/**
+ * What applying the defaults did — or, on a dry run, exactly what it would do.
+ *
+ * The counts are the point: an administrator is about to change live programme
+ * data, so the page shows how many events are affected and how many hand-set
+ * numbers are being left alone *before* anything is written.
+ */
+export interface StandardDefaultsApplyResultDTO {
+  /** True when nothing was written and this is only a preview. */
+  dryRun: boolean;
+  /** `INHERITED` (leave hand-set standards alone) or `ALL` (overwrite them). */
+  mode: string;
+  changed: number;
+  /** Hand-set numbers left alone. Always 0 in `ALL`. */
+  kept: number;
+  keys: StandardDefaultDTO[];
+  events: StandardDefaultDTO[];
 }
 
 /* ------------------------------------------------------------------ *
@@ -2562,6 +2632,58 @@ class ApiClient {
    */
   async restoreBackup(name: string): Promise<SeasonRestoreResultDTO> {
     return this.request(`/admin/backups/${encodeURIComponent(name)}/restore`, {
+      method: 'POST',
+    });
+  }
+
+  /* ------------- Admin: the default standard per grade and division ------------- */
+
+  /**
+   * Every default the school has configured, keyed by event type, grade and sex
+   * — the number an event of that key inherits. A key with no row has no default,
+   * and is simply absent from the list.
+   */
+  async getStandardDefaults(): Promise<StandardDefaultDTO[]> {
+    return this.request('/admin/standard-defaults');
+  }
+
+  /**
+   * Records the qualifying mark for one event type, grade and sex division: the
+   * number every event of that key inherits **from now on**. Send `null` to clear
+   * it.
+   *
+   * **No existing event is changed by this call.** The events that already exist
+   * are re-pointed by `applyStandardDefaults`, which can be previewed first.
+   */
+  async setStandardDefault(
+    type: string,
+    grade: Grade,
+    sex: EventSex,
+    standard: number | null
+  ): Promise<StandardDefaultDTO> {
+    return this.request(
+      `/admin/standard-defaults/${encodeURIComponent(type)}/${grade}/${sex}` +
+        buildQuery({ standard }),
+      { method: 'PUT' }
+    );
+  }
+
+  /**
+   * Re-points existing events at their grade and division's default.
+   *
+   * `mode` is `INHERITED` by default: only the events that *follow* a default, or
+   * hold no standard at all, change — every hand-set number is left exactly as it
+   * is and reported in `kept`. `ALL` overwrites those too, and is the only way a
+   * hand-set number is ever replaced.
+   *
+   * `dryRun` works out and reports what would change and writes nothing, which is
+   * what the page shows the administrator before they commit.
+   */
+  async applyStandardDefaults(
+    mode: 'INHERITED' | 'ALL' = 'INHERITED',
+    dryRun = false
+  ): Promise<StandardDefaultsApplyResultDTO> {
+    return this.request(`/admin/standard-defaults/apply${buildQuery({ mode, dryRun })}`, {
       method: 'POST',
     });
   }

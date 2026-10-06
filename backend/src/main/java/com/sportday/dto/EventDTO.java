@@ -91,6 +91,30 @@ public class EventDTO {
      */
     private Boolean clearStandard;
 
+    /**
+     * True when this event's standard came from the <strong>grade and division
+     * default</strong> ({@link com.sportday.entity.StandardDefault}) rather than from
+     * somebody typing it on this event.
+     *
+     * <p>An answer, not a request: it is what lets the standards page mark a number
+     * as following the grade default or as a hand-set exception, and it is what
+     * decides whether "apply the default" is allowed to re-point it. Absent or false
+     * means the number was typed here, which is the conservative reading of a
+     * standard that predates the column.</p>
+     */
+    private Boolean standardFromDefault;
+
+    /**
+     * Asks for this event's standard to be taken from its grade and division's
+     * default instead of from {@link #standard}, on a {@code PUT /api/events/{id}}.
+     *
+     * <p>The way a page offers "use the grade default" as one action rather than
+     * asking a client to look the number up and echo it back. Refused when there is
+     * no default for the event's type, grade and division, because silently leaving
+     * the number alone would look like the button had worked.</p>
+     */
+    private Boolean useDefaultStandard;
+
     private LocalDate eventDate;
     private String location;
     private Integer maxParticipants;
@@ -261,6 +285,10 @@ public class EventDTO {
                 .standard(carriesStandard(event) ? event.getStandard() : null)
                 .carriesStandard(carriesStandard(event))
                 .standardLabel(standardLabelOf(event))
+                // Where the number came from, so a page can show "follows the grade
+                // default" against "set by hand". False for anything that is not a
+                // qualifying event, which can hold no standard at all.
+                .standardFromDefault(carriesStandard(event) && event.isStandardInherited())
                 .eventDate(event.getEventDate())
                 .location(event.getLocation())
                 .maxParticipants(event.getMaxParticipants())

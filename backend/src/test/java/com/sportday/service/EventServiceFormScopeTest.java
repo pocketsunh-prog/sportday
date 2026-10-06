@@ -10,6 +10,7 @@ import com.sportday.repository.EnrollmentRepository;
 import com.sportday.repository.EventGroupRepository;
 import com.sportday.repository.EventRepository;
 import com.sportday.repository.EventResultRepository;
+import com.sportday.repository.StandardDefaultRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -62,6 +63,8 @@ class EventServiceFormScopeTest {
      * they touch is a half-built relay and the batch answer is empty.
      */
     @Mock private RelayReadiness relayReadiness;
+    /** The school's per-grade default standard, read when an event is created. */
+    @Mock private StandardDefaultRepository standardDefaultRepository;
 
     @InjectMocks private EventService service;
 

@@ -16,6 +16,7 @@ import com.sportday.repository.EnrollmentRepository;
 import com.sportday.repository.EventGroupRepository;
 import com.sportday.repository.EventRepository;
 import com.sportday.repository.EventResultRepository;
+import com.sportday.repository.StandardDefaultRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -51,6 +52,17 @@ public class EventService {
      * this service exists.
      */
     private final RelayReadiness relayReadiness;
+    /**
+     * The per-grade, per-division <strong>default required standard</strong> this
+     * event inherits when it is created.
+     *
+     * <p>Held here because the inheritance happens inside the one builder every
+     * create goes through ({@link #buildEvent}), and because a new event of a
+     * qualifying type must pick the default up <em>by itself</em> — the school's
+     * requirement is that a standard is set once per grade and division, and an event
+     * added afterwards follows it without anybody remembering to set it.</p>
+     */
+    private final StandardDefaultRepository standardDefaultRepository;
 
     /**
      * Brings every event's format back in step with how many are entered.
@@ -206,7 +218,18 @@ public class EventService {
         // blank here is simply no scope at all.
         String form = requireFormScopeAllowed(type, relayTeamKind, parseForm(eventDTO.getForm()));
 
-        Event saved = eventRepository.save(buildEvent(eventDTO, type, sex, grade, relayTeamKind, form));
+        Event toSave = buildEvent(eventDTO, type, sex, grade, relayTeamKind, form);
+        // A number the caller supplied is judged first, in the same words an update
+        // uses — a standard on a relay, or a standard of zero, is refused here rather
+        // than stored because a default happened to be in the way.
+        if (eventDTO.getStandard() != null) {
+            toSave.setStandard(eventDTO.getStandard());
+            requireCarriesAStandardIfSet(toSave);
+        }
+        // The school's default for this type, grade and division, if it has set one.
+        // Done after the builder so a caller that names a standard still wins.
+        applyDefaultStandard(toSave, eventDTO);
+        Event saved = eventRepository.save(toSave);
         // Every event has a record from the start — the event is one grade now, so
         // that is one record row.
         recordService.seedForEvent(saved);
@@ -408,6 +431,53 @@ public class EventService {
     }
 
     /**
+     * Fills in the event's <strong>required standard</strong> when the school has
+     * set a default for its type, grade and division, and nobody supplied one.
+     *
+     * <h2>Where the inheritance happens, and why here</h2>
+     * <p>{@link #buildEvent} is the one builder every create goes through —
+     * {@link #createEvent} and {@link #createDraftEvent} both call it, and so will
+     * anything added later — so putting the inheritance here means a new event picks
+     * its standard up <em>by itself</em>, with no caller having to remember. This is
+     * the school's requirement: "set it once per grade and event type", and an event
+     * added in November is the same race as one seeded in September.</p>
+     *
+     * <h2>The key includes the sex, on purpose</h2>
+     * <p>The lookup is type &times; grade &times; sex. A default keyed on grade alone
+     * would give the boys' 400M and the girls' 400M the same qualifying time, and the
+     * live programme holds both at every grade.</p>
+     *
+     * <h2>What it does not do</h2>
+     * <ul>
+     *   <li>it never touches a non-qualifying event: a relay and a 100M are not
+     *       offered a default, and
+     *       {@link com.sportday.repository.StandardDefaultRepository} can hold no
+     *       default for them because setting one is refused;</li>
+     *   <li>it does not overrule a number the caller supplied. A create that names a
+     *       standard — an exception the school is making for one race — keeps it and
+     *       is stamped as hand-set.</li>
+     * </ul>
+     *
+     * <p>The event is stamped as <em>inheriting</em> ({@link
+     * Event#setStandardFromDefault}), which is what lets a later change to the
+     * default re-point it while leaving a hand-set number alone.</p>
+     */
+    private void applyDefaultStandard(Event event, EventDTO eventDTO) {
+        if (event.getType() == null || !event.getType().carriesAStandard()) {
+            return;
+        }
+        // An explicit number in the request wins, and is marked as the school's own.
+        if (eventDTO.getStandard() != null || Boolean.TRUE.equals(eventDTO.getClearStandard())) {
+            return;
+        }
+        standardDefaultRepository
+                .findByTypeAndGradeAndSex(event.getType(), event.getGrade(), event.getSex())
+                .filter(defaultStandard -> defaultStandard.getStandard() != null)
+                .ifPresent(defaultStandard -> event.setStandardFromDefault(
+                        defaultStandard.getStandard(), defaultStandard.getId()));
+    }
+
+    /**
      * Updates an event.
      *
      * <p>The event must still have a grade afterwards, and the grade must be one the
@@ -569,27 +639,78 @@ public class EventService {
      *
      * <p>Which events carry one is {@link Event.EventType#carriesAStandard()}'s
      * business, not this method's, so the rule is not restated here.</p>
+     *
+     * <h2>Where the number came from is recorded too</h2>
+     * <p>A number sent here is <strong>somebody's decision about this one event</strong>,
+     * so it is stamped as hand-set even when it happens to equal the grade default.
+     * That is what makes "apply the default" safe: it re-points the events that
+     * <em>follow</em> a default and never overwrites a number a person typed, and
+     * this stamp is the only thing that can tell the two apart.</p>
+     *
+     * <h2>{@code useDefaultStandard}</h2>
+     * <p>The way back: it takes the number from the grade and division's default and
+     * stamps the event as following it again. Refused when there is no default for
+     * the event's type, grade and division, because quietly leaving the number alone
+     * would look like the request had worked.</p>
      */
     private void applyStandard(Event event, EventDTO eventDTO) {
+        if (Boolean.TRUE.equals(eventDTO.getUseDefaultStandard())) {
+            applyStandardFromTheDefault(event);
+            return;
+        }
         if (Boolean.TRUE.equals(eventDTO.getClearStandard())) {
-            event.setStandard(null);
+            // Cleared on purpose, so the event no longer follows a default: an
+            // "apply the default" run must not silently put the number back.
+            event.setStandardFromDefault(null, null);
         } else if (eventDTO.getStandard() != null) {
-            event.setStandard(eventDTO.getStandard());
+            // Typed on this event, so it is the school's own and outranks the default.
+            event.setStandardFromDefault(eventDTO.getStandard(), null);
         }
-        if (event.getStandard() != null) {
-            if (event.getType() == null || !event.getType().carriesAStandard()) {
-                // The type it is becoming, not the name it still carries: a request
-                // that changes both is judged on the event it would leave behind.
-                throw new IllegalArgumentException(
-                        (event.getType() == null ? "This event" : event.getType().getDisplayName())
-                        + " is not an event that carries a required standard. Only the "
-                        + "track races of 400M and over, and the field events, can have one.");
-            }
-            if (event.getStandard().signum() <= 0) {
-                throw new IllegalArgumentException(
-                        "A required standard must be greater than zero.");
-            }
+        requireCarriesAStandardIfSet(event);
+    }
+
+    /**
+     * Points an event's standard at its grade and division's default, and stamps it
+     * as following one.
+     *
+     * <p>Refused on an event that does not carry a standard at all — judged on the
+     * type the update would leave behind, exactly as the rest of this method is — and
+     * refused when there is no default to take, with the key named so the
+     * administrator knows which box to fill in.</p>
+     */
+    private void applyStandardFromTheDefault(Event event) {
+        Event.EventType type = event.getType();
+        // Judged on the type the event is becoming, so a 400M cannot become a 100M
+        // and keep a default on the way through.
+        StandardRule.requireCarriesAStandard(type);
+        var defaultStandard = standardDefaultRepository
+                .findByTypeAndGradeAndSex(type, event.getGrade(), event.getSex())
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "There is no default standard set for " + type.getDisplayName() + ", "
+                        + (event.getGrade() == null ? "this grade" : event.getGrade().getLabel())
+                        + ", " + (event.getSex() == null ? "this division" : event.getSex().getLabel())
+                        + ". Set the default first on the standards page, or give this event "
+                        + "its own standard."));
+        // A default that holds no number is a real answer: it means the school sets
+        // no standard for this key, so following it clears the event's standard.
+        event.setStandardFromDefault(defaultStandard.getStandard(), defaultStandard.getId());
+    }
+
+    /**
+     * Refuses a standard left on an event whose type does not carry one, and a
+     * standard that is not greater than zero.
+     *
+     * <p>Judged on the event the update would leave behind: a request that changes
+     * both the type and the standard is judged on the pair, so a 400M cannot become a
+     * 100M while keeping a number. Both rules live in {@link StandardRule}, because a
+     * default is refused for the same reasons.</p>
+     */
+    private static void requireCarriesAStandardIfSet(Event event) {
+        if (event.getStandard() == null) {
+            return;
         }
+        StandardRule.requireCarriesAStandard(event.getType());
+        StandardRule.requirePositive(event.getStandard());
     }
 
     /**
@@ -786,6 +907,13 @@ public class EventService {
                             .directToFinalAuto(type.isShortSprint())
                             .season(seasonService.currentSeason())
                             .build());
+                    // The seeded catalogue follows the school's defaults too: an
+                    // event created by this path is the same race as one added by
+                    // hand, so it must not be the one place a default is ignored.
+                    standardDefaultRepository.findByTypeAndGradeAndSex(type, grade, sex)
+                            .filter(value -> value.getStandard() != null)
+                            .ifPresent(value -> saved.setStandardFromDefault(
+                                    value.getStandard(), value.getId()));
                     // Every event has a record from the start, and the event is one
                     // grade, so that is one record row.
                     recordService.seedForEvent(saved);
