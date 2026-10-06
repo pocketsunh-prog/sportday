@@ -86,6 +86,12 @@ const en = {
   /* ---------------- domain vocabulary ---------------- */
   'category.TRACK': 'Track 徑項',
   'category.FIELD': 'Field 田項',
+  /*
+   * A relay is its own family, not a track event: it is run and scored by team.
+   * 接力 is the wording the relay screens already use (接力項目), so the label
+   * reads as the rest of the app does.
+   */
+  'category.RELAY': 'Relay 接力',
   'sex.MALE': 'Boys 男',
   'sex.FEMALE': 'Girls 女',
   'grade.A': 'A Grade (17+)',
@@ -179,6 +185,13 @@ const en = {
   'print.allCategories': 'All categories',
   'print.matchingCount': '{count} matching event(s), {heats} heat(s) in total',
   'print.noMatching': 'No events match the current filters.',
+  /*
+   * A relay that is not ready to be marked is left out of the list whole, because
+   * its sheets are refused — and it says so, in the reason the server sent, rather
+   * than simply going missing.
+   */
+  'print.relaysNotReady':
+    '{count} relay(s) are left out because they are not ready to be marked yet:',
   'print.previewTitle': 'Preview — {name}',
   'print.downloadHeat': 'Download {label}',
   'print.previewFailed': 'Failed to open the preview',
@@ -239,6 +252,14 @@ const en = {
     '{count} event(s) are left out: a mark is only worth taking with more than one athlete entered.',
   'marks.noMarkableEvents':
     'No event has more than one athlete entered yet, so there is nothing to mark.',
+  /*
+   * A relay that is not ready to be marked is left out of the picker whole: it has
+   * too few teams, or a team short of its runners, and the server refuses to mark it
+   * with a 409. It says so — in the reason the server sent — rather than simply
+   * going missing, which would read as a broken page.
+   */
+  'marks.relaysNotReady':
+    '{count} relay(s) are left out because they are not ready to be marked yet:',
   'marks.blankSkipped': 'Rows left blank are not changed.',
   'marks.unsaved': 'Unsaved changes',
   'marks.invalidMark': '{who}: "{value}" is not a number',
@@ -1106,11 +1127,11 @@ const en = {
   'relay.loadFailed': 'Failed to load the relay teams',
   'relay.notRelay': 'This event is not a relay, so it has no relay teams.',
   'relay.kind': 'Relay teams',
-  'relay.kindForm': 'Form relay (one team per form)',
+  'relay.kindForm': 'Form relay (one team per class)',
   'relay.kindHouse': 'House relay (one team per house)',
   'relay.kindUndivided': 'Undivided — no teams',
   'relay.kindHint':
-    'A form relay gives one team per form of the event’s own grade and division (1A, 1B and 1C all run for Form 1); a house relay gives one team per house of that grade. An undivided relay has no teams at all.',
+    'A form relay gives one team per class — of the form it is scoped to on the relay events page, taken across that form’s grades (1A, 1B, 1C and 1D), or of its own grade when no form is set; a house relay gives one team per house of that grade. An undivided relay has no teams at all.',
   'relay.kindLockedHint':
     'The server refuses a change of kind while the event still has teams, because those teams hold real selections. Remove them on the relay board first.',
   'relay.legsPerTeam': 'Legs per team',
@@ -1273,7 +1294,8 @@ const en = {
   'relayEvents.rulesTitle': 'The two ways a relay is divided',
   'relayEvents.rulesHint':
     'The division belongs to the event, not to this page, so the buttons below set the event’s own setting before they make anything.',
-  'relayEvents.formRule': 'one team per class of the event’s grade — 5A, 5B, 5C and so on.',
+  'relayEvents.formRule':
+    'one team per class — of the form you pick here, taken across that form’s grades (1A, 1B, 1C, 1D), or of this event’s own grade when you pick no form.',
   'relayEvents.houseRule':
     'one team per house within the event’s grade — for example C Grade Yellow.',
   'relayEvents.kindIsStoredOnTheEvent':
@@ -1300,6 +1322,8 @@ const en = {
     'This event is already divided, so a press below only refreshes or replaces its teams under the same rule.',
   'relayEvents.noTeamsYet':
     'No teams yet — that is the starting state, not a fault. Choose a rule above and the teams appear.',
+  'relayEvents.anyForm': 'This grade only',
+  'relayEvents.formN': 'Form {form}',
   'relayEvents.makeFailed': 'Failed to make the relay teams',
   'relayEvents.refused': 'The server refused this, in its own words:',
   'relayEvents.refusedWhat': 'This was the attempt to make {kind} teams.',
@@ -1412,6 +1436,7 @@ const zh: Record<keyof typeof en, string> = {
 
   'category.TRACK': '徑項',
   'category.FIELD': '田項',
+  'category.RELAY': '接力',
   'sex.MALE': '男子組',
   'sex.FEMALE': '女子組',
   'grade.A': 'A 組（17 歲或以上）',
@@ -1487,6 +1512,7 @@ const zh: Record<keyof typeof en, string> = {
   'print.allCategories': '全部類別',
   'print.matchingCount': '符合項目 {count} 個，共 {heats} 組',
   'print.noMatching': '沒有符合篩選條件的項目。',
+  'print.relaysNotReady': '另有 {count} 個接力項目未列出：接力項目尚未齊隊，暫未能記錄成績。',
   'print.previewTitle': '預覽 — {name}',
   'print.downloadHeat': '下載{label}',
   'print.previewFailed': '無法開啟預覽',
@@ -1531,6 +1557,7 @@ const zh: Record<keyof typeof en, string> = {
   'marks.pickEventFirst': '請選擇項目以開始輸入成績。',
   'marks.thinEventsHidden': '另有 {count} 個項目未列出：只有多於一名運動員報名才值得記錄成績。',
   'marks.noMarkableEvents': '目前沒有項目有多於一名運動員報名，暫無成績可記錄。',
+  'marks.relaysNotReady': '另有 {count} 個接力項目未列出：接力項目尚未齊隊，暫未能記錄成績。',
   'marks.blankSkipped': '留空的列不會被更改。',
   'marks.unsaved': '尚未儲存的變更',
   'marks.invalidMark': '{who}："{value}" 不是有效數字',
@@ -2307,7 +2334,7 @@ const zh: Record<keyof typeof en, string> = {
   'relay.kindHouse': '社際（每社一隊）',
   'relay.kindUndivided': '不分隊 — 沒有隊伍',
   'relay.kindHint':
-    '班際接力按項目所屬級別及組別，每個級社各出一隊（1A、1B、1C 均屬中一隊）；社際接力則按該級別的每個社各出一隊。不分隊的接力項目完全沒有隊伍。',
+    '班際接力每班一隊 — 依接力項目頁所選定的級別，涵蓋該級別各年級的班別（1A、1B、1C、1D）；未選定級別時，則為該項目所屬年級的每班一隊。社際接力則按該級別的每個社各出一隊。不分隊的接力項目完全沒有隊伍。',
   'relay.kindLockedHint':
     '此項目仍有隊伍時，伺服器會拒絕更改接力類別，因為這些隊伍載有實際的選手安排。請先在接力編排頁面移除所有隊伍。',
   'relay.legsPerTeam': '每隊棒數',
@@ -2456,7 +2483,8 @@ const zh: Record<keyof typeof en, string> = {
   'relayEvents.rulesTitle': '接力的兩種分隊方式',
   'relayEvents.rulesHint':
     '分隊方式屬於項目本身而非本頁，因此下方按鈕會先設定項目自己的設定，然後才編隊。',
-  'relayEvents.formRule': '該項目年級的每班一隊 — 5A、5B、5C 等。',
+  'relayEvents.formRule':
+    '每班一隊 — 依你在此選定的級別，涵蓋該級別各年級的班別（1A、1B、1C、1D）；不選級別時，則為本項目所屬年級的每班一隊。',
   'relayEvents.houseRule':
     '該項目年級內每社一隊 — 例如 C Grade Yellow。',
   'relayEvents.kindIsStoredOnTheEvent':
@@ -2481,6 +2509,8 @@ const zh: Record<keyof typeof en, string> = {
   'relayEvents.kindAlreadySet':
     '此項目已分隊，因此按下後只會在同一規則下重新整理或取代其隊伍。',
   'relayEvents.noTeamsYet': '尚未有隊伍 — 這是起始狀態，並非故障。在上方選擇規則，隊伍便會出現。',
+  'relayEvents.anyForm': '只限本級',
+  'relayEvents.formN': '{form} 年級',
   'relayEvents.makeFailed': '無法編排接力隊伍',
   'relayEvents.refused': '伺服器拒絕此操作，以下是其原文訊息：',
   'relayEvents.refusedWhat': '這次是嘗試編排{kind}隊伍。',

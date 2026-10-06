@@ -36,7 +36,7 @@ public class EventController {
 
     @Operation(summary = "Get all events",
             description = "Retrieve events. The filters are optional and compose: onlyEnabled, "
-                    + "sex (M/F), category (TRACK/FIELD), date (yyyy-MM-dd, for a day of a "
+                    + "sex (M/F), category (TRACK/FIELD/RELAY), date (yyyy-MM-dd, for a day of a "
                     + "multi-day meeting) and seasonId (a school year).")
     @GetMapping
     public ResponseEntity<List<EventDTO>> getAllEvents(
@@ -50,7 +50,7 @@ public class EventController {
             categoryFilter = EventCategory.fromCode(category);
             if (categoryFilter == null) {
                 throw new IllegalArgumentException("Unknown category: " + category
-                        + " — use TRACK or FIELD.");
+                        + " — use TRACK, FIELD or RELAY.");
             }
         }
         Sex sexFilter = null;

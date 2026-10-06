@@ -305,6 +305,7 @@ export default function AdminEventsPage() {
               <option value="">{t('common.all')}</option>
               <option value="TRACK">{label('category', 'TRACK')}</option>
               <option value="FIELD">{label('category', 'FIELD')}</option>
+              <option value="RELAY">{label('category', 'RELAY')}</option>
             </select>
           </div>
           <div className="form-group">

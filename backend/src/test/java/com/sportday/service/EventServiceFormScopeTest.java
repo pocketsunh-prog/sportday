@@ -22,6 +22,7 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
 import java.time.LocalDate;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -56,6 +57,11 @@ class EventServiceFormScopeTest {
     @Mock private SeasonService seasonService;
     @Mock private FinalQualificationService finalQualificationService;
     @Mock private RelayTeamService relayTeamService;
+    /**
+     * The readiness rule, mocked: these tests are about the form scope, so nothing
+     * they touch is a half-built relay and the batch answer is empty.
+     */
+    @Mock private RelayReadiness relayReadiness;
 
     @InjectMocks private EventService service;
 
@@ -68,6 +74,7 @@ class EventServiceFormScopeTest {
         when(enrollmentRepository.countUngroupedByEvent(any(), any())).thenReturn(0L);
         when(eventGroupRepository.countByEventId(any())).thenReturn(0L);
         when(relayTeamService.countTeamsForEvent(any())).thenReturn(0L);
+        when(relayReadiness.shortfallsOf(any())).thenReturn(Map.of());
     }
 
     private EventDTO request(Event.EventType type, String relayTeamKind, String form) {

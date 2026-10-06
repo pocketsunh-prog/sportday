@@ -84,7 +84,7 @@ const DIVISIONS: Array<{ code: SexCode; sex: 'MALE' | 'FEMALE' }> = [
   { code: 'F', sex: 'FEMALE' },
 ];
 
-const CATEGORIES: EventCategory[] = ['TRACK', 'FIELD'];
+const CATEGORIES: EventCategory[] = ['TRACK', 'FIELD', 'RELAY'];
 
 export function EventFilters({
   value,

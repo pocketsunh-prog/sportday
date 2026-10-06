@@ -22,6 +22,7 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
 import java.time.LocalDate;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -49,6 +50,8 @@ class EventServiceRelayKindTest {
     @Mock private SeasonService seasonService;
     @Mock private FinalQualificationService finalQualificationService;
     @Mock private RelayTeamService relayTeamService;
+    /** The readiness rule, mocked: what a kind does to readiness is not this test's. */
+    @Mock private RelayReadiness relayReadiness;
 
     @InjectMocks private EventService service;
 
@@ -61,6 +64,7 @@ class EventServiceRelayKindTest {
         when(enrollmentRepository.countUngroupedByEvent(any(), any())).thenReturn(0L);
         when(eventGroupRepository.countByEventId(any())).thenReturn(0L);
         when(relayTeamService.countTeamsForEvent(any())).thenReturn(0L);
+        when(relayReadiness.shortfallsOf(any())).thenReturn(Map.of());
     }
 
     private EventDTO request(Event.EventType type, String relayTeamKind) {

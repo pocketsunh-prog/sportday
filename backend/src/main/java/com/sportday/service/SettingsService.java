@@ -56,13 +56,29 @@ public class SettingsService {
         return settingsRepository.save(SportDaySettings.defaults());
     }
 
-    /** How many events of this category one student may enter. */
+    /**
+     * How many events of this category one student may enter.
+     *
+     * <p>This is the number the entry itself is refused against, and a
+     * {@link EventCategory#RELAY} deliberately takes the <strong>track</strong>
+     * allowance rather than the field's single entry. The school's rule is that a
+     * student may hold a leg in a <em>house</em> relay and a leg in a
+     * <em>class</em> relay — the two ways a relay is divided — and those are two
+     * events; a relay capped at the field's one would forbid exactly that.</p>
+     *
+     * <p>The count is the relay's own even though the allowance is the track's: an
+     * entry is counted against the event's own category
+     * ({@code Event.getCategoryOrDefault()}), so a relay is counted as
+     * {@code RELAY} and no longer uses up one of the student's two individual
+     * track entries.</p>
+     */
     @Transactional
     public int maxEntriesFor(EventCategory category) {
         SportDaySettings settings = get();
-        return category == EventCategory.FIELD
-                ? settings.getFieldMaxEntries()
-                : settings.getTrackMaxEntries();
+        if (category == EventCategory.FIELD) {
+            return settings.getFieldMaxEntries();
+        }
+        return settings.getTrackMaxEntries();
     }
 
     /** Points for a placing, on the individual or the relay scale. */

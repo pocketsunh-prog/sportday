@@ -39,7 +39,7 @@ public final class MarkFormatter {
     /** True when this mark is a time rather than a distance or a height. */
     public static boolean isTime(Event.EventType type, String unit) {
         if (type != null) {
-            return type.getCategory() == EventCategory.TRACK;
+            return !type.getCategory().isMeasuredInDistance();
         }
         // No type to go on — fall back to the unit the mark carries.
         return unit != null && switch (unit.trim().toLowerCase()) {

@@ -250,7 +250,10 @@ def main():
                 has_row.add(sid)
                 if entry.get("status") == "CONFIRMED":
                     already.append(sid)
-                    quota[sid][event["category"]] -= 1
+                    # A relay's allowance is the track one, as SettingsService applies
+                    # it; the quota map the API returns carries only track and field.
+                    quota[sid][event["category"]] = quota[sid].get(
+                        event["category"], quota[sid].get("TRACK", 2)) - 1
         entered[event["id"]] = already
         blocked[event["id"]] = has_row
     already_in = sum(len(v) for v in entered.values())
@@ -265,7 +268,13 @@ def main():
         pools.setdefault((event["grade"], event["sex"], event["category"]), []).append(event)
     target = {}
     for (event_grade, event_sex, category), group in pools.items():
-        room = sum(max(0, quota[s["studentId"]][category]) for s in roster
+        # A relay is its own category now, and the quota the API returns still carries
+        # only track and field. A relay takes the track allowance, which is the same
+        # rule SettingsService applies, so fall back to it rather than assuming the
+        # category is in the map.
+        room = sum(max(0, quota[s["studentId"]].get(
+                       category, quota[s["studentId"]].get("TRACK", 2)))
+                   for s in roster
                    if s["grade"] == event_grade and s["sex"] == event_sex)
         share, extra = divmod(room, len(group))
         # The remainder goes to the events holding the fewest athletes already, so a
@@ -298,7 +307,7 @@ def main():
             if grade_of[sid] not in allowed:
                 skipped_grade += 1
                 continue
-            if quota[sid][category] <= 0:
+            if quota[sid].get(category, quota[sid].get("TRACK", 2)) <= 0:
                 refused_quota += 1
                 continue
             picked.append(sid)
@@ -307,7 +316,8 @@ def main():
             status, body = api.request(
                 "POST", f"/admin/students/{sid}/enrollments/{event['id']}", token=admin)
             if status == 200:
-                quota[sid][category] -= 1
+                quota[sid][category] = quota[sid].get(
+                    category, quota[sid].get("TRACK", 2)) - 1
                 entered[event["id"]].append(sid)
                 blocked[event["id"]].add(sid)
             elif status == 409:
@@ -478,8 +488,11 @@ def main():
                     break
             # The placings are the ordering that matters: fastest first on the track,
             # furthest first in the field. The raw results list is in entry order.
+            # A relay is its own category now, and it is a race: smallest time first,
+            # exactly like the track it used to be counted as.
             values = [p["mark"] for p in placings if p.get("mark") is not None]
-            ordered = (values == sorted(values)) if event["category"] == "TRACK" \
+            races_lowest_first = event["category"] in ("TRACK", "RELAY")
+            ordered = (values == sorted(values)) if races_lowest_first \
                 else (values == sorted(values, reverse=True))
             # A sprints final is a fresh race whose order need not match the heats.
             if not ordered and event["type"] not in ("RUN_60M", "RUN_100M", "RUN_200M", "RUN_400M"):

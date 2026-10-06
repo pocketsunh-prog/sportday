@@ -10,7 +10,14 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api';
  * nothing else — no register upload, no locking, no credentials sheet.
  */
 export type Role = 'ADMIN' | 'MANAGER' | 'USER' | 'STUDENT' | 'TEACHER' | 'HELPER';
-export type EventCategory = 'TRACK' | 'FIELD';
+/**
+ * The three families of event. `RELAY` is its own family rather than a track
+ * event: a relay is run and scored by team and never by an individual, and it is
+ * divided into teams one per grade × house or one per form and class. Its marks
+ * are still times — `defaultUnitForCategory` returns `s` for it — so only the
+ * field family is measured.
+ */
+export type EventCategory = 'TRACK' | 'FIELD' | 'RELAY';
 export type EventSex = 'MALE' | 'FEMALE';
 export type SheetSize = 'A5' | 'A4';
 /** Short division code used by the query strings (`?sex=M`) and by `UserDTO.gender`. */
@@ -32,6 +39,7 @@ export type MarkOutcome = 'RESULT' | 'ABS' | 'DQ';
 export const CATEGORY_LABELS: Record<EventCategory, string> = {
   TRACK: '徑項 Track',
   FIELD: '田項 Field',
+  RELAY: '接力 Relay',
 };
 
 /**
@@ -53,8 +61,8 @@ export const EVENT_TYPE_OPTIONS: Array<{
   { value: 'RUN_5000M', label: '5000M', category: 'TRACK' },
   { value: 'HURDLES_110M', label: '110M Hurdles', category: 'TRACK' },
   { value: 'HURDLES_400M', label: '400M Hurdles', category: 'TRACK' },
-  { value: 'RELAY_4X100M', label: '4x100M Relay', category: 'TRACK' },
-  { value: 'RELAY_4X400M', label: '4x400M Relay', category: 'TRACK' },
+  { value: 'RELAY_4X100M', label: '4x100M Relay', category: 'RELAY' },
+  { value: 'RELAY_4X400M', label: '4x400M Relay', category: 'RELAY' },
   { value: 'SHOT_PUT', label: 'Shot Put', category: 'FIELD' },
   { value: 'DISCUSSION_THROW', label: 'Discus', category: 'FIELD' },
   { value: 'JAVELIN_THROW', label: 'Javelin', category: 'FIELD' },
@@ -74,7 +82,8 @@ export function eventTypeCategory(type: string): EventCategory {
 }
 
 /**
- * How an event is measured: `M` for the field events and `s` for the track.
+ * How an event is measured: `M` for the field events and `s` for the track — and
+ * for a relay, which is a race and is timed like one.
  * This is the rule the backend applies to `EventDTO.defaultUnit`, and it stands
  * in for it on the responses that do not spell the unit out (an enrollment, for
  * instance, carries only its category).
@@ -365,10 +374,46 @@ export interface EventDTO {
   relayTeamKind?: RelayTeamKind | '' | null;
   /** e.g. `Form`. The server's own English label for `relayTeamKind`. */
   relayTeamKindLabel?: string;
+  /**
+   * The form this relay is scoped to — `1` for a **Form 1** relay, whose teams
+   * are that form's classes across every grade (`1A`, `1B`, `1C`, `1D`), not the
+   * classes of its own grade alone. A form is not a grade: a Form 1 relay takes
+   * whoever is in Form 1 whatever grade they are, which is how the school asks
+   * for it.
+   *
+   * Only a `FORM` relay may carry one. `null` (or absent) means the older rule —
+   * one team per class of the event's own grade. In a request `''` is what
+   * **clears** it, exactly as `relayTeamKind` behaves.
+   */
+  form?: string | '' | null;
+  /** e.g. `Form 1`. The server's own label for `form`. */
+  formLabel?: string;
   /** Legs in a team — four for a 4x100M. */
   relayTeamSize?: number;
   /** True when a team may also name reserves past its legs. */
   relayReservesAllowed?: boolean;
+  /**
+   * True when this event may be **marked and printed now**: a relay whose teams
+   * are built, or any event that is not a relay.
+   *
+   * It is the server's own `RelayReadiness` verdict, sent on the event list so a
+   * picker can leave a half-built relay out rather than offer it and have the
+   * choice refused with a 409. An **individual event is always true** — the rule
+   * is about a relay's teams and a race of athletes has none — so nothing about a
+   * sprint or a field event changes. A relay with fewer than two teams, or with a
+   * team short of its runners, is `false` and carries `readinessReason`.
+   *
+   * Absent (the API omits a null) means the same as `false` for a relay only if a
+   * client checks `=== false`; **check `=== false`**, so an older server that does
+   * not send the field shows everything it always did.
+   */
+  relayReady?: boolean;
+  /**
+   * Why the event cannot be marked yet, or null/absent when it can — the very
+   * sentence the server refuses a direct call with, so a list explains itself in
+   * the same words the 409 uses.
+   */
+  readinessReason?: string | null;
   /**
    * How many runners one team may hold in total: the legs, doubled when reserves
    * are allowed. Null/absent on an event that is not a relay.
@@ -1210,6 +1255,18 @@ export interface RelayEventTeamsDTO {
   sex?: string;
   /** The grade the teams are drawn from: `A`, `B` or `C`. */
   grade?: string;
+  /**
+   * The **form** the teams are drawn from — `1` for a Form 1 relay whose teams
+   * are `1A`, `1B`, `1C` and `1D` — or null when the board is scoped by the
+   * event's grade instead.
+   *
+   * It is the scope of the board: a form relay's classes are that form's, taken
+   * across every grade its students are in, so the `grade` above says nothing
+   * about who may run. A house board is always grade-scoped and carries no form.
+   */
+  form?: string | null;
+  /** e.g. `Form 1`. The server's own label for `form`. */
+  formLabel?: string;
   relayTeamKind?: RelayTeamKind | null;
   relayTeamKindLabel?: string;
   /** True when the event is a relay at all. */
@@ -2296,13 +2353,22 @@ class ApiClient {
   }
 
   /**
-   * Creates the teams the roster calls for — one per form, or one per house, of
-   * the event's own grade and division — and refreshes their labels.
+   * Creates the teams the roster calls for — one per class of the event's scope,
+   * or one per house of its grade, in its own division — and refreshes their
+   * labels.
+   *
+   * The scope is the event's **kind and its form together**: a form-scoped relay
+   * (`form` set) takes one team per class of that form *across grades* — `1A`,
+   * `1B`, `1C`, `1D` — while a relay with no form keeps the older rule and takes
+   * one team per class of its own grade. A house relay is one team per house of
+   * that grade either way.
    *
    * Additive on purpose: a team somebody has already put runners into is never
    * removed, because those selections are not the roster's to throw away. An
    * *empty* team the roster no longer calls for is only dropped when `prune` is
-   * set. A relay that has not been divided yet is refused with a 409 telling the
+   * set — which is what a re-scoped form relay needs, or the classes of the form
+   * it just left would sit there empty and hold the relay back from being ready.
+   * A relay that has not been divided yet is refused with a 409 telling the
    * administrator to set its kind first.
    */
   async deriveRelayTeams(

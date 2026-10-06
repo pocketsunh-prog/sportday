@@ -469,7 +469,7 @@ public class PdfSheetService {
         if ("FIELD".equals(group.getCategory())) {
             return Event.EventType.UNIT_FIELD;
         }
-        if ("TRACK".equals(group.getCategory())) {
+        if ("TRACK".equals(group.getCategory()) || "RELAY".equals(group.getCategory())) {
             return Event.EventType.UNIT_TRACK;
         }
         return null;

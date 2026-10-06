@@ -25,7 +25,7 @@ public class EventDTO {
     /** Printable event name, e.g. {@code 100M}. */
     private String typeLabel;
 
-    /** {@code TRACK} (徑項) or {@code FIELD} (田項). */
+    /** {@code TRACK} (徑項), {@code FIELD} (田項) or {@code RELAY} (接力). */
     private String category;
     private String categoryLabel;
 
@@ -137,6 +137,29 @@ public class EventDTO {
     private Boolean relayReservesAllowed;
 
     /**
+     * True when this event may be marked and printed <em>now</em>: a relay whose
+     * teams are built, or any event that is not a relay.
+     *
+     * <p>It is {@code RelayReadiness}'s own verdict, stated here so a list can leave
+     * a half-built relay out without asking per event. <strong>An individual event
+     * is always ready</strong> — the rule is about a relay's teams and a race of
+     * athletes has none — so no marks or print page changes for one. A relay with
+     * fewer than two teams, or with a team short of its runners, reports false and
+     * carries the reason in {@link #readinessReason}.</p>
+     *
+     * <p>Showing is not refusing: the mark grid and the print run refuse a
+     * not-ready relay whether or not a client looked at this flag.</p>
+     */
+    private Boolean relayReady;
+
+    /**
+     * Why this event cannot be marked yet, or null when it can — the same sentence
+     * {@code RelayReadiness} puts in the 409 a direct call is refused with, so the
+     * list and the refusal cannot drift apart about what is missing.
+     */
+    private String readinessReason;
+
+    /**
      * True when this event is a <strong>draft</strong>: a relay event made to hold the
      * teams the school is building by hand, before the race itself is real.
      *
@@ -216,6 +239,12 @@ public class EventDTO {
                         ? null : event.getRelayTeamKind().getLabel())
                 .relayTeamSize(event.getEffectiveRelayTeamSize())
                 .relayReservesAllowed(event.isRelayReservesAllowed())
+                // An individual event is ready by definition — the rule is about a
+                // relay's teams, and a race of athletes has none — so it is answered
+                // here rather than left to a caller. A relay is only answered by a
+                // caller that has read its teams: `EventService` fills both fields in
+                // from `RelayReadiness` as it describes the event.
+                .relayReady(!event.isRelay())
                 .relayMemberCap(event.getRelayMemberCap())
                 .draft(event.isDraft())
                 .enabled(event.getEnabled())

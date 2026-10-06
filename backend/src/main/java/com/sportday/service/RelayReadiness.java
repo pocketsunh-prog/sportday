@@ -10,7 +10,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -43,6 +45,14 @@ import java.util.Optional;
  *       gathered, and a print run that names one relay is refused —
  *       {@link EventGroupService} and {@code EventGroupController}.</li>
  * </ul>
+ *
+ * <p>The rule is also what the <strong>event list</strong> reports, so a picker can
+ * leave a not-ready relay out rather than offer it and then refuse the choice:
+ * {@code EventService} stamps {@code EventDTO.relayReady} and
+ * {@code EventDTO.readinessReason} from {@link #shortfallsOf(Collection)}, which reads
+ * every relay on the list in two queries. <strong>The refusal stays where it is</strong>
+ * — the list is a convenience, not the gate, so a client that asks for a half-built
+ * relay directly is still refused in these words.</p>
  *
  * <p>Every refusal is an {@link IllegalStateException}, which the application's
  * {@code GlobalExceptionHandler} turns into <strong>409 Conflict</strong> — the status
@@ -160,6 +170,67 @@ public class RelayReadiness {
             }
         }
         return runners;
+    }
+
+    /**
+     * Why each <strong>not ready</strong> relay in a list of events cannot be marked
+     * yet, keyed by event id — the whole-list form of {@link #shortfallOf(Event)},
+     * for a caller that is describing a hundred events at once.
+     *
+     * <p>An event that is ready is <strong>absent from the map</strong>, and so is
+     * every event that is not a relay: a caller reads an absent id as "ready", which
+     * is exactly what an individual event always is. An undivided relay is present
+     * with the same "has 0 team(s)" reason {@link #shortfallOf(Event)} gives it.</p>
+     *
+     * <p><strong>Two queries for the whole list, whatever its size.</strong> The
+     * teams of every relay are read in one query and their runners in another, and
+     * both are skipped entirely when the list holds no relay — so the hundred-odd
+     * sprints and field events of a programme cost nothing here, and the twelve
+     * relays cost two reads between them rather than two each. The reason text is
+     * not built here either: {@link #shortfall} is asked for each relay, so the
+     * wording a list filters on is the same wording a refusal carries.</p>
+     *
+     * @return event id → reason, holding only the relays that are not ready yet
+     */
+    @Transactional(readOnly = true)
+    public Map<Long, String> shortfallsOf(Collection<Event> events) {
+        List<Event> relays = new ArrayList<>();
+        if (events != null) {
+            for (Event event : events) {
+                if (event != null && event.isRelay() && event.getId() != null) {
+                    relays.add(event);
+                }
+            }
+        }
+        if (relays.isEmpty()) {
+            // No relay on the list: nothing to look up, and no query is made.
+            return Map.of();
+        }
+        List<Long> eventIds = relays.stream().map(Event::getId).distinct().toList();
+        Map<Long, List<RelayTeam>> teamsByEvent = new HashMap<>();
+        for (RelayTeam team : relayTeamRepository.findForEvents(eventIds)) {
+            if (team.getEvent() != null && team.getEvent().getId() != null) {
+                teamsByEvent.computeIfAbsent(team.getEvent().getId(), key -> new ArrayList<>())
+                        .add(team);
+            }
+        }
+        Map<Long, Long> runnersByTeam = new HashMap<>();
+        for (Long teamId : relayTeamMemberRepository.findTeamIdsForEvents(eventIds)) {
+            if (teamId != null) {
+                runnersByTeam.merge(teamId, 1L, Long::sum);
+            }
+        }
+        Map<Long, String> shortfalls = new LinkedHashMap<>();
+        for (Event relay : relays) {
+            List<RelayTeam> teams = teamsByEvent.getOrDefault(relay.getId(), List.of());
+            List<TeamState> states = new ArrayList<>(teams.size());
+            for (RelayTeam team : teams) {
+                states.add(new TeamState(team.getId(), team.getLabel(),
+                        runnersByTeam.getOrDefault(team.getId(), 0L)));
+            }
+            shortfall(relay, states).ifPresent(reason -> shortfalls.put(relay.getId(), reason));
+        }
+        return shortfalls;
     }
 
     // --------------------------------------------------------------- the asks

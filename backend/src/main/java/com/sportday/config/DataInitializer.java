@@ -153,14 +153,22 @@ public class DataInitializer {
      * "metres" and "seconds"; a programme writes {@code M} and {@code s}, so what
      * is already stored is rewritten once and any later drift (a helper typing
      * "metres" by hand) is cleaned up on the next start.
+     *
+     * <p>A relay is normalised with the track marks, and deliberately as its own
+     * pass: a relay is told from a race by its own category now, so a relay whose
+     * rows were written before that (still {@code TRACK}) or after it
+     * ({@code RELAY}) is shortened either way rather than only one of the two.</p>
      */
     private void normaliseUnits(EventResultRepository resultRepository) {
         int field = resultRepository.normaliseUnits(EventCategory.FIELD,
                 java.util.List.of("metres", "metre", "m"), Event.EventType.UNIT_FIELD);
         int track = resultRepository.normaliseUnits(EventCategory.TRACK,
                 java.util.List.of("seconds", "second", "sec", "s"), Event.EventType.UNIT_TRACK);
-        if (field > 0 || track > 0) {
-            log.info("Shortened the unit on {} field and {} track mark(s) to M and s", field, track);
+        int relay = resultRepository.normaliseUnits(EventCategory.RELAY,
+                java.util.List.of("seconds", "second", "sec", "s"), Event.EventType.UNIT_TRACK);
+        if (field > 0 || track > 0 || relay > 0) {
+            log.info("Shortened the unit on {} field, {} track and {} relay mark(s) to M and s",
+                    field, track, relay);
         }
     }
 

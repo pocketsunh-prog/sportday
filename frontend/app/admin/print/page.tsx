@@ -156,7 +156,8 @@ export default function PrintSheetsPage() {
     []
   );
 
-  const matches = useMemo(
+  /** Every event the four filters let through, whether it may be printed yet or not. */
+  const filteredMatches = useMemo(
     () =>
       events.filter(
         event =>
@@ -166,6 +167,27 @@ export default function PrintSheetsPage() {
           (!eventType || event.type === eventType)
       ),
     [events, sex, category, grade, eventType]
+  );
+
+  /**
+   * The relays the server says are **not ready** — fewer than two teams, or a team
+   * short of its runners (`relayReady`, the server's own `RelayReadiness`). Their
+   * marking sheets are refused and the whole-programme run leaves them out, so they
+   * are left out of the list below rather than offered and then refused.
+   *
+   * Only a relay is ever false: an individual event is always ready, so nothing
+   * changes for a sprint or a field event. The reason travels with each one and is
+   * printed under the download controls, so a relay does not vanish unexplained.
+   */
+  const notReadyRelays = useMemo(
+    () => filteredMatches.filter(event => event.relayReady === false),
+    [filteredMatches]
+  );
+
+  /** What the page shows, counts and offers: everything the server reports ready. */
+  const matches = useMemo(
+    () => filteredMatches.filter(event => event.relayReady !== false),
+    [filteredMatches]
   );
 
   // Heat lists, fetched once per event and cached. `groupCount` on the event DTO
@@ -442,6 +464,20 @@ export default function PrintSheetsPage() {
             grade filter cannot be honoured by the whole-run download. Say so
             rather than downloading more grades than the count above implies. */}
         {grade !== '' && <p className="muted mt-2">{t('print.gradeDownloadHint')}</p>}
+        {/*
+          A relay left out of the list says why, in the server's own words — the same
+          sentence its marking sheets are refused with. Without this the relay would
+          simply be missing from the programme, which reads as a broken page.
+        */}
+        {notReadyRelays.length > 0 && (
+          <p className="muted mt-2">
+            {t('print.relaysNotReady', { count: notReadyRelays.length })}{' '}
+            {notReadyRelays
+              .map(event => event.readinessReason)
+              .filter((reason): reason is string => !!reason)
+              .join(' ')}
+          </p>
+        )}
 
         <div className="hint mt-3">{t('print.columns')}</div>
       </div>

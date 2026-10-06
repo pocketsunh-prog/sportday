@@ -50,6 +50,8 @@ class EventGradeTest {
     @Mock private RecordService recordService;
     @Mock private SeasonService seasonService;
     @Mock private FinalQualificationService finalQualificationService;
+    /** The readiness rule, mocked: none of these events is a half-built relay. */
+    @Mock private RelayReadiness relayReadiness;
 
     @InjectMocks private EventService service;
 
@@ -67,6 +69,7 @@ class EventGradeTest {
         });
         when(eventRepository.findFirstByTypeAndSexAndGrade(any(), any(), any()))
                 .thenReturn(Optional.empty());
+        when(relayReadiness.shortfallsOf(any())).thenReturn(java.util.Map.of());
     }
 
     // -------------------------------------------------------------- seeding

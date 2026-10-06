@@ -18,7 +18,7 @@ import { formatDate } from '@/lib/format';
 import { useI18n } from '@/lib/i18n';
 import { classText, formText, houseText } from '@/lib/students';
 
-const SECTION_ORDER: EventCategory[] = ['TRACK', 'FIELD'];
+const SECTION_ORDER: EventCategory[] = ['TRACK', 'FIELD', 'RELAY'];
 
 /**
  * A teacher entering or withdrawing events for a student in one of their own
@@ -215,7 +215,7 @@ export default function TeacherStudentEntriesPage() {
   }, [enrollments]);
 
   const byCategory = useMemo(() => {
-    const grouped: Record<EventCategory, EventDTO[]> = { TRACK: [], FIELD: [] };
+    const grouped: Record<EventCategory, EventDTO[]> = { TRACK: [], FIELD: [], RELAY: [] };
     eligible
       .filter(
         event =>
@@ -589,11 +589,19 @@ export default function TeacherStudentEntriesPage() {
             {SECTION_ORDER.map(category => {
               const list = byCategory[category];
               if (list.length === 0) return null;
-              const remaining = quota
-                ? category === 'TRACK'
+              /*
+               * The quota panel counts TRACK and FIELD. A relay is counted on its own
+               * by the server — it is not a track entry any more — and that figure is
+               * not in this DTO, so a relay section says nothing about places left
+               * rather than showing the field's, which would be a different family's.
+               */
+              const remaining = !quota
+                ? 0
+                : category === 'TRACK'
                   ? quota.trackRemaining
-                  : quota.fieldRemaining
-                : 0;
+                  : category === 'FIELD'
+                    ? quota.fieldRemaining
+                    : null;
               return (
                 <section key={category} className="mt-3">
                   <h2
@@ -603,9 +611,13 @@ export default function TeacherStudentEntriesPage() {
                   >
                     {label('category', category)}
                     <span className="badge badge-info">{list.length}</span>
-                    <span className={remaining <= 0 ? 'badge badge-danger' : 'badge badge-success'}>
-                      {t('entries.placesLeft', { count: remaining })}
-                    </span>
+                    {remaining !== null && (
+                      <span
+                        className={remaining <= 0 ? 'badge badge-danger' : 'badge badge-success'}
+                      >
+                        {t('entries.placesLeft', { count: remaining })}
+                      </span>
+                    )}
                   </h2>
 
                   <div className="card-grid">

@@ -157,6 +157,7 @@ export default function NewEventPage() {
               <select name="category" value={form.category} onChange={handleChange}>
                 <option value="TRACK">{label('category', 'TRACK')}</option>
                 <option value="FIELD">{label('category', 'FIELD')}</option>
+                <option value="RELAY">{label('category', 'RELAY')}</option>
               </select>
             </div>
             <div className="form-group" style={{ flex: 1 }}>

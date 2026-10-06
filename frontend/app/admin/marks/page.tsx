@@ -852,6 +852,29 @@ export default function MarkEntryPage() {
   );
 
   /**
+   * The relays the server says are **not ready to be marked yet** — fewer than two
+   * teams, or a team short of its runners (`relayReady`, the server's own
+   * `RelayReadiness`). They are left out of the picker below: offering one only
+   * walks the helper into a 409 on save, and the request is that they not be shown
+   * at all.
+   *
+   * Only a relay is ever false — an individual event is always ready — so nothing
+   * changes for a sprint or a field event. Each one's own reason travels with it and
+   * is printed in the note under the picker, so a relay does not vanish without
+   * saying why.
+   */
+  const notReadyRelays = useMemo(
+    () => filteredEvents.filter(event => event.relayReady === false),
+    [filteredEvents]
+  );
+
+  /** The events the picker may offer: everything the server reports ready. */
+  const readyEvents = useMemo(
+    () => filteredEvents.filter(event => event.relayReady !== false),
+    [filteredEvents]
+  );
+
+  /**
    * The events worth marking: at least two athletes entered. One athlete has
    * nobody to be placed against and nobody at all has no marks to take, so
    * neither belongs in the picker — it would only make the list longer.
@@ -862,10 +885,10 @@ export default function MarkEntryPage() {
    */
   const markableEvents = useMemo(
     () =>
-      filteredEvents.filter(
+      readyEvents.filter(
         event => (event.enrolledCount ?? 0) > 1 || (eventId > 0 && event.id === eventId)
       ),
-    [filteredEvents, eventId]
+    [readyEvents, eventId]
   );
 
   /** The markable events, grouped so the selector stays readable. */
@@ -880,8 +903,8 @@ export default function MarkEntryPage() {
 
   /** Events that have too few entered to be marked, i.e. the ones left out. */
   const thinEvents = useMemo(
-    () => filteredEvents.filter(event => (event.enrolledCount ?? 0) <= 1),
-    [filteredEvents]
+    () => readyEvents.filter(event => (event.enrolledCount ?? 0) <= 1),
+    [readyEvents]
   );
 
   /** The event whose sheet is open, so its grade can be shown beside the name. */
@@ -1025,16 +1048,33 @@ export default function MarkEntryPage() {
               noneLabel: t('results.chooseEvent'),
               isDisabled: event => (event.enrolledCount ?? 0) <= 1 && event.id !== eventId,
               groups: groupedEvents,
-              note:
-                markableEvents.length === 0 ? (
-                  <p className="muted">{t('marks.noMarkableEvents')}</p>
-                ) : (
-                  thinEvents.length > 0 && (
+              note: (
+                <>
+                  {markableEvents.length === 0 ? (
+                    <p className="muted">{t('marks.noMarkableEvents')}</p>
+                  ) : (
+                    thinEvents.length > 0 && (
+                      <p className="muted">
+                        {t('marks.thinEventsHidden', { count: thinEvents.length })}
+                      </p>
+                    )
+                  )}
+                  {/*
+                    A relay left out says why, in the server's own words — the same
+                    sentence a save is refused with. Without this the relay would
+                    simply be missing, which reads as a broken page.
+                  */}
+                  {notReadyRelays.length > 0 && (
                     <p className="muted">
-                      {t('marks.thinEventsHidden', { count: thinEvents.length })}
+                      {t('marks.relaysNotReady', { count: notReadyRelays.length })}{' '}
+                      {notReadyRelays
+                        .map(event => event.readinessReason)
+                        .filter((reason): reason is string => !!reason)
+                        .join(' ')}
                     </p>
-                  )
-                ),
+                  )}
+                </>
+              ),
             }}
           />
 

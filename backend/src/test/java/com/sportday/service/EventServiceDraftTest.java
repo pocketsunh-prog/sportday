@@ -25,6 +25,7 @@ import org.mockito.quality.Strictness;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -65,6 +66,12 @@ class EventServiceDraftTest {
     @Mock private SeasonService seasonService;
     @Mock private FinalQualificationService finalQualificationService;
     @Mock private RelayTeamService relayTeamService;
+    /**
+     * The readiness rule, mocked: a draft may well be a half-built relay, but what a
+     * draft's readiness <em>is</em> belongs to {@code RelayReadiness}, so the answer is
+     * handed in rather than worked out here.
+     */
+    @Mock private RelayReadiness relayReadiness;
 
     @InjectMocks private EventService service;
 
@@ -77,6 +84,7 @@ class EventServiceDraftTest {
         when(enrollmentRepository.countUngroupedByEvent(any(), any())).thenReturn(0L);
         when(eventGroupRepository.countByEventId(any())).thenReturn(0L);
         when(relayTeamService.countTeamsForEvent(any())).thenReturn(0L);
+        when(relayReadiness.shortfallsOf(any())).thenReturn(Map.of());
     }
 
     /** An event on the programme, or a draft of one when told. */
@@ -130,7 +138,8 @@ class EventServiceDraftTest {
         Event draft = draft(2L);
         when(eventRepository.findByEnabledTrue()).thenReturn(List.of(real, draft));
 
-        List<EventDTO> enabled = service.searchEvents(true, Sex.MALE, EventCategory.TRACK);
+        // The fixture is a 4x100M relay, which is its own category now — not TRACK.
+        List<EventDTO> enabled = service.searchEvents(true, Sex.MALE, EventCategory.RELAY);
 
         assertEquals(List.of(1L), enabled.stream().map(EventDTO::getId).toList(),
                 "a draft never offers entry, however enabled it is");

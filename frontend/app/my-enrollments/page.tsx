@@ -8,7 +8,7 @@ import { useAuth } from '@/lib/auth';
 import { formatDate } from '@/lib/format';
 import { useI18n } from '@/lib/i18n';
 
-const SECTION_ORDER: EventCategory[] = ['TRACK', 'FIELD'];
+const SECTION_ORDER: EventCategory[] = ['TRACK', 'FIELD', 'RELAY'];
 
 export default function MyEnrollmentsPage() {
   const { user, isLoading } = useAuth();
@@ -83,7 +83,7 @@ export default function MyEnrollmentsPage() {
   };
 
   const byCategory = useMemo(() => {
-    const grouped: Record<EventCategory, EnrollmentDTO[]> = { TRACK: [], FIELD: [] };
+    const grouped: Record<EventCategory, EnrollmentDTO[]> = { TRACK: [], FIELD: [], RELAY: [] };
     enrollments.forEach(entry => {
       if (grouped[entry.category]) grouped[entry.category].push(entry);
     });

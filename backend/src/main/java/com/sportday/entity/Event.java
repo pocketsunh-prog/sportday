@@ -12,7 +12,8 @@ import java.time.LocalDateTime;
  * {@link Grade}, so no grade is ever ranked against another: {@code Boys 100M}
  * is three separate events — one for the A grade, one for the B grade and one
  * for the C grade — each with its own heats, marking sheets, results and
- * placings. Belongs to one {@link EventCategory} (徑項 track / 田項 field).
+ * placings. Belongs to one {@link EventCategory} (徑項 track / 田項 field /
+ * 接力 relay — a relay being its own family, run and scored by team).
  * Events are created <strong>enabled by default</strong>; an administrator can
  * disable one at any time, and disabled events reject new entries.</p>
  *
@@ -46,7 +47,11 @@ public class Event {
     @Column(nullable = false)
     private EventType type;
 
-    /** 徑項 or 田項. Kept in step with {@link #type} by {@link #applyTypeDefaults()}. */
+    /**
+     * 徑項, 田項 or 接力. Kept in step with {@link #type} by
+     * {@link #applyTypeDefaults()}; a relay type declares
+     * {@link EventCategory#RELAY}.
+     */
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private EventCategory category;
@@ -406,8 +411,8 @@ public class Event {
         HURDLES_100M("100M Hurdles", EventCategory.TRACK, false),
         HURDLES_110M("110M Hurdles", EventCategory.TRACK, false),
         HURDLES_400M("400M Hurdles", EventCategory.TRACK, false),
-        RELAY_4X100M("4x100M Relay", EventCategory.TRACK, false),
-        RELAY_4X400M("4x400M Relay", EventCategory.TRACK, false),
+        RELAY_4X100M("4x100M Relay", EventCategory.RELAY, false),
+        RELAY_4X400M("4x400M Relay", EventCategory.RELAY, false),
 
         SHOT_PUT("Shot Put", EventCategory.FIELD, false),
         DISCUSSION_THROW("Discus", EventCategory.FIELD, false),
@@ -483,6 +488,10 @@ public class Event {
          * field event is measured in metres. Written the way an athletics
          * programme writes it — {@code s} and {@code M} — because that is what
          * fits a marking sheet column and what a timekeeper expects to see.
+         *
+         * <p>A relay is a race, so it is timed like the track: it takes the
+         * seconds here exactly as it does in {@link MarkFormatter} and on the
+         * marking sheet. Only {@link EventCategory#FIELD} is measured.</p>
          */
         public String getDefaultUnit() {
             return category == EventCategory.FIELD ? UNIT_FIELD : UNIT_TRACK;
@@ -517,7 +526,7 @@ public class Event {
          * way round the leaderboards, the records and the placings go.
          */
         public boolean isLowerBetter() {
-            return category == EventCategory.TRACK;
+            return !category.isMeasuredInDistance();
         }
 
         /**

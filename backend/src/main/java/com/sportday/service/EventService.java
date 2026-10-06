@@ -43,6 +43,14 @@ public class EventService {
     private final SeasonService seasonService;
     private final FinalQualificationService finalQualificationService;
     private final RelayTeamService relayTeamService;
+    /**
+     * The one readiness rule, asked on the <em>showing</em> side: the event list stamps
+     * every relay with whether it may be marked yet, so a picker can leave a half-built
+     * relay out instead of offering it and having the choice refused. It reads nothing
+     * but the relay tables, so there is no cycle — {@code RelayReadiness} does not know
+     * this service exists.
+     */
+    private final RelayReadiness relayReadiness;
 
     /**
      * Brings every event's format back in step with how many are entered.
@@ -82,10 +90,9 @@ public class EventService {
             .thenComparingInt(event -> event.getGrade() == null ? Integer.MAX_VALUE : event.getGrade().ordinal());
 
     public List<EventDTO> getAllEvents() {
-        return eventRepository.findAll().stream()
+        return describeAll(eventRepository.findAll().stream()
                 .sorted(EVENT_ORDER)
-                .map(this::describe)
-                .collect(Collectors.toList());
+                .toList());
     }
 
     /**
@@ -120,7 +127,7 @@ public class EventService {
     public List<EventDTO> searchEvents(boolean onlyEnabled, Sex sex, EventCategory category,
                                        java.time.LocalDate date, Long seasonId) {
         List<Event> base = onlyEnabled ? eventRepository.findByEnabledTrue() : eventRepository.findAll();
-        return base.stream()
+        return describeAll(base.stream()
                 .filter(event -> !event.isDraft())
                 .filter(event -> sex == null || event.getSex() == sex)
                 .filter(event -> category == null || event.getCategoryOrDefault() == category)
@@ -128,8 +135,7 @@ public class EventService {
                 .filter(event -> seasonId == null
                         || (event.getSeason() != null && seasonId.equals(event.getSeason().getId())))
                 .sorted(EVENT_ORDER)
-                .map(this::describe)
-                .collect(Collectors.toList());
+                .toList());
     }
 
     /**
@@ -326,11 +332,10 @@ public class EventService {
      */
     @Transactional(readOnly = true)
     public List<EventDTO> getDraftEvents() {
-        return eventRepository.findAll().stream()
+        return describeAll(eventRepository.findAll().stream()
                 .filter(Event::isDraft)
                 .sorted(EVENT_ORDER)
-                .map(this::describe)
-                .collect(Collectors.toList());
+                .toList());
     }
 
     /**
@@ -803,15 +808,51 @@ public class EventService {
     @Transactional(readOnly = true)
     public List<EventDTO> getPastEvents() {
         java.time.LocalDate today = java.time.LocalDate.now();
-        return eventRepository.findAll().stream()
+        return describeAll(eventRepository.findAll().stream()
                 .filter(event -> !event.isDraft())
                 .filter(event -> event.getEventDate() != null && !event.getEventDate().isAfter(today))
                 .sorted(EVENT_ORDER.reversed())
-                .map(this::describe)
-                .toList();
+                .toList());
     }
 
+    /**
+     * A whole list of events, with the relays' readiness read <strong>once for the
+     * list</strong>.
+     *
+     * <p>This is the list's own mapper, and the reason it exists is cost: readiness is
+     * the one fact about an event that is not on its own row, and asking
+     * {@link #describe(Event)} per event would be two queries per relay. Read in one
+     * batch, the twelve relays of the programme cost two queries between them and the
+     * hundred events that are not relays cost <em>none</em> — {@code
+     * RelayReadiness.shortfallsOf} holds only relays, and an individual event is ready
+     * by definition.</p>
+     *
+     * <p>The order, filtering and sorting are the caller's and are already applied:
+     * this only describes what it is handed, in the order it is handed.</p>
+     */
+    private List<EventDTO> describeAll(List<Event> events) {
+        Map<Long, String> shortfalls = relayReadiness.shortfallsOf(events);
+        List<EventDTO> described = new java.util.ArrayList<>(events.size());
+        for (Event event : events) {
+            described.add(describe(event, shortfalls));
+        }
+        return described;
+    }
+
+    /** One event, with its relay's readiness read for it alone. */
     private EventDTO describe(Event event) {
+        return describe(event, relayReadiness.shortfallsOf(java.util.Collections.singletonList(event)));
+    }
+
+    /**
+     * One event, described from facts the caller has already read.
+     *
+     * <p>{@code shortfalls} holds only the relays that are not ready yet, so an id
+     * that is absent from it — every individual event, and every relay whose teams
+     * are built — reports ready with no reason. That is the same map the list passes
+     * in, which is what makes one event and a hundred cost the same to describe.</p>
+     */
+    private EventDTO describe(Event event, Map<Long, String> shortfalls) {
         long confirmed = enrollmentRepository.countByEventIdAndStatus(
                 event.getId(), Enrollment.EnrollmentStatus.CONFIRMED);
         EventDTO dto = EventDTO.from(event, (int) confirmed);
@@ -824,6 +865,11 @@ public class EventService {
         // per event type; now the event simply is one grade.
         dto.setGrade(event.getGrade() == null ? null : event.getGrade().name());
         dto.setGradeLabel(event.getGrade() == null ? null : event.getGrade().getLabel());
+        // Whether the relay may be marked yet, in the wording the refusal uses. Absent
+        // from the map means ready, which is what every non-relay event is.
+        String shortfall = event.getId() == null ? null : shortfalls.get(event.getId());
+        dto.setRelayReady(shortfall == null);
+        dto.setReadinessReason(shortfall);
         return dto;
     }
 

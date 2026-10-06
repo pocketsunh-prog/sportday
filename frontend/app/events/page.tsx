@@ -22,7 +22,7 @@ import { useI18n } from '@/lib/i18n';
 
 type MessageKind = 'error' | 'success';
 type Message = { kind: MessageKind; text: string };
-const SECTION_ORDER: EventCategory[] = ['TRACK', 'FIELD'];
+const SECTION_ORDER: EventCategory[] = ['TRACK', 'FIELD', 'RELAY'];
 
 function toSexCode(gender?: string): SexCode | '' {
   return gender === 'M' || gender === 'F' ? gender : '';
@@ -261,7 +261,7 @@ export default function EventsPage() {
   );
 
   const byCategory = useMemo(() => {
-    const grouped: Record<EventCategory, EventDTO[]> = { TRACK: [], FIELD: [] };
+    const grouped: Record<EventCategory, EventDTO[]> = { TRACK: [], FIELD: [], RELAY: [] };
     visibleEvents.forEach(event => {
       if (grouped[event.category]) grouped[event.category].push(event);
     });

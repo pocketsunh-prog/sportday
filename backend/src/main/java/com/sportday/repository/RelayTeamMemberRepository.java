@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -29,6 +30,18 @@ public interface RelayTeamMemberRepository extends JpaRepository<RelayTeamMember
     @Query("select m from RelayTeamMember m where m.team.event.id = :eventId "
             + "order by m.team.id asc, m.leg asc")
     List<RelayTeamMember> findForEventWithUser(@Param("eventId") Long eventId);
+
+    /**
+     * The team of every relay leg of <strong>several</strong> events — one row per
+     * runner, so a whole programme's team sizes are counted in one query.
+     *
+     * <p>Only the team's id is selected: the rule judges a team by how many runners
+     * it holds, so the runners themselves and the athlete behind each leg are not
+     * read. The same shape as {@link #findForEventWithUser(Long)} otherwise, and the
+     * caller counts the rows per team — see {@code RelayReadiness.shortfallsOf}.</p>
+     */
+    @Query("select m.team.id from RelayTeamMember m where m.team.event.id in :eventIds")
+    List<Long> findTeamIdsForEvents(@Param("eventIds") Collection<Long> eventIds);
 
     /** The row for one athlete in one team, if they are in it. */
     Optional<RelayTeamMember> findByTeamIdAndUserId(Long teamId, Long userId);

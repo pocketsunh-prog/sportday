@@ -14,7 +14,7 @@ Spring Boot 4.1 (Java 25) backend, Next.js 16 web app, MySQL 8.
 |---|-------------|----------------|
 | 1 | Admin uploads all student records; student logs in with student id, password = dob + class + class number | `AdminStudentController`, `StudentService`, `StudentPasswordPolicy` |
 | 2 | Events are **enabled by default**; admin can disable | `EventService.createEvent`, `Event.enabled`, `PATCH /api/events/{id}/enable` |
-| 3 | A student may enter **2 track (徑項)** and **1 field (田項)** event | `EnrollmentService`, `EventCategory.getMaxEntriesPerStudent()` |
+| 3 | A student may enter **2 track (徑項)**, **1 field (田項)** and **2 relay (接力)** events | `EnrollmentService`, `EventCategory.getMaxEntriesPerStudent()` |
 | 4 | After entries close, events are split into groups — 8 per group for 60/100/200/400, 24 for 800 and above | `EventGroupService`, `Event.EventType.getDefaultGroupSize()` |
 | 5 | Marking-sheet PDF per group — **A5** for 60/100/200/400, **A4** otherwise, columns: student id, name, grade, record, remark | `PdfSheetService`, `PdfFontProvider` |
 | 6 | Grade derived from date of birth — C ≤ 14, B 15–16, A ≥ 17 | `GradeCalculator`, `Grade` |
@@ -186,7 +186,7 @@ their password back to this derived value, so it can never drift out of sync.
 
 | Concept | Meaning |
 |---------|---------|
-| **Category** | `TRACK` (徑項) or `FIELD` (田項). Fixed by the event type |
+| **Category** | `TRACK` (徑項), `FIELD` (田項) or `RELAY` (接力). Fixed by the event type. A relay is its own family rather than a track event, because it is run and scored by team; its marks are still times, so only `FIELD` is measured |
 | **Sex division** | `MALE` or `FEMALE` — the event is run once per division |
 | **Group size** | Athletes per heat. **8** for 60/100/200/400, **24** for 800 and above and for every field event. Overridable per event |
 | **Sheet size** | Follows the group size: **A5** for 60/100/200/400, **A4** otherwise |
@@ -194,17 +194,22 @@ their password back to this derived value, so it can never drift out of sync.
 
 ### Entry rules
 
-A student may hold at most **2 track** entries and **1 field** entry. An entry is
-refused when:
+A student may hold at most **2 track** entries, **1 field** entry and **2 relay**
+entries. A relay is counted in its own family rather than as a track entry, so a
+student may hold a leg in a **house relay** and a leg in a **class relay** — the two
+ways a relay is divided, see [Relay teams](#relay-teams) — and still hold their two
+individual track entries. An entry is refused when:
 
 - the event is disabled — *"This event is closed — it has been disabled by the organiser."*
 - the student is already entered
 - the event is in the other sex division
-- the track or field quota is used up — *"You have already entered 2 徑項 Track event(s), which is the maximum (徑項: 2)."*
+- the quota of the event's **own category** is used up — *"You have already entered 2 徑項 Track event(s), which is the maximum (徑項: 2)."*,
+  and for a relay *"You have already entered 2 接力 Relay event(s), which is the maximum (接力 Relay: 2)."*
 - the event is full
 
-The web app shows the remaining quota (`徑項 1/2 · 田項 0/1`) and surfaces the
-server's message whenever an entry is refused.
+The web app shows the remaining **track and field** quota (`徑項 1/2 · 田項 0/1`) and
+surfaces the server's message whenever an entry is refused. A relay's own count is
+enforced by the server, but it is not one of those two figures.
 
 ### Heats
 
@@ -497,6 +502,14 @@ which is a refusal and not a silent allow. Every existing rule still applies to 
 student: the event's division and grade, and the 2-track/1-field quota.
 
 ### Relay teams
+
+A relay event's **category is `RELAY`**, not `TRACK`: it is run and scored by team,
+so it is its own family in [the event model](#the-event-model) above. It is still a
+race in every way that matters — its mark is a **time** in seconds, the smallest one
+wins, and its marking sheet is a race sheet with one record box per line — and it is
+that category which gives a relay its own entry allowance rather than the student's
+track ones. A live database needs `db/migration/relay-category-migration.sql` for it;
+see the note at the head of that file.
 
 A relay event can be divided two ways, chosen on the event itself:
 

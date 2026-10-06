@@ -63,11 +63,17 @@ interface EventGroup {
 /**
  * **Every relay event of the programme, and the one click that makes its teams.**
  *
- * A relay is divided into teams on the event itself: FORM means one team per
- * **class** of the event's grade (5A, 5B, ... — what the school calls form and
- * class), and HOUSE means one team per **grade x house** (C Grade Yellow). Those
- * are the only two divisions the server knows, and they are the two values of the
- * event's relayTeamKind.
+ * A relay is divided into teams on the event itself, and there are two divisions.
+ * FORM means one team per **class**: `5A`, `5B`, ... — what the school calls form
+ * and class. HOUSE means one team per **grade x house**: `C Grade Yellow`. Those
+ * are the two values of the event's relayTeamKind.
+ *
+ * A FORM relay may also be **scoped to a form**. A form is not a grade: a relay
+ * scoped to Form 1 takes whoever is in Form 1 whatever grade they are, so its
+ * teams are that form's classes across every grade — `1A`, `1B`, `1C`, `1D`. Left
+ * unscoped (no form), a FORM relay keeps the older rule and takes one team per
+ * class of **the event's own grade**. The form is chosen with the picker below
+ * and sent with the kind.
  *
  * This page is the index the per-event board at /admin/events/[id]/relay never
  * had: that board shows the teams of **one** event, so seeing which of the
@@ -78,11 +84,14 @@ interface EventGroup {
  * Deriving reads the kind **the event already holds**: the derive endpoint takes
  * no kind at all. Calling it on an event whose kind is not the one the button
  * names would therefore make the wrong teams and report success. The kind is a
- * field of the event, set by PUT on the event itself. So "make the teams by grade
- * and house" is **two calls: set the kind, then derive**, and the derive is only
- * sent once the kind is settled. If the first call is refused the derive is **not**
- * sent at all — there is nothing to derive into, and sending it would either write
- * the wrong teams or fail a second time for a reason that hides the first.
+ * field of the event, set by PUT on the event itself — and the **form** a class
+ * relay is scoped to is a field of that same call, because a form only ever means
+ * something to a FORM kind. So "make the teams by grade and house" is **two calls:
+ * set the kind, then derive**, and the derive is only sent once the kind — and,
+ * for a class relay, the form — is settled. If the first call is refused the
+ * derive is **not** sent at all — there is nothing to derive into, and sending it
+ * would either write the wrong teams or fail a second time for a reason that hides
+ * the first.
  *
  * ## The refusal that must be shown, not swallowed
  *
@@ -112,9 +121,10 @@ interface EventGroup {
  *
  * ## An event with no teams is the normal starting state
  *
- * Every relay of the live programme starts undivided and holds no teams. That is
- * how a relay begins, so it is described as a starting point — with the two
- * buttons right beside it — and never rendered as a failure or an empty table.
+ * A relay begins undivided and holding no teams. That is a starting point, not a
+ * fault, so it is described as one — with the form picker and the two rule buttons
+ * right beside it, which is where the reader sets the scope the teams are then made
+ * under — and never rendered as a failure or an empty table.
  */
 export default function AdminRelayEventsPage() {
   const router = useRouter();
@@ -134,6 +144,14 @@ export default function AdminRelayEventsPage() {
   const [error, setError] = useState<string | null>(null);
   /** The last outcome per event, keyed by event id. */
   const [outcomes, setOutcomes] = useState<Record<number, EventOutcome>>({});
+  /**
+   * The form chosen for each event, before the button is pressed.
+   *
+   * A form relay is not a grade relay: `1` yields the classes of Form 1 across
+   * every grade (1A, 1B, 1C, 1D), so the school picks the form here rather than
+   * relying on the event's own grade.
+   */
+  const [forms, setForms] = useState<Record<number, string>>({});
   /** The last refusal per event, keyed by event id. */
   const [failures, setFailures] = useState<Record<number, EventFailure>>({});
   /** A sheet saved for an event, keyed by event id. */
@@ -160,7 +178,12 @@ export default function AdminRelayEventsPage() {
       // Disabled events are included: a relay closed to new entries still needs
       // its teams and its marking sheets.
       const all = await api.getEvents({ onlyEnabled: false });
-      setEvents(all.filter(event => isRelayEventType(event.type)));
+      // A relay is its own event category now, and its own family of types
+      // (`RELAY_4X100M` / `RELAY_4X400M`). Either reading alone would do; asking
+      // both is what guarantees no relay is ever left off this page — the category
+      // is what the event itself now holds, and the type is the older spelling of
+      // it that every relay response still carries.
+      setEvents(all.filter(event => event.category === 'RELAY' || isRelayEventType(event.type)));
     } catch (err) {
       setError(errorText(err, t('relayEvents.loadFailed')));
       setEvents([]);
@@ -249,6 +272,21 @@ export default function AdminRelayEventsPage() {
     return '';
   };
 
+  /**
+   * What form a class relay is **scoped to**, or `''` when it takes one team per
+   * class of its own grade.
+   *
+   * Read from the board and the event alike, and for the same reason `kindOf` is:
+   * the board is re-read after every write, while the event in the list still
+   * carries the scope it was loaded with. Without that, re-scoping a relay would
+   * keep measuring it against the form it no longer holds — and would ask the
+   * server to set the same form again on every press.
+   */
+  const formOf = (event: EventDTO): string => {
+    const board = boardOf(event.id);
+    return (board ? board.form : event.form) ?? '';
+  };
+
   /** Replaces one event's board with a freshly read one. */
   const refreshBoard = async (eventId: number) => {
     try {
@@ -261,16 +299,16 @@ export default function AdminRelayEventsPage() {
   };
 
   /**
-   * The whole of one button: **set the kind if it is not already the one asked
-   * for, then derive.**
+   * The whole of one button: **set the kind — and, for a class relay, the form it
+   * is scoped to — unless the event already holds it, then derive.**
    *
-   * The order is the point. Deriving reads the kind the event holds, so the
-   * derive is only sent once the kind is settled — and if setting it is refused,
-   * the derive is never sent. That refusal is kept as the event's failure, with
-   * the server's own wording untouched.
+   * The order is the point. Deriving reads the scope the event holds, its kind and
+   * its form together, so the derive is only sent once that scope is settled — and
+   * if setting it is refused, the derive is never sent. That refusal is kept as the
+   * event's failure, with the server's own wording untouched.
    */
   const makeTeams = useCallback(
-    async (event: EventDTO, kind: RelayTeamKind) => {
+    async (event: EventDTO, kind: RelayTeamKind, form?: string) => {
       setBusy(`make-${event.id}`);
       setError(null);
       setFailures(previous => {
@@ -284,17 +322,35 @@ export default function AdminRelayEventsPage() {
         return next;
       });
       try {
-        if (kindOf(event) !== kind) {
+        /*
+         * A form relay carries the form the school chose. It is sent whenever the
+         * form differs, not only when the kind does — otherwise changing a Form 1
+         * relay to Form 2 would refine nothing and quietly leave the old classes.
+         * A house relay clears it: a form means nothing to a house team, and the
+         * server refuses one on a non-FORM relay.
+         */
+        const choosesForm = kind === 'FORM';
+        const formChanged = choosesForm && (form ?? '') !== formOf(event);
+        if (kindOf(event) !== kind || formChanged) {
           /*
            * Step one. This is the call the server refuses with a 409 while the
            * event already has teams, and that refusal is the reader's answer: it
            * names the event and the count and says what to do. It is shown as it
            * stands and the derive below is not attempted.
            */
-          await api.updateEvent(event.id, { relayTeamKind: kind });
+          await api.updateEvent(event.id, choosesForm
+            ? { relayTeamKind: kind, form }
+            : { relayTeamKind: kind, form: '' });
         }
-        // Step two, reached only when the kind now stands.
-        const derived = await api.deriveRelayTeams(event.id, false, role);
+        /*
+         * Step two, reached only when the scope now stands. Deriving is additive,
+         * so re-scoping a form relay would leave the classes of the form it just
+         * left behind as empty teams — and one short team holds the whole relay
+         * back from being marked. Pruning drops exactly those and only those: a
+         * team somebody runs in is never dropped, and the server reports how many
+         * it kept for that reason.
+         */
+        const derived = await api.deriveRelayTeams(event.id, formChanged, role);
         setOutcomes(previous => ({ ...previous, [event.id]: { derived, removed: null } }));
         await refreshBoard(event.id);
       } catch (err) {
@@ -307,7 +363,7 @@ export default function AdminRelayEventsPage() {
         setBusy(null);
       }
     },
-    // `kindOf` reads the boards, which the list below covers.
+    // `kindOf` and `formOf` read the boards, which the list below covers.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [boards, role, t]
   );
@@ -317,8 +373,14 @@ export default function AdminRelayEventsPage() {
    * rule that was refused. **Two deliberate steps, never one** — the teams hold
    * real selections, so this asks for confirmation and is offered only to an
    * administrator, who is the only role the endpoint admits.
+   *
+   * The form the reader picked is carried straight through, so the retry makes
+   * exactly the teams the refused attempt was making. Letting it fall back to the
+   * event's stored scope would quietly make a class relay by **grade** instead,
+   * which is the one thing a class relay could already do — and the whole reason
+   * the picker is here.
    */
-  const clearAndMake = async (event: EventDTO, kind: RelayTeamKind) => {
+  const clearAndMake = async (event: EventDTO, kind: RelayTeamKind, form?: string) => {
     if (!confirm(t('relayEvents.clearConfirm', { name: event.name }))) return;
     setBusy(`clear-${event.id}`);
     setError(null);
@@ -329,7 +391,7 @@ export default function AdminRelayEventsPage() {
         delete next[event.id];
         return next;
       });
-      await makeTeams(event, kind);
+      await makeTeams(event, kind, form);
       // The removal is reported with the derivation that followed it, so both
       // halves of the two-step press are visible.
       setOutcomes(previous => {
@@ -465,7 +527,10 @@ export default function AdminRelayEventsPage() {
     );
   };
 
-  /** The two rule buttons, the way out of a refusal, and each event's own links. */
+  /**
+   * The form picker and the two rule buttons, the way out of a refusal, and each
+   * event's own links.
+   */
   const actionsFor = (event: EventDTO) => {
     const board = boardOf(event.id);
     const failure = failures[event.id];
@@ -484,12 +549,32 @@ export default function AdminRelayEventsPage() {
       <div className="mt-3">
         <h4>{t('relayEvents.actionsTitle')}</h4>
         <div className="pill-actions mt-2">
+          {isAdmin && (
+            <label className="muted" htmlFor={`relay-form-${event.id}`}>
+              {t('relay.kindForm')}
+              <select
+                id={`relay-form-${event.id}`}
+                className="ml-1"
+                value={forms[event.id] ?? formOf(event)}
+                disabled={busy !== null}
+                onChange={changed => setForms(previous => ({
+                  ...previous, [event.id]: changed.target.value,
+                }))}
+              >
+                {/* Empty keeps the older rule: one team per class of this event's grade. */}
+                <option value="">{t('relayEvents.anyForm')}</option>
+                {['1', '2', '3', '4', '5', '6'].map(form => (
+                  <option key={form} value={form}>{t('relayEvents.formN', { form })}</option>
+                ))}
+              </select>
+            </label>
+          )}
           <button
             type="button"
             className="btn btn-primary"
             disabled={busy !== null || !isAdmin}
             title={isAdmin ? undefined : t('relayEvents.teacherLimits')}
-            onClick={() => makeTeams(event, 'FORM')}
+            onClick={() => makeTeams(event, 'FORM', forms[event.id] ?? formOf(event))}
           >
             {formLabel}
           </button>
@@ -516,7 +601,11 @@ export default function AdminRelayEventsPage() {
               type="button"
               className="btn btn-sm btn-danger"
               disabled={busy !== null}
-              onClick={() => clearAndMake(event, failure.kind === 'HOUSE' ? 'HOUSE' : 'FORM')}
+              onClick={() => clearAndMake(
+                event,
+                failure.kind === 'HOUSE' ? 'HOUSE' : 'FORM',
+                forms[event.id] ?? formOf(event)
+              )}
             >
               {busy === `clear-${event.id}`
                 ? t('common.processing')
@@ -579,6 +668,21 @@ export default function AdminRelayEventsPage() {
               <span className="badge badge-success">{kindText}</span>
             )}
           </div>
+          {/*
+            What a class relay is scoped to, said out loud. The grade badge above
+            is the event's own grade, which no longer decides who may run once a
+            form is set — a Form 1 relay's 1A to 1D teams can be of any grade — so
+            the scope is named here rather than left to the picker an administrator
+            happens to be looking at.
+          */}
+          {kind === 'FORM' && (
+            <div>
+              <strong>{t('relay.form')}:</strong>{' '}
+              {formOf(event)
+                ? t('relayEvents.formN', { form: formOf(event) })
+                : t('relayEvents.anyForm')}
+            </div>
+          )}
           <div>
             <strong>{t('relay.teamsTitle')}:</strong> {teamCountText}
           </div>
