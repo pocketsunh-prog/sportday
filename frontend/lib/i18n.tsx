@@ -1318,6 +1318,26 @@ const en = {
   'relayEvents.noHouseRelays':
     'No house relay is on the programme yet. Set a relay’s rule to “one team per house” here, and its Grade A to C teams are made from the register.',
   'relayEvents.filterEmpty': 'No relay of this family matches the filter.',
+  /*
+   * The twelve class relays as a form x division grid, and the one press that makes
+   * the ones that are missing.
+   */
+  'relayEvents.createMissingTitle': 'The class relays of the programme',
+  'relayEvents.createMissingCount': '{have} of {wanted} class relays are here',
+  'relayEvents.createMissingHint':
+    'A class relay is one per form and division: Forms 1 to 6, each with a boys relay and a girls relay. This makes the ones that are missing — the class rule, scoped to that form, with its class teams made at the same time — so pressing it twice creates nothing the second time.',
+  'relayEvents.createMissingCell': 'missing',
+  'relayEvents.createMissingRule':
+    'A new relay copies the form’s existing relay: the same event type and the same grade, so a form’s boys and girls relays are the same race, and its name is the sibling’s name with the division changed. A form with no relay at all is made as a 4x100M, in the grade that form’s age band runs — Forms 1 and 2 are C, 3 and 4 are B, 5 and 6 are A — and is named by the system, because there is no sibling name to copy.',
+  'relayEvents.createMissingNone': 'All twelve class relays are on the programme.',
+  'relayEvents.createMissingButton': 'Create the {count} missing relay(s)',
+  'relayEvents.createMissingDone': 'Created {count} relay(s), each with its class teams.',
+  'relayEvents.createMissingNext':
+    'Open a relay’s board to add a student to one of its teams, or remove one again.',
+  'relayEvents.createMissingFailed': 'Some relays were not created:',
+  'relayEvents.createMissingOneFailed': '{name}: {reason}',
+  'relayEvents.createMissingDivideFailed':
+    '{name} was created, but its class teams could not be made: {reason} — press its own rule on the card below.',
   'relayEvents.loading': 'Loading the relay events…',
   'relayEvents.loadFailed': 'Failed to load the relay events',
   'relayEvents.listTitle': 'The programme’s relay events',
@@ -2540,6 +2560,21 @@ const zh: Record<keyof typeof en, string> = {
   'relayEvents.noHouseRelays':
     '本年度暫時未有社際接力項目。在此把某個接力的規則設為「每社一隊」，即會由名冊產生其 A 至 C 組的隊伍。',
   'relayEvents.filterEmpty': '此類接力項目沒有符合篩選條件的項目。',
+  'relayEvents.createMissingTitle': '本年度班際接力項目',
+  'relayEvents.createMissingCount': '已有 {have} / {wanted} 個班際接力',
+  'relayEvents.createMissingHint':
+    '班際接力按年級與組別組成：中一至中六，每年級各有男子及女子接力。此頁會建立尚未有的項目 — 套用班際規則、設定所屬年級，並同時編好班隊，因此再按一次不會重複建立。',
+  'relayEvents.createMissingCell': '尚未建立',
+  'relayEvents.createMissingRule':
+    '新接力會沿用該年級現有接力項目的項目類別與組別，因此同一級的男子與女子接力屬同一項賽事，名稱則沿用該項目的名稱並改為另一組別。若某年級完全未有接力，會以 4x100M 建立，並設定該年級的組別 — 中一、中二為 C 組，中三、中四為 B 組，中五、中六為 A 組 — 名稱由系統產生，因為沒有可沿用的同級項目名稱。',
+  'relayEvents.createMissingNone': '十二個班際接力項目已全部建立。',
+  'relayEvents.createMissingButton': '建立 {count} 個尚未建立的接力',
+  'relayEvents.createMissingDone': '已建立 {count} 個接力，並已編好班隊。',
+  'relayEvents.createMissingNext': '開啟該接力的接力隊伍編排頁，即可在隊伍中加入或移除學生。',
+  'relayEvents.createMissingFailed': '部分接力未能建立：',
+  'relayEvents.createMissingOneFailed': '{name}：{reason}',
+  'relayEvents.createMissingDivideFailed':
+    '{name} 已建立，但未能編好班隊：{reason} — 請在下方該項目的卡片上按下它自己的編隊規則。',
   'relayEvents.loading': '載入接力項目…',
   'relayEvents.loadFailed': '無法載入接力項目',
   'relayEvents.listTitle': '本年度接力項目',

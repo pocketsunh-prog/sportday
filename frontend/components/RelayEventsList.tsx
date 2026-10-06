@@ -7,6 +7,8 @@ import { useRouter } from 'next/navigation';
 import {
   api,
   EventDTO,
+  EventSex,
+  Grade,
   GRADES,
   isRelayEventType,
   RelayEventTeamsDTO,
@@ -19,6 +21,42 @@ import { useI18n } from '@/lib/i18n';
 
 /** The two families of relay, one page each: class teams, or grade x house teams. */
 export type RelayFamily = RelayTeamKind;
+
+/** The six forms the school's class relays are run by, in order. */
+const RELAY_FORMS: ReadonlyArray<string> = ['1', '2', '3', '4', '5', '6'];
+
+/** The two divisions a class relay is run in: a boys relay and a girls relay. */
+const RELAY_DIVISIONS: ReadonlyArray<EventSex> = ['MALE', 'FEMALE'];
+
+/** What a form that has no relay of its own starts as. */
+const DEFAULT_CLASS_RELAY_TYPE = 'RELAY_4X100M';
+
+/**
+ * The grade a form's students are in, read from the school's own age bands: A is 17
+ * and over, B is 15-16 and C is 14 or below, so Forms 1 and 2 are C, Forms 3 and 4
+ * are B, and Forms 5 and 6 are A. Used **only** when a form has no relay at all to
+ * copy a grade from — a grade the school already uses is never second-guessed.
+ */
+function formBandGrade(form: string): Grade {
+  if (form === '1' || form === '2') return 'C';
+  if (form === '3' || form === '4') return 'B';
+  return 'A';
+}
+
+/**
+ * The name a newly created relay takes: its sibling's, with the division changed —
+ * `Boys 4x100M Relay - Form 1` becomes `Girls 4x100M Relay - Form 1` — so the pair
+ * reads as one set whatever convention the school named its relays by.
+ *
+ * `undefined` when the sibling's name does not begin with a division, which means
+ * the school named that relay itself; the server then names the new one its own way
+ * and the office can rename it. A name the school chose is never rewritten.
+ */
+function twinName(siblingName: string, sex: EventSex): string | undefined {
+  const division = sex === 'MALE' ? 'Boys' : 'Girls';
+  const leading = /^(Boys|Girls)\b/;
+  return leading.test(siblingName) ? siblingName.replace(leading, division) : undefined;
+}
 
 /** The message the server sent, or our own wording when there is none. */
 function errorText(err: unknown, fallback: string): string {
@@ -180,6 +218,8 @@ export default function RelayEventsList({ family }: { family: RelayFamily }) {
   const [failures, setFailures] = useState<Record<number, EventFailure>>({});
   /** A sheet saved for an event, keyed by event id. */
   const [saved, setSaved] = useState<Record<number, string>>({});
+  /** What the last "create the missing class relays" run produced. */
+  const [built, setBuilt] = useState<{ names: string[]; failed: string[] } | null>(null);
 
   const isAdmin = user?.role === 'ADMIN';
   const canWork = isAdmin || user?.role === 'TEACHER';
@@ -464,6 +504,108 @@ export default function RelayEventsList({ family }: { family: RelayFamily }) {
 
   /** True on the class relay page; false on the grade house one. */
   const classRelays = family === 'FORM';
+
+  /**
+   * The class relay a form and a division already have, if they have one. Read from
+   * every event, not from the filtered list: the grid below is about the programme,
+   * not about what the filter happens to be showing.
+   */
+  const classRelayOf = (form: string, sex: EventSex): EventDTO | undefined =>
+    events.find(event => kindOf(event) === 'FORM' && formOf(event) === form
+      && event.sex === sex);
+
+  /**
+   * The class relays the programme has not got yet: Forms 1 to 6, each in both
+   * divisions, less the ones that are already there. The school runs twelve, and
+   * this is the whole of what "create each from Form 1 to Form 6, boys and girls"
+   * means — nothing is created that already exists, so pressing the button twice
+   * creates nothing the second time.
+   */
+  const missingRelays: Array<{ form: string; sex: EventSex }> = [];
+  if (classRelays && isAdmin) {
+    RELAY_FORMS.forEach(form => RELAY_DIVISIONS.forEach(sex => {
+      if (!classRelayOf(form, sex)) missingRelays.push({ form, sex });
+    }));
+  }
+
+  /**
+   * **Creates every missing class relay, ready to fill.** For each one: the event
+   * itself — the class rule, scoped to its form, and named as its sibling is named —
+   * and then the same derive the per-event button runs, so it arrives holding its
+   * class teams (1A, 1B, …) and a student can be added to a team or removed again on
+   * its own board.
+   *
+   * Two things are copied from the form's existing relay rather than invented: the
+   * event type and the grade. A form's boys relay and girls relay are the same race,
+   * so Form 1's Girls relay is the 4x100M its Boys relay is, in the grade the school
+   * already keeps that form's relay in. Only a form with no relay at all falls back
+   * to the 4x100M and the grade its age band runs, and the fallback is named on the
+   * panel rather than left for somebody to notice.
+   *
+   * One at a time, and each failure is reported with the server's own words: a
+   * refusal for one relay must not stop the other five being made, and the panel
+   * says which.
+   */
+  const createMissingRelays = async () => {
+    setBusy('create-missing');
+    setError(null);
+    setBuilt(null);
+    const names: string[] = [];
+    const failed: string[] = [];
+    for (const cell of missingRelays) {
+      // The other division of the same form is the twin to copy: the same race, the
+      // same grade, and a name one word away.
+      const sibling = classRelayOf(cell.form, cell.sex === 'MALE' ? 'FEMALE' : 'MALE')
+        ?? events.find(event => kindOf(event) === 'FORM' && formOf(event) === cell.form);
+      // Whatever the new relay stands beside on the day, in the place and at the size
+      // of: its own sibling when it has one, otherwise a class relay, otherwise any
+      // relay at all — so a new event lands on the sport day, not on today's date.
+      const beside = sibling
+        ?? events.find(event => kindOf(event) === 'FORM')
+        ?? events.find(event => event.category === 'RELAY');
+      const type = sibling?.type ?? DEFAULT_CLASS_RELAY_TYPE;
+      const name = sibling ? twinName(sibling.name, cell.sex) : undefined;
+      let created: EventDTO | null = null;
+      try {
+        created = await api.createEvent({
+          // Absent means the server names it, which is what a name we could not
+          // derive from a sibling should do.
+          name,
+          type,
+          sex: cell.sex,
+          grade: sibling?.grade ?? formBandGrade(cell.form),
+          form: cell.form,
+          relayTeamKind: 'FORM',
+          // The same day, place and size as the relay it stands beside.
+          eventDate: beside?.eventDate,
+          location: beside?.location,
+          groupSize: beside?.groupSize,
+          maxParticipants: beside?.maxParticipants,
+          enabled: true,
+        });
+        await api.deriveRelayTeams(created.id, false, role);
+        names.push(created.name);
+      } catch (err) {
+        /*
+         * Two different failures, said as two different things. An event that was
+         * made but not divided EXISTS — it is on the page below with its own rule
+         * button — so reporting it as "not created" would send the reader looking for
+         * something that is already there.
+         */
+        failed.push(t(created
+          ? 'relayEvents.createMissingDivideFailed'
+          : 'relayEvents.createMissingOneFailed', {
+          name: created?.name ?? name ?? t('relayEvents.formN', { form: cell.form }),
+          reason: errorText(err, t('relayEvents.makeFailed')),
+        }));
+      }
+    }
+    // Re-read the programme: the new relays are events like any other, and the
+    // boards that were read for the old list say nothing about them.
+    await load();
+    setBuilt({ names, failed });
+    setBusy(null);
+  };
 
   /**
    * The filter, as the value it narrows on: `''` lists every relay of this family,
@@ -898,6 +1040,104 @@ export default function RelayEventsList({ family }: { family: RelayFamily }) {
         {isAdmin && <p className="muted mt-2">{t('relayEvents.adminClearHint')}</p>}
         {!isAdmin && <p className="muted mt-2">{t('relayEvents.teacherLimits')}</p>}
       </div>
+
+      {/*
+        The twelve class relays the programme should hold, as a form x division grid,
+        and the one press that makes the ones that are missing. Only the class relay
+        page has it: the grid is its own axis, and creating a class relay is that
+        page's job. ADMIN only, because creating an event is hasAnyRole('ADMIN',
+        'MANAGER') and a teacher cannot press it anyway.
+      */}
+      {classRelays && isAdmin && (
+        <div className="card">
+          <div className="flex justify-between items-center">
+            <h2>{t('relayEvents.createMissingTitle')}</h2>
+            <div className="pill-actions">
+              <span className="badge badge-info">
+                {t('relayEvents.createMissingCount', {
+                  have: RELAY_FORMS.length * RELAY_DIVISIONS.length - missingRelays.length,
+                  wanted: RELAY_FORMS.length * RELAY_DIVISIONS.length,
+                })}
+              </span>
+            </div>
+          </div>
+          <p className="muted mt-2">{t('relayEvents.createMissingHint')}</p>
+
+          <div className="table-wrap mt-2">
+            <table>
+              <thead>
+                <tr>
+                  <th>{t('relay.form')}</th>
+                  {RELAY_DIVISIONS.map(sex => (
+                    <th key={sex}>{label('sex', sex)}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {RELAY_FORMS.map(form => (
+                  <tr key={form}>
+                    <td>{t('relayEvents.formN', { form })}</td>
+                    {RELAY_DIVISIONS.map(sex => {
+                      const there = classRelayOf(form, sex);
+                      return (
+                        <td key={sex}>
+                          {there ? (
+                            <span className="badge badge-success">{there.name}</span>
+                          ) : (
+                            <span className="badge badge-warning">
+                              {t('relayEvents.createMissingCell')}
+                            </span>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <p className="muted mt-2">{t('relayEvents.createMissingRule')}</p>
+
+          {missingRelays.length === 0 ? (
+            <p className="muted mt-2">{t('relayEvents.createMissingNone')}</p>
+          ) : (
+            <div className="pill-actions mt-3">
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={busy !== null}
+                onClick={createMissingRelays}
+              >
+                {busy === 'create-missing'
+                  ? t('common.processing')
+                  : t('relayEvents.createMissingButton', { count: missingRelays.length })}
+              </button>
+            </div>
+          )}
+
+          {built && (
+            <div className="alert alert-success mt-2">
+              <strong>{t('relayEvents.createMissingDone', { count: built.names.length })}</strong>
+              {built.names.length > 0 && (
+                <ul className="mt-1">
+                  {built.names.map(name => <li key={name}>{name}</li>)}
+                </ul>
+              )}
+              {/* Where the students go, said where the relays were just made. */}
+              <p className="muted mt-1">{t('relayEvents.createMissingNext')}</p>
+            </div>
+          )}
+          {built && built.failed.length > 0 && (
+            <div className="alert alert-error mt-2">
+              <strong>{t('relayEvents.createMissingFailed')}</strong>
+              <ul className="mt-1">
+                {built.failed.map(line => <li key={line}>{line}</li>)}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="card">
         <div className="flex justify-between items-center">
