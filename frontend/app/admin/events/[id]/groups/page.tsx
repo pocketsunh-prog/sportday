@@ -474,7 +474,18 @@ export default function EventGroupsPage() {
       {heatGroups.length === 0 ? (
         <div className="card text-center">
           <p className="muted">{t('groups.noGroups')}</p>
-          <p className="muted">{t('groups.noGroupsHint', { groupSize: event.groupSize })}</p>
+          {/*
+            A relay is divided into TEAMS, not into heats: its sheet is one line per
+            team, and its mark grid is one row per team. Sending its reader to the heat
+            page — and offering "Allocate heats" — points at the one control that does
+            nothing for a relay, so the hint names the board the teams are built on
+            instead. An individual event is untouched.
+          */}
+          {isRelayEventType(event.type) ? (
+            <p className="muted">{t('groups.noGroupsRelay')}</p>
+          ) : (
+            <p className="muted">{t('groups.noGroupsHint', { groupSize: event.groupSize })}</p>
+          )}
         </div>
       ) : (
         <>

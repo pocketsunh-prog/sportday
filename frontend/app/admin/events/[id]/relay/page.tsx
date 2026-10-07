@@ -355,8 +355,16 @@ export default function AdminEventRelayPage() {
         <h1 className="page-title">{t('relay.boardTitle')}</h1>
         <div className="flex gap-2">
           {isAdmin ? (
-            <Link href={`/admin/events/${eventId}/groups`} className="btn btn-secondary">
-              {t('relay.backToGroups')}
+            /*
+             * Back to the relay programme, not to the heats page. A relay is
+             * divided into TEAMS — one per class of a form, or one per grade and
+             * house — so there is nothing to shuffle and no heats to allocate:
+             * its lines on the sheet and its rows in the mark grid are teams, not
+             * athletes. Sending the reader to the heat page from here only
+             * offered a control that does nothing for a relay.
+             */
+            <Link href="/admin/relay-events/form" className="btn btn-secondary">
+              {t('relay.backToRelays')}
             </Link>
           ) : (
             <Link href="/teacher" className="btn btn-secondary">

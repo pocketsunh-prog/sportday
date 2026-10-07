@@ -230,15 +230,49 @@ public class EventGroupService {
         }
     }
 
-    /** All groups of an event with their rosters, heats first and then the final. */
+    /**
+     * The group — or groups — an event's marking sheets are drawn from, with their
+     * rosters: heats first and then the final.
+     *
+     * <p><strong>A relay that has its teams is drawn from them, heats or no heats.</strong>
+     * A relay is run and scored by <em>team</em> — one per class of a form, or one per
+     * grade and house — and its marking sheet carries one line per team
+     * ({@link EventGroupDTO#getRelayTeamLabels()}). It has no heats to allocate, and a
+     * relay whose teams are built is therefore already printable: the sheet it needs is
+     * the event's own, and {@code event_groups} holding nothing says nothing about
+     * whether a sheet can be drawn. So the teams are gathered here and handed over as
+     * the sheet's group, rather than the print run being refused for want of rows the
+     * relay was never going to have.</p>
+     *
+     * <p>An <strong>individual</strong> event is unchanged: with no heats there is
+     * nothing to draw, and the caller is told to allocate them. And a relay with
+     * <strong>no teams to print</strong> is refused here, in the words the readiness
+     * rule already uses ({@link RelayReadiness}) — it cannot be marked or printed, and
+     * telling its reader to run group allocation would send them to a page that does
+     * nothing for a relay.</p>
+     */
     @Transactional(readOnly = true)
     public List<EventGroupDTO> getGroupsWithAthletes(Long eventId) {
-        if (!eventRepository.existsById(eventId)) {
-            throw new ResourceNotFoundException("Event not found with id: " + eventId);
-        }
+        Event event = eventRepository.findById(eventId)
+                .orElseThrow(() -> new ResourceNotFoundException("Event not found with id: " + eventId));
         beginRender();
         try {
             List<EventGroup> groups = groupsOf(eventId);
+            if (groups.isEmpty() && event.isRelay()) {
+                // The event's own teams are the sheet's lines, one per team. A relay
+                // whose teams carry nobody yet has none: a line is a team's name, and a
+                // team nobody has filled has no name to read — so it is refused with the
+                // reason rather than handed a sheet with nothing on it. A relay with no
+                // teams at all reaches the same refusal, and no relay reader is ever
+                // told to allocate heats it does not have.
+                List<String> teamLabels = relayTeamLabelsOf(eventId);
+                if (teamLabels.isEmpty()) {
+                    throw new IllegalStateException(relayReadiness.shortfallOf(event)
+                            .orElse(event.getName() + " has no teams to print yet. "
+                                    + "Build the relay's teams first."));
+                }
+                return List.of(relaySheetGroup(event, teamLabels));
+            }
             List<String> relayLabels = relayTeamLabelsOf(groups);
             return groups.stream().map(group -> withAthletes(group, true, relayLabels)).toList();
         } finally {
@@ -405,9 +439,21 @@ public class EventGroupService {
         if (event == null || !event.isRelay() || event.getId() == null) {
             return List.of();
         }
+        return relayTeamLabelsOf(event.getId());
+    }
+
+    /**
+     * The same list, read straight from the event — for a relay that has <em>no</em>
+     * groups, whose teams are the only thing its sheet can be drawn from.
+     *
+     * <p>One query, on the legs the teams are built from, so a team nobody has filled
+     * yet has no label and is not listed: a relay cannot be marked until every team is
+     * full, and a blank line on a helper's sheet helps nobody.</p>
+     */
+    private List<String> relayTeamLabelsOf(Long eventId) {
         Set<String> labels = new LinkedHashSet<>();
         for (com.sportday.entity.RelayTeamMember member
-                : relayTeamMemberRepository.findForEventWithUser(event.getId())) {
+                : relayTeamMemberRepository.findForEventWithUser(eventId)) {
             // Ordered by team id and leg, so a team's four legs collapse into its one
             // line and the teams keep the order they were created in.
             String label = member.getTeam() == null ? null : member.getTeam().getLabel();
@@ -416,6 +462,47 @@ public class EventGroupService {
             }
         }
         return List.copyOf(labels);
+    }
+
+    /**
+     * The one sheet a relay with teams is printed from, built without a row in
+     * {@code event_groups}: the group's own columns all read the event, and its lines
+     * are the event's teams ({@link EventGroupDTO#getRelayTeamLabels()}), which is what
+     * the sheet counts and prints.
+     *
+     * <p>It carries no id, because no row stands behind it — it is not a heat to be
+     * found by id, only the page this relay prints — and it is a {@link EventStage#HEAT}
+     * like every other event's single run. It is deliberately <em>not</em> saved: a relay's
+     * teams are how it is divided, and writing a heat for a race that has none would put
+     * a row in the programme that no part of the school asked for.</p>
+     */
+    private EventGroupDTO relaySheetGroup(Event event, List<String> teamLabels) {
+        EventStage stage = EventStage.HEAT;
+        EventGroupDTO dto = EventGroupDTO.builder()
+                .eventId(event.getId())
+                .eventName(event.getName())
+                .eventType(event.getType() == null ? null : event.getType().name())
+                .eventTypeLabel(event.getType() == null ? null : event.getType().getDisplayName())
+                .category(event.getCategoryOrDefault().name())
+                .categoryLabel(event.getCategoryOrDefault().getLabel())
+                .sex(event.getSex() == null ? null : event.getSex().name())
+                .sexLabel(event.getSex() == null ? null : event.getSex().getLabel())
+                .grade(event.getGrade() == null ? null : event.getGrade().name())
+                .gradeLabel(event.getGrade() == null ? null : event.getGrade().getLabel())
+                .groupNumber(1)
+                .label("Heat 1")
+                .stage(stage.name())
+                .stageLabel(stage.getLabelEn() + " " + stage.getLabelZh())
+                // A relay's paper is its teams, so the group's own counts are left empty
+                // and the sheet counts the lines it prints — see PdfSheetService.
+                .capacity(0)
+                .athleteCount(0)
+                .sheetSize(event.isShortSprint() ? "A5" : "A4")
+                .relayTeamLabels(teamLabels)
+                .build();
+        withRecord(dto, event);
+        withStandard(dto, event);
+        return dto;
     }
 
     // ------------------------------------ the school record and the required standard

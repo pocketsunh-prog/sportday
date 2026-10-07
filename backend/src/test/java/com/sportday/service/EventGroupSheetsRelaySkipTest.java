@@ -147,6 +147,12 @@ class EventGroupSheetsRelaySkipTest {
 
         when(eventRepository.findAll()).thenReturn(List.of(sprint, readyRelay, halfRelay, draftRelay));
         when(eventRepository.existsById(anyLong())).thenReturn(true);
+        when(eventRepository.findById(anyLong())).thenAnswer(invocation -> {
+            Long id = invocation.getArgument(0);
+            return List.of(sprint, readyRelay, halfRelay, draftRelay).stream()
+                    .filter(candidate -> candidate.getId().equals(id))
+                    .findFirst();
+        });
         when(groupRepository.findByEventIdOrderByGroupNumberAsc(SPRINT_ID))
                 .thenReturn(List.of(group(sprint, SPRINT_GROUP_ID)));
         // No heats' rosters are needed: the run is about which events are in it.

@@ -394,7 +394,7 @@ class SheetSchoolRecordTest {
     void oneLookupPerEventAndNoCachingBetweenRenders() {
         EventGroup heat1 = group(31L, boysA);
         EventGroup heat2 = group(32L, boysA);
-        when(eventRepository.existsById(A_EVENT_ID)).thenReturn(true);
+        when(eventRepository.findById(A_EVENT_ID)).thenReturn(Optional.of(boysA));
         when(groupRepository.findByEventIdOrderByGroupNumberAsc(A_EVENT_ID))
                 .thenReturn(List.of(heat1, heat2));
         when(recordService.record(Event.EventType.RUN_100M, Sex.MALE, Grade.A))

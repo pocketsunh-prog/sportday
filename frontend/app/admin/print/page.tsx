@@ -12,6 +12,7 @@ import {
   FinalState,
   finalStateForEvent,
   Grade,
+  isRelayEventType,
   SexCode,
 } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
@@ -190,12 +191,37 @@ export default function PrintSheetsPage() {
     [filteredMatches]
   );
 
-  // Heat lists, fetched once per event and cached. `groupCount` on the event DTO
-  // says up front which events actually have heats, so an ungrouped event costs
-  // no request at all.
+  /**
+   * Whether this event's sheet is drawn from relay **teams** rather than from heats.
+   *
+   * A relay is run and scored by team — one per class of a form, or one per grade and
+   * house — and it is divided into teams rather than heats, so it has no groups to
+   * allocate and needs none. The teams it does have travel on its group as
+   * `relayTeamLabels`, and for a relay that has not been through heat allocation the
+   * server hands back exactly one such group with no id behind it. Nothing else can be
+   * true of a relay: a not-ready one never reaches this page's list.
+   */
+  const relaySheet = useCallback((event: EventDTO): boolean => {
+    if (!isRelayEventType(event.type)) return false;
+    return (groups[event.id] ?? []).some(
+      group => (group.relayTeamLabels?.length ?? 0) > 0
+    );
+  }, [groups]);
+
+  /**
+   * Heat lists, fetched once per event and cached. `groupCount` on the event DTO
+   * says up front which events actually have heats, so an ungrouped event costs
+   * no request at all — **except a relay**, whose sheets come from its teams and
+   * not from heats: a relay with teams and no heats reports a `groupCount` of 0
+   * while still being perfectly printable, and it is the group list that carries
+   * those teams.
+   */
   useEffect(() => {
     const missing = matches
-      .filter(event => event.groupCount > 0 && !cachedGroupEvents.current.has(event.id))
+      .filter(event =>
+        (event.groupCount > 0 || isRelayEventType(event.type)) &&
+        !cachedGroupEvents.current.has(event.id)
+      )
       .map(event => event.id);
     if (missing.length === 0) {
       setGroupsLoading(false);
@@ -263,17 +289,23 @@ export default function PrintSheetsPage() {
 
   /**
    * Heats only — a drawn final is a seventh group with `groupNumber: 0`, so it
-   * must not be counted as a heat. `groupCount` on the event DTO counts every
-   * group including the final, so it is only the fallback for the moment
-   * before the list has been fetched.
+   * must not be counted as a heat. Neither is the group a relay's teams travel
+   * on, which stands for no `event_groups` row at all: a relay's paper is its
+   * teams and it has no heats to count. `groupCount` on the event DTO counts
+   * every real group including the final, so it is only the fallback for the
+   * moment before the list has been fetched.
    */
   const heatsOf = useCallback(
     (event: EventDTO) => {
       const list = groups[event.id];
-      if (list) return list.filter(group => group.stage !== 'FINAL').length;
+      if (list) {
+        return list.filter(
+          group => group.stage !== 'FINAL' && !(relaySheet(event) && group.id == null)
+        ).length;
+      }
       return event.groupCount ?? 0;
     },
-    [groups]
+    [groups, relaySheet]
   );
 
   const totalHeats = matches.reduce((sum, event) => sum + heatsOf(event), 0);
@@ -541,14 +573,24 @@ export default function PrintSheetsPage() {
         <div className="print-panel">
           {matches.map(event => {
             const allGroups = groups[event.id] ?? [];
-            const heatList = allGroups.filter(group => group.stage !== 'FINAL');
+            const teamLines = (allGroups[0]?.relayTeamLabels ?? []).length;
+            /*
+             * A relay's sheet is its teams and not a heat: the group the server hands
+             * over for one stands for no `event_groups` row, so it carries no id and
+             * there is no per-heat button to offer. Such a relay is offered — and
+             * previewed — whole, which is the one sheet it has.
+             */
+            const teamSheet = relaySheet(event);
+            const heatList = teamSheet
+              ? []
+              : allGroups.filter(group => group.stage !== 'FINAL');
             const finalGroup = allGroups.find(group => group.stage === 'FINAL') ?? null;
             const heatCount = heatsOf(event);
             const athleteCount = heatList.reduce(
               (sum, group) => sum + (group.athleteCount || 0),
               0
             );
-            const hasSheets = heatCount > 0 || finalGroup !== null;
+            const hasSheets = teamSheet || heatCount > 0 || finalGroup !== null;
             /*
              * An event that runs a final and has not drawn it yet: its whole-run
              * sheet — and so the print run — is refused by the server with a 409,
@@ -594,7 +636,21 @@ export default function PrintSheetsPage() {
                 ) : (
                   <>
                     <div className="print-meta">
-                      {t('print.heats')}: {heatCount} · {t('print.athletes')}: {athleteCount}
+                      {/*
+                        A relay's paper counts teams — one line each — and not the
+                        entrants a relay sheet does not list, which is the same count
+                        the printed header carries (隊伍 Teams: n).
+                      */}
+                      {teamSheet ? (
+                        <>
+                          {t('relay.teamCount', { count: teamLines })} · {t('print.heats')}:{' '}
+                          {heatCount}
+                        </>
+                      ) : (
+                        <>
+                          {t('print.heats')}: {heatCount} · {t('print.athletes')}: {athleteCount}
+                        </>
+                      )}
                       {finalGroup && (
                         <> · {t('print.finalCount', { count: finalGroup.athleteCount })}</>
                       )}
