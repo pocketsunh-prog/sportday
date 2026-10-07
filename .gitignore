@@ -31,3 +31,8 @@ __pycache__/
 # Editor / OS noise
 .DS_Store
 Thumbs.db
+
+# Release signing: the key and its password never go in the repository.
+mobile/keystore.properties
+*.jks
+*.keystore

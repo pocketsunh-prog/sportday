@@ -1,6 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!--
+        Networking only. There is deliberately no storage permission here.
+
+        minSdk is 24 and targetSdk is 35, so:
+          * the results PDF is inserted into MediaStore.Downloads on API 29+,
+            which an app may do with no permission because it created the file;
+          * on API 24-28 it is written to the app's own external files directory,
+            which also needs no permission;
+          * WRITE_EXTERNAL_STORAGE would be ignored from API 29 and is not
+            requested even for the older path, because the app never writes
+            outside its own directory there.
+    -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
@@ -30,6 +42,22 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!--
+            Lets the phone's PDF viewer, or a share target, read a results PDF the
+            app saved in its own directory on API 24-28. FileProvider grants the
+            receiving app a one-off read on the URI, so no permission is needed on
+            either side. On API 29+ the file is served by MediaStore instead.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 
 </manifest>

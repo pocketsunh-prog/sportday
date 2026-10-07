@@ -93,7 +93,7 @@ fun ServerConfigScreen(
                     successMessage = null
                 },
                 label = { Text("Server URL") },
-                placeholder = { Text("http://10.0.2.2:8080/") },
+                placeholder = { Text("http://192.168.128.140:8080/") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )

@@ -21,3 +21,10 @@ fun rememberBiometricAuthManager(): BiometricAuthManager {
     val context = LocalContext.current
     return remember { BiometricAuthManager(context) }
 }
+
+/** The thing that saves a results PDF where the phone's viewer can open it. */
+@Composable
+fun rememberPdfDownloader(): ResultsPdfDownloader {
+    val context = LocalContext.current
+    return remember { ResultsPdfDownloader(context) }
+}

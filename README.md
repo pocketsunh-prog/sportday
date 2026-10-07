@@ -1917,6 +1917,73 @@ no configuration in it, and starting it fails with
 
 ---
 
+## The Android app
+
+A student's phone client: the programme, their entries, their results, and a results
+PDF they can keep. It talks to the same `/api` as the web app and holds no rules of
+its own.
+
+### What it does
+
+- **Enrol.** The programme lists every event with its type, division, grade, date,
+  place, standard and how many places are taken, and shows the student's own
+  allowance from `GET /api/enrollments/my/quota`. A card says whether they are
+  already entered, and entering or withdrawing happens on the event's page. A
+  refusal — a full event, a closed one, an allowance used up — is printed in the
+  server's own words, never replaced with a generic failure.
+- **Results.** *My results* reads `GET /api/results/user/{me}`; *By event* reads the
+  standings for a past event. The mark shown is always the server's formatted
+  `displayMark` — `14.123s`, `1.04.123s`, `18.12M`, `ABS`, `DQ`. **There is no mark
+  formatter in Kotlin, deliberately:** the stopwatch shape is the server's to decide,
+  and a second implementation would drift from it.
+- **Results PDF.** Per event via `GET /api/events/{id}/results.pdf`, or the whole
+  programme via `GET /api/results.pdf`. The file is fetched through the authenticated
+  client and streamed to disk — never buffered whole — then saved to
+  `Download/SportDay/` through `MediaStore` on API 29+, or to the app's own external
+  files directory behind a `FileProvider` on API 24–28. A card offers **Open** and
+  **Share**.
+
+### Building it
+
+The Android SDK must be installed and named in `mobile/local.properties`
+(`sdk.dir=...`).
+
+```powershell
+cd mobile
+.\gradlew.bat assembleDebug      # debug APK, installable at once
+.\gradlew.bat assembleRelease    # release APK
+```
+
+`assembleDebug` produces `app/build/outputs/apk/debug/app-debug.apk`.
+`assembleRelease` produces `app-release.apk` when the signing key is present, and
+`app-release-unsigned.apk` when it is not — an unsigned release cannot be installed,
+and is what a CI signing step or Android Studio's *Generate Signed Bundle* expects.
+
+### Signing a release
+
+The release key is the app's permanent identity: **lose it and an installed copy can
+never be updated**, only replaced. So it lives **outside this repository** — by
+default at `C:\Users\<you>\sportday-release-key\sportday-release.jks` — and the
+file naming it is `mobile/keystore.properties`, which is **gitignored along with
+`*.jks` and `*.keystore`**. Neither the key nor its password belongs in version
+control.
+
+`app/build.gradle.kts` reads that file when it exists and signs the release build;
+when it does not, the release is simply unsigned and everything else still builds.
+So a machine without the key can compile the whole project.
+
+One trap worth knowing: a `.properties` file treats a backslash as an escape, so a
+Windows path in `storeFile` **must use forward slashes** —
+`C:/Users/you/sportday-release-key/sportday-release.jks`. Written with backslashes it
+resolves to a relative path and the build fails on
+`Keystore file '...\C:Users...' not found`.
+
+### Running it against a backend
+
+An emulator reaches the host machine at **`10.0.2.2`**, not `localhost` — set that in
+the app's Server settings screen. Pointed at `localhost` it will show a connection
+refusal on every screen, which looks like a broken app rather than a wrong address.
+
 ## Project layout
 
 ```

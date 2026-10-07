@@ -13,7 +13,9 @@ class SportDayRepository {
     suspend fun register(request: RegisterRequest) = api.register(request)
 
     // Events
-    suspend fun getEvents(onlyEnabled: Boolean = false) = api.getEvents(onlyEnabled)
+    suspend fun getEvents(onlyEnabled: Boolean = false, category: String? = null) =
+        api.getEvents(onlyEnabled, category)
+    suspend fun getPastEvents() = api.getPastEvents()
     suspend fun getEvent(id: Long) = api.getEvent(id)
     suspend fun createEvent(event: EventDTO) = api.createEvent(event)
     suspend fun updateEvent(id: Long, event: EventDTO) = api.updateEvent(id, event)
@@ -23,16 +25,24 @@ class SportDayRepository {
     // Enrollments
     suspend fun enroll(eventId: Long) = api.enroll(eventId)
     suspend fun cancelEnrollment(eventId: Long) = api.cancelEnrollment(eventId)
+    suspend fun reEnroll(eventId: Long) = api.reEnroll(eventId)
     suspend fun getMyEnrollments() = api.getMyEnrollments()
+    suspend fun getMyEnrollmentHistory() = api.getMyEnrollmentHistory()
+    suspend fun getMyQuota() = api.getMyQuota()
     suspend fun getEventEnrollments(eventId: Long) = api.getEventEnrollments(eventId)
     suspend fun checkEnrollment(eventId: Long) = api.checkEnrollment(eventId)
 
     // Results
     suspend fun getResultsByEvent(eventId: Long) = api.getResultsByEvent(eventId)
     suspend fun getResultsByUser(userId: Long) = api.getResultsByUser(userId)
+    suspend fun getStandings(eventId: Long) = api.getStandings(eventId)
     suspend fun recordResult(userId: Long, eventId: Long, mark: String, unit: String?, notes: String?) =
         api.recordResult(userId, eventId, mark, unit, notes)
     suspend fun deleteResult(id: Long) = api.deleteResult(id)
+
+    // Results PDFs — the response is streamed straight to a file by PdfDownloader.
+    suspend fun downloadEventResultsPdf(eventId: Long) = api.downloadEventResultsPdf(eventId)
+    suspend fun downloadProgrammeResultsPdf() = api.downloadProgrammeResultsPdf()
 
     // Users
     suspend fun getCurrentUser() = api.getCurrentUser()

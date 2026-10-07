@@ -106,7 +106,14 @@ fun SportDayNavHost() {
 
         composable(Screen.MyEnrollments.route) {
             MyEnrollmentsScreen(
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                // An entry opens the event it is in, so the heat, the allowance and
+                // the results sheet are one tap away from the list.
+                onEventClick = { eventId ->
+                    navController.navigate(Screen.EventDetail.createRoute(eventId))
+                },
+                // The programme is the start destination, so stepping back reaches it.
+                onBrowseEvents = { navController.popBackStack() }
             )
         }
 
