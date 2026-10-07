@@ -67,6 +67,11 @@ dependencies {
     // DataStore for token storage
     implementation("androidx.datastore:datastore-preferences:1.1.7")
 
+    // BiometricPrompt: one API for fingerprint and face. The token it releases
+    // is sealed with a Keystore key, so the prompt is handed a CryptoObject
+    // rather than being trusted on its own.
+    implementation("androidx.biometric:biometric:1.1.0")
+
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
 

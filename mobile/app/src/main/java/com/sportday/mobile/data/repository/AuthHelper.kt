@@ -14,3 +14,10 @@ fun rememberTokenManager(): TokenManager {
 fun rememberRepository(): SportDayRepository {
     return remember { SportDayRepository() }
 }
+
+/** The fingerprint/face half of sign-in: Keystore, availability and the prompt. */
+@Composable
+fun rememberBiometricAuthManager(): BiometricAuthManager {
+    val context = LocalContext.current
+    return remember { BiometricAuthManager(context) }
+}

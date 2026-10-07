@@ -5,14 +5,24 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.biometric.BiometricPrompt
+import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.sportday.mobile.data.model.UserDTO
+import com.sportday.mobile.data.repository.BiometricAvailability
+import com.sportday.mobile.data.repository.rememberBiometricAuthManager
 import com.sportday.mobile.data.repository.rememberRepository
 import com.sportday.mobile.data.repository.rememberTokenManager
 import kotlinx.coroutines.launch
@@ -32,6 +42,86 @@ fun ProfileScreen(onBack: () -> Unit, onLogout: () -> Unit) {
     val scope = rememberCoroutineScope()
     val repository = rememberRepository()
     val tokenManager = rememberTokenManager()
+    val biometrics = rememberBiometricAuthManager()
+    val host = LocalContext.current as? FragmentActivity
+    val availability = remember { biometrics.availability() }
+    var biometricOn by remember { mutableStateOf(false) }
+    var biometricBusy by remember { mutableStateOf(false) }
+    var biometricMessage by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(Unit) {
+        biometricOn = tokenManager.hasBiometricCredential()
+    }
+
+    // If the app stops while a prompt is up, the callback may never arrive; the
+    // switch must not be left disabled, or the feature could not be turned off.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) biometricBusy = false
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    /**
+     * The enable step, reachable again from here. The fingerprint is confirming
+     * that this sign-in may be stored; the token is sealed with a Keystore key
+     * that only an accepted fingerprint can use.
+     */
+    fun turnOn() {
+        val activity = host
+        if (activity == null) {
+            biometricMessage = "Fingerprint sign-in needs the app's own window. Try again from the profile screen."
+            return
+        }
+        val cipher = try {
+            biometrics.encryptCipher()
+        } catch (e: Exception) {
+            biometricMessage = "This phone could not create the key that would protect a saved sign-in, so nothing was stored."
+            return
+        }
+        biometricBusy = true
+        biometricMessage = null
+        BiometricPrompt(
+            activity,
+            ContextCompat.getMainExecutor(activity),
+            object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                    biometricBusy = false
+                    val unlocked = result.cryptoObject?.cipher
+                    if (unlocked == null) {
+                        biometricMessage = "The fingerprint was accepted but no key came back, so nothing was stored."
+                        return
+                    }
+                    scope.launch {
+                        val token = tokenManager.getToken()
+                        val sealed = if (token.isNullOrBlank()) null else try {
+                            biometrics.seal(unlocked, token)
+                        } catch (e: Exception) {
+                            null
+                        }
+                        if (sealed == null) {
+                            biometricMessage = "There was no sign-in to save. Sign in again first."
+                            return@launch
+                        }
+                        tokenManager.storeBiometricCredential(sealed)
+                        biometricOn = true
+                        biometricMessage = "Fingerprint sign-in is on. The saved sign-in is sealed with a key only your fingerprint can unlock; your password is not stored."
+                    }
+                }
+
+                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                    biometricBusy = false
+                    biometricMessage = biometrics.describeError(errorCode)
+                }
+
+                override fun onAuthenticationFailed() {
+                    // Not a matching finger: the prompt stays up, nothing to say.
+                }
+            }
+        ).authenticate(biometrics.enablePromptInfo(), BiometricPrompt.CryptoObject(cipher))
+    }
 
     LaunchedEffect(Unit) {
         try {
@@ -40,7 +130,7 @@ fun ProfileScreen(onBack: () -> Unit, onLogout: () -> Unit) {
                 user = response.body()!!
                 val u = response.body()!!
                 fullName = u.fullName ?: ""
-                email = u.email
+                email = u.email.orEmpty()
                 age = u.age?.toString() ?: ""
                 gender = u.gender ?: ""
             } else {
@@ -153,6 +243,74 @@ fun ProfileScreen(onBack: () -> Unit, onLogout: () -> Unit) {
                             CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary)
                         } else {
                             Text("Save Changes")
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(20.dp))
+                    HorizontalDivider()
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Text(
+                        text = "Sign-in",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Default.Fingerprint,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Fingerprint sign-in",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = when {
+                                            availability != BiometricAvailability.AVAILABLE ->
+                                                biometrics.availabilityMessage(availability)
+                                            biometricOn ->
+                                                "On — a sign-in sealed with this phone's keystore is released by your fingerprint. Your password is not stored."
+                                            else ->
+                                                "Off — you sign in with your username and password."
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Switch(
+                                    checked = biometricOn,
+                                    enabled = !biometricBusy && availability == BiometricAvailability.AVAILABLE,
+                                    onCheckedChange = { wanted ->
+                                        biometricMessage = null
+                                        if (wanted) {
+                                            turnOn()
+                                        } else {
+                                            // Off means gone: the ciphertext and the
+                                            // Keystore key that guarded it both go.
+                                            scope.launch {
+                                                tokenManager.clearBiometricCredential()
+                                                biometricOn = false
+                                                biometricMessage = "Fingerprint sign-in is off and the saved sign-in was deleted from this phone."
+                                            }
+                                        }
+                                    }
+                                )
+                            }
+                            if (biometricMessage != null) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = biometricMessage!!,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
                 }

@@ -4,6 +4,15 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!--
+        Fingerprint and face unlock, through androidx.biometric. USE_FINGERPRINT
+        is the deprecated spelling and is deliberately not requested; this one
+        covers both kinds of sensor. It is a normal permission, so it is granted
+        at install with no prompt. Nothing else was added: the credential is
+        sealed with an Android Keystore key, which needs no permission at all.
+    -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
