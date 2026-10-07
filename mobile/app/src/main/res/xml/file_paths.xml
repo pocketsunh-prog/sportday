@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The only directories FileProvider is allowed to serve from, for the results
+    PDF on API 24-28. Neither is a public location, so nothing here needs a
+    storage permission.
+-->
+<paths>
+    <!-- The app's external files directory: .../Android/data/<pkg>/files/Download/SportDay/ -->
+    <external-files-path
+        name="external_downloads"
+        path="Download/SportDay/" />
+
+    <!-- Used only when external storage is not mounted. -->
+    <files-path
+        name="internal_downloads"
+        path="SportDay/" />
+</paths>
