@@ -12,12 +12,12 @@ import {
   GRADES,
   isRelayEventType,
   RelayEventTeamsDTO,
-  RelayTeamDerivationDTO,
   RelayTeamKind,
   Role,
 } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n';
+import type { MessageKey } from '@/lib/i18n';
 
 /** The two families of relay, one page each: class teams, or grade x house teams. */
 export type RelayFamily = RelayTeamKind;
@@ -28,8 +28,33 @@ const RELAY_FORMS: ReadonlyArray<string> = ['1', '2', '3', '4', '5', '6'];
 /** The two divisions a class relay is run in: a boys relay and a girls relay. */
 const RELAY_DIVISIONS: ReadonlyArray<EventSex> = ['MALE', 'FEMALE'];
 
-/** What a form that has no relay of its own starts as. */
-const DEFAULT_CLASS_RELAY_TYPE = 'RELAY_4X100M';
+/**
+ * The two distances the school runs its relays over — **at form level and at house
+ * level alike** — and therefore the two grids each page holds: the 4x100M and the
+ * 4x400M, for every form (twenty-four class relays) and for every grade (twelve
+ * house relays), boys and girls.
+ *
+ * One grid per distance, because a grid for "a relay on each form class" or "a relay
+ * on each grade" would be half a programme: whichever distance that group happened
+ * to have would answer for both, and the other would never be offered. It is also
+ * what a grid **matches** a relay on, so a house page holding one grid of an unknown
+ * distance could not see the house relays standing in its cells at all.
+ */
+const RELAY_TYPES: ReadonlyArray<string> = ['RELAY_4X100M', 'RELAY_4X400M'];
+
+/** The fewest teams a relay can be run and scored with: one team is not a relay. */
+const TEAMS_NEEDED = 2;
+
+/**
+ * The **scope a stored relay name carries at its end**, in the school's own words.
+ * Live names come in two shapes and both are matched here: `Boys 4x400M Relay -
+ * Form 3` (a seed relay, named before it was scoped) and `Girls 4x400M Relay · C
+ * Grade` (one the school named itself, before the relay was re-scoped to a form).
+ *
+ * The stored name is data rather than UI text: the school typed it, and the server
+ * holds it in English whatever language the page is being read in.
+ */
+const NAME_SCOPE_AT_END = /\s*[-–—·.]\s*(Form\s*[0-9]+|[A-Za-z]{1,2}\s*Grade|Grade\s*[A-Za-z]{1,2})\s*$/;
 
 /**
  * The grade a form's students are in, read from the school's own age bands: A is 17
@@ -58,7 +83,25 @@ function twinName(siblingName: string, sex: EventSex): string | undefined {
   return leading.test(siblingName) ? siblingName.replace(leading, division) : undefined;
 }
 
-/** The message the server sent, or our own wording when there is none. */
+/**
+ * One cell of the programme's relay grid: a division of one group of this page's
+ * axis. On the class page a cell is a **form** (`Form 3`) in one division, and the
+ * relay it stands for is scoped to that form; on the house page it is a **grade**
+ * (`C Grade`) in one division, and the relay it stands for belongs to that grade.
+ * The two axes are the same grid with a different row header, which is why both
+ * pages share one creator.
+ */
+interface RelayCell {
+  key: string;
+  label: string;
+  sex: EventSex;
+  /** The grade a house cell is created in — absent on a class cell. */
+  grade?: Grade;
+}
+
+/**
+ * The message the server sent, or our own wording when there is none.
+ */
 function errorText(err: unknown, fallback: string): string {
   return err instanceof Error && err.message ? err.message : fallback;
 }
@@ -70,29 +113,29 @@ function slug(value: string): string {
 }
 
 /**
- * The message the server sent for one attempt, **verbatim and untranslated** —
- * the re-kind refusal ("… already has 8 relay team(s) with their runners. Remove
- * them before changing what kind of relay it is."), the "not divided into form or
- * house teams" refusal a derive answers with, a 403 for a role an endpoint
- * refuses, or a download failure. It is never replaced with a generic "failed",
- * and it is shown under the button that was pressed.
+ * The message the server sent for one attempt, **verbatim and untranslated** — a
+ * 403 for a role an endpoint refuses, a marking sheet that could not be written, or
+ * a deletion the server refused. It is never replaced with a generic "failed", and
+ * it is shown on the card the attempt belonged to, under what the attempt was.
  */
 interface EventFailure {
   error: string;
-  /** What the attempt was trying to do, so the message can name it. */
-  kind: RelayTeamKind | null;
-}
-
-/** What one successful derive reported, with the teams it left standing. */
-interface EventOutcome {
-  derived: RelayTeamDerivationDTO;
-  /** Teams removed immediately before it, when the reader freed the event first. */
-  removed: number | null;
+  /** The heading of the alert: what the attempt was. */
+  what: MessageKey;
 }
 
 /** How a board could not be read, when it could not be. */
 interface BoardFailure {
   error: string;
+}
+
+/**
+ * What a relay is short of, in the school's terms: how many teams it has, and the
+ * teams that have not a runner on every leg. See `shortfallOf`.
+ */
+interface RelayShortfall {
+  teams: number;
+  shortTeams: Array<{ label: string; runners: number; needed: number }>;
 }
 
 /**
@@ -103,6 +146,31 @@ interface EventGroup {
   key: string;
   label: string;
   events: EventDTO[];
+}
+
+/**
+ * **One distance's grid on one page**, with what is missing from it and the names
+ * already standing in it.
+ *
+ * A grid is one event type over the page's own axis: the 4x100M class relays, the
+ * 4x400M class relays, or the grade house relays — which is what lets a page hold two
+ * of them. The class page does: the school runs a **4x100M and a 4x400M for every form
+ * in both divisions**, twenty-four relays, and one grid each is what says so and makes
+ * them. A cell is the grid's own type, so the 4x100M grid never counts a 4x400M relay
+ * as done — the failure that made the grid report a distance the programme did not
+ * have.
+ */
+interface RelayGrid {
+  /** The event type this grid is about, e.g. `RELAY_4X100M`. */
+  type: string;
+  /** The heading, naming the distance: `4x100M Relay — class relays`. */
+  title: string;
+  /** One row per group of this page's axis, and how the row is written. */
+  rows: Array<{ key: string; label: string }>;
+  /** The cells of this grid that are not on the programme yet. */
+  missing: RelayCell[];
+  /** How many cells this grid holds in all — twelve class relays, or six house ones. */
+  cells: number;
 }
 
 /**
@@ -122,71 +190,91 @@ interface EventGroup {
  *
  * Those are the two values of the event's relayTeamKind. A page lists the relays of
  * its own family <em>and</em> any relay that is still undivided — a relay with no
- * kind has not been assigned to a family yet, and whichever page's rule is pressed
- * is the family it joins, so hiding it from both would hide the only control that
- * can divide it. The list is grouped by the page's own axis (form, or grade) and the
- * filter narrows it to one of them.
+ * kind has not been assigned to a family yet, and a page that hid it would hide the
+ * board of an event the school is still running. The list is grouped by the page's
+ * own axis (form, or grade) and the filter narrows it to one of them.
+ *
+ * ## The programme each page should hold, and the press that makes it
+ *
+ * Above the list, each page shows **one grid per distance the school runs at its own
+ * level** — and the school runs both distances at both levels, so **each page holds
+ * two**: the 4x100M and the 4x400M. "A relay on each form class for the girls and the
+ * boys" means both distances for every one of the six forms in both divisions —
+ * twenty-four class relays, twelve in each grid — and the house programme is the same
+ * two distances over Grades A to C and both divisions: twelve house relays, six in
+ * each grid.
+ *
+ * A cell that is already on the programme names its relay; a cell that is missing is
+ * offered, and one press creates every missing relay of that grid and derives its
+ * teams. A cell is matched on the grid's <strong>own type</strong> and the page's
+ * <em>own</em> axis, and nothing else: a class cell is the relay of that type scoped
+ * to that form, whatever grade it is stored under, and a house cell is the relay of
+ * that grade and that distance. A relay made for a cell takes the grid's own type, so
+ * pressing the 4x400M grid's button can never make a 4x100M — and pressing either
+ * button twice creates nothing the second time.
  *
  * A FORM relay may also be **scoped to a form**. A form is not a grade: a relay
  * scoped to Form 1 takes whoever is in Form 1 whatever grade they are, so its
  * teams are that form's classes across every grade — `1A`, `1B`, `1C`, `1D`. Left
  * unscoped (no form), a FORM relay keeps the older rule and takes one team per
- * class of **the event's own grade**. The form is chosen with the picker on the
- * card and sent with the kind.
+ * class of **the event's own grade**. The scope is a field of the event, set where
+ * the event itself is edited — and a cell of a grid is created already carrying the
+ * form it stands for.
+ *
+ * ## Each grid carries its own distance, and that is what makes it safe
+ *
+ * A grid matches a cell on **its own type** and the page's axis, so a grid has to
+ * carry a real distance to be able to see the relays standing in its cells. A grid
+ * whose type is not a distance matches nothing, and every cell of it then reads as
+ * missing: a press makes a **second** relay for each one already there. That is the
+ * fault that left the live house page holding three relays for one grade x division
+ * cell — and why the house page, like the class page, now names its two distances
+ * outright rather than inferring one.
  *
  * The two pages together are the index the per-event board at
  * /admin/events/[id]/relay never had: that board shows the teams of **one** event,
  * so seeing which of the programme's relays is still undivided meant opening
  * twelve pages.
  *
- * ## Setting the kind, then deriving — two calls, in that order
+ * ## A card says what the event holds, and whether it is ready
  *
- * Deriving reads the kind **the event already holds**: the derive endpoint takes
- * no kind at all. Calling it on an event whose kind is not the one the button
- * names would therefore make the wrong teams and report success. The kind is a
- * field of the event, set by PUT on the event itself — and the **form** a class
- * relay is scoped to is a field of that same call, because a form only ever means
- * something to a FORM kind. So "make the teams by grade and house" is **two calls:
- * set the kind, then derive**, and the derive is only sent once the kind — and,
- * for a class relay, the form — is settled. If the first call is refused the
- * derive is **not** sent at all — there is nothing to derive into, and sending it
- * would either write the wrong teams or fail a second time for a reason that hides
- * the first.
+ * The teams are made by the **grids above the list**: one press creates every relay
+ * a grid is missing and derives its teams, which is the whole of how the programme
+ * is built now. The card itself therefore carries **no rule button and no form
+ * picker** — what it carries is the event: its board's counts, the title this page
+ * is about (the **form** on the class page, the **grade** on the house one), a
+ * warning line when the relay is **not ready**, and — for an administrator — the one
+ * press that **deletes the relay itself**, which is what clears a relay the
+ * programme holds twice and what the grid then offers to make again.
  *
- * ## The refusal that must be shown, not swallowed
+ * ## Not ready, said in the school's terms
  *
- * The server refuses to change an event's kind while it already has teams
- * (EventService.requireNoTeamsToReKind): those teams hold real selections, so they
- * are not thrown away to make room for another division. Pressing "make the teams
- * by grade and house" on an event that already has class teams is therefore
- * **refused with a 409**, and that refusal is shown here in the server's own
- * words, under the button that caused it. It is offered a way out rather than left
- * as a dead end: a second, deliberate step — *remove this event's teams and make
- * them by ...* — which asks for confirmation, calls the administrator's own
- * DELETE on the event's relay teams (**ADMIN only**) and then runs the original
- * two calls. Nothing is cleared without that confirmation. Both rules stay on both
- * pages for that reason: the second button is how an event of one family is moved
- * to the other, and the page it lands on is named by the outcome it reports.
+ * A relay is ready when it holds **at least two teams and every team has a runner
+ * on every leg** — the same verdict the server puts on the event list as
+ * `relayReady`, read here from the board the page already fetches for every relay,
+ * so the card can name *which* team is short rather than only that something is.
+ * The line names how many teams the relay has and which of them is missing
+ * runners, and a card without it is one that can be run and marked.
  *
  * ## One component, both roles
  *
  * The teacher endpoint family admits ADMIN and TEACHER alike and runs the same
- * services, so the role only picks which family is called (see api.relayBase). The
- * two calls that change an event are **not** shared: PUT on an event is
- * hasAnyRole('ADMIN','MANAGER'), so a teacher may not set a kind, and the marking
- * sheet PDF of an event is ADMIN, MANAGER or HELPER, so a teacher may not print
- * either. A teacher is therefore **told that plainly, up front** — the same
- * treatment the per-event board gives the kind it holds back — rather than being
- * offered a control whose only outcome is a 403. What a teacher *can* do from here
- * is derive an event that is already divided, and open its board to place their
- * own classes' students.
+ * services, so the role only picks which family is called (see api.relayBase). What
+ * changes an event is **not** shared: creating a relay is hasAnyRole('ADMIN',
+ * 'MANAGER'), so a teacher is not offered a grid's button at all; deleting a relay
+ * is hasRole('ADMIN'); and the marking sheet PDF of an event is ADMIN, MANAGER or
+ * HELPER, so a teacher may not print one either. A teacher is therefore **told that
+ * plainly, up front** — the same treatment the per-event board gives the kind it
+ * holds back — rather than being offered a control whose only outcome is a 403. What
+ * a teacher *can* do from here is open any relay's board and place their own
+ * classes' students.
  *
  * ## An event with no teams is the normal starting state
  *
  * A relay begins undivided and holding no teams. That is a starting point, not a
- * fault, so it is described as one — with the form picker and the two rule buttons
- * right beside it, which is where the reader sets the scope the teams are then made
- * under — and never rendered as a failure or an empty table.
+ * fault: no relay can be run without two teams, so its card says so in the
+ * readiness line and offers its board, and never renders the event as a failure or
+ * an empty table.
  */
 export default function RelayEventsList({ family }: { family: RelayFamily }) {
   const router = useRouter();
@@ -204,20 +292,12 @@ export default function RelayEventsList({ family }: { family: RelayFamily }) {
   const [boardsLoading, setBoardsLoading] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  /** The last outcome per event, keyed by event id. */
-  const [outcomes, setOutcomes] = useState<Record<number, EventOutcome>>({});
-  /**
-   * The form chosen for each event, before the button is pressed.
-   *
-   * A form relay is not a grade relay: `1` yields the classes of Form 1 across
-   * every grade (1A, 1B, 1C, 1D), so the school picks the form here rather than
-   * relying on the event's own grade.
-   */
-  const [forms, setForms] = useState<Record<number, string>>({});
-  /** The last refusal per event, keyed by event id. */
+  /** The last failure per event, keyed by event id. */
   const [failures, setFailures] = useState<Record<number, EventFailure>>({});
   /** A sheet saved for an event, keyed by event id. */
   const [saved, setSaved] = useState<Record<number, string>>({});
+  /** The name of the relay the last "delete this relay" press removed. */
+  const [deleted, setDeleted] = useState<string | null>(null);
   /** What the last "create the missing class relays" run produced. */
   const [built, setBuilt] = useState<{ names: string[]; failed: string[] } | null>(null);
 
@@ -262,15 +342,17 @@ export default function RelayEventsList({ family }: { family: RelayFamily }) {
   }, [canWork, load]);
 
   /**
-   * Reads every relay's board once, to answer the question this page exists to
-   * answer: **which relays are undivided, and which already hold teams?**
+   * Reads every relay's board once, to answer the questions this page exists to
+   * answer: **which relays are undivided, which already hold teams, and which are
+   * not ready to be run?**
    *
    * `GET /api/events` carries the kind on the event itself, so the division is
    * free. The **team count is not** — no list response carries it — so it costs
    * one request per relay. That is twelve requests for the live programme, made
    * **once**, in parallel, only for the relays that were just listed, and never
-   * again per render or per keystroke. It buys the two answers this page would
-   * otherwise be unable to give.
+   * again per render or per keystroke. It buys the answers this page would
+   * otherwise be unable to give, the readiness line among them: `teams[]` and the
+   * runners on them are what say whether a relay is short.
    *
    * A board that fails is recorded as failed rather than retried or hidden: a
    * caller the board endpoint refuses sees which events could not be read instead
@@ -351,129 +433,6 @@ export default function RelayEventsList({ family }: { family: RelayFamily }) {
     return (board ? board.form : event.form) ?? '';
   };
 
-  /** Replaces one event's board with a freshly read one. */
-  const refreshBoard = async (eventId: number) => {
-    try {
-      const board = await api.getRelayTeams(eventId, role);
-      setBoards(previous => ({ ...previous, [eventId]: board }));
-    } catch {
-      // A stale count is not worth an error banner: whatever went wrong is
-      // already reported by the call that prompted the refresh.
-    }
-  };
-
-  /**
-   * The whole of one button: **set the kind — and, for a class relay, the form it
-   * is scoped to — unless the event already holds it, then derive.**
-   *
-   * The order is the point. Deriving reads the scope the event holds, its kind and
-   * its form together, so the derive is only sent once that scope is settled — and
-   * if setting it is refused, the derive is never sent. That refusal is kept as the
-   * event's failure, with the server's own wording untouched.
-   */
-  const makeTeams = useCallback(
-    async (event: EventDTO, kind: RelayTeamKind, form?: string) => {
-      setBusy(`make-${event.id}`);
-      setError(null);
-      setFailures(previous => {
-        const next = { ...previous };
-        delete next[event.id];
-        return next;
-      });
-      setSaved(previous => {
-        const next = { ...previous };
-        delete next[event.id];
-        return next;
-      });
-      try {
-        /*
-         * A form relay carries the form the school chose. It is sent whenever the
-         * form differs, not only when the kind does — otherwise changing a Form 1
-         * relay to Form 2 would refine nothing and quietly leave the old classes.
-         * A house relay clears it: a form means nothing to a house team, and the
-         * server refuses one on a non-FORM relay.
-         */
-        const choosesForm = kind === 'FORM';
-        const formChanged = choosesForm && (form ?? '') !== formOf(event);
-        if (kindOf(event) !== kind || formChanged) {
-          /*
-           * Step one. This is the call the server refuses with a 409 while the
-           * event already has teams, and that refusal is the reader's answer: it
-           * names the event and the count and says what to do. It is shown as it
-           * stands and the derive below is not attempted.
-           */
-          await api.updateEvent(event.id, choosesForm
-            ? { relayTeamKind: kind, form }
-            : { relayTeamKind: kind, form: '' });
-        }
-        /*
-         * Step two, reached only when the scope now stands. Deriving is additive,
-         * so re-scoping a form relay would leave the classes of the form it just
-         * left behind as empty teams — and one short team holds the whole relay
-         * back from being marked. Pruning drops exactly those and only those: a
-         * team somebody runs in is never dropped, and the server reports how many
-         * it kept for that reason.
-         */
-        const derived = await api.deriveRelayTeams(event.id, formChanged, role);
-        setOutcomes(previous => ({ ...previous, [event.id]: { derived, removed: null } }));
-        await refreshBoard(event.id);
-      } catch (err) {
-        const failure: EventFailure = {
-          error: errorText(err, t('relayEvents.makeFailed')),
-          kind,
-        };
-        setFailures(previous => ({ ...previous, [event.id]: failure }));
-      } finally {
-        setBusy(null);
-      }
-    },
-    // `kindOf` and `formOf` read the boards, which the list below covers.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [boards, role, t]
-  );
-
-  /**
-   * The way out of the refusal: remove this event's teams, then make them by the
-   * rule that was refused. **Two deliberate steps, never one** — the teams hold
-   * real selections, so this asks for confirmation and is offered only to an
-   * administrator, who is the only role the endpoint admits.
-   *
-   * The form the reader picked is carried straight through, so the retry makes
-   * exactly the teams the refused attempt was making. Letting it fall back to the
-   * event's stored scope would quietly make a class relay by **grade** instead,
-   * which is the one thing a class relay could already do — and the whole reason
-   * the picker is here.
-   */
-  const clearAndMake = async (event: EventDTO, kind: RelayTeamKind, form?: string) => {
-    if (!confirm(t('relayEvents.clearConfirm', { name: event.name }))) return;
-    setBusy(`clear-${event.id}`);
-    setError(null);
-    try {
-      const removed = await api.removeRelayTeams(event.id);
-      setFailures(previous => {
-        const next = { ...previous };
-        delete next[event.id];
-        return next;
-      });
-      await makeTeams(event, kind, form);
-      // The removal is reported with the derivation that followed it, so both
-      // halves of the two-step press are visible.
-      setOutcomes(previous => {
-        const outcome = previous[event.id];
-        if (!outcome) return previous;
-        return { ...previous, [event.id]: { derived: outcome.derived, removed: removed.teamsRemoved } };
-      });
-    } catch (err) {
-      const failure: EventFailure = {
-        error: errorText(err, t('relayEvents.clearFailed')),
-        kind,
-      };
-      setFailures(previous => ({ ...previous, [event.id]: failure }));
-    } finally {
-      setBusy(null);
-    }
-  };
-
   /**
    * Prints an event's marking sheets: every page the server renders for it, one
    * per group, including the relay teams' own sheets. **ADMIN, MANAGER or
@@ -485,6 +444,7 @@ export default function RelayEventsList({ family }: { family: RelayFamily }) {
   const printSheets = async (event: EventDTO) => {
     setBusy(`print-${event.id}`);
     setError(null);
+    setDeleted(null);
     try {
       const filename = await api.downloadEventSheets(
         event.id,
@@ -494,7 +454,74 @@ export default function RelayEventsList({ family }: { family: RelayFamily }) {
     } catch (err) {
       const failure: EventFailure = {
         error: errorText(err, t('relayEvents.printFailed')),
-        kind: null,
+        what: 'relayEvents.printFailed',
+      };
+      setFailures(previous => ({ ...previous, [event.id]: failure }));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  /**
+   * **Deletes one relay** — the event itself, with its teams and the runners named
+   * on them, and its entries — after a confirmation that names the relay and how
+   * many teams go with it.
+   *
+   * It is the one press that clears a relay the programme holds more than once: a
+   * house cell whose grid made a second relay for it, or a relay made twice by hand,
+   * is otherwise indistinguishable from the real one on this list, and nothing else
+   * on either page removes a relay. It is offered on **every** relay of both pages,
+   * so the office need not hunt the duplicate down on `/admin/events`.
+   *
+   * The card of a deleted relay goes with it, so the report of what was deleted is
+   * the page's own notice rather than a line on a card that is no longer there. The
+   * grid above recomputes its cells from what is left, which is what makes a relay
+   * deleted by mistake offerable again.
+   *
+   * **ADMIN only** — {@code DELETE /api/admin/events/{id}} is `hasRole('ADMIN')`, so
+   * a teacher is not offered the button at all — and nothing is deleted without the
+   * confirmation, which names the relay because the reader pressed a card among
+   * twelve.
+   */
+  const deleteRelay = async (event: EventDTO) => {
+    /*
+     * The board is read for the count the confirmation names, and **only** for it:
+     * the boards arrive after the list does, so a press made in the first second
+     * would otherwise be told the relay holds nothing when it holds four teams of
+     * named runners. With no board to count, the confirmation says what goes without
+     * putting a number on it.
+     */
+    const board = boardOf(event.id);
+    const confirmation = board
+      ? t('relayEvents.deleteRelayConfirm', { name: event.name, count: board.teams.length })
+      : t('relayEvents.deleteRelayConfirmUnknown', { name: event.name });
+    if (!confirm(confirmation)) return;
+    setBusy(`delete-${event.id}`);
+    setError(null);
+    setDeleted(null);
+    setSaved(previous => {
+      const next = { ...previous };
+      delete next[event.id];
+      return next;
+    });
+    setFailures(previous => {
+      const next = { ...previous };
+      delete next[event.id];
+      return next;
+    });
+    try {
+      await api.deleteEvent(event.id);
+      /*
+       * The relay is gone from the programme: it leaves the list rather than being
+       * re-read from the server, and the grid above stops counting it in the cell it
+       * stood in — which is the whole point of deleting a duplicate.
+       */
+      setEvents(previous => previous.filter(candidate => candidate.id !== event.id));
+      setDeleted(event.name);
+    } catch (err) {
+      const failure: EventFailure = {
+        error: errorText(err, t('adminEvents.deleteFailed')),
+        what: 'adminEvents.deleteFailed',
       };
       setFailures(previous => ({ ...previous, [event.id]: failure }));
     } finally {
@@ -505,66 +532,131 @@ export default function RelayEventsList({ family }: { family: RelayFamily }) {
   /** True on the class relay page; false on the grade house one. */
   const classRelays = family === 'FORM';
 
-  /**
-   * The class relay a form and a division already have, if they have one. Read from
-   * every event, not from the filtered list: the grid below is about the programme,
-   * not about what the filter happens to be showing.
-   */
-  const classRelayOf = (form: string, sex: EventSex): EventDTO | undefined =>
-    events.find(event => kindOf(event) === 'FORM' && formOf(event) === form
-      && event.sex === sex);
+  /** The rule this page makes, and the kind an event has to hold to be one of its own. */
+  const familyKind: RelayTeamKind = family;
 
   /**
-   * The class relays the programme has not got yet: Forms 1 to 6, each in both
-   * divisions, less the ones that are already there. The school runs twelve, and
-   * this is the whole of what "create each from Form 1 to Form 6, boys and girls"
-   * means — nothing is created that already exists, so pressing the button twice
-   * creates nothing the second time.
-   */
-  const missingRelays: Array<{ form: string; sex: EventSex }> = [];
-  if (classRelays && isAdmin) {
-    RELAY_FORMS.forEach(form => RELAY_DIVISIONS.forEach(sex => {
-      if (!classRelayOf(form, sex)) missingRelays.push({ form, sex });
-    }));
-  }
-
-  /**
-   * **Creates every missing class relay, ready to fill.** For each one: the event
-   * itself — the class rule, scoped to its form, and named as its sibling is named —
-   * and then the same derive the per-event button runs, so it arrives holding its
-   * class teams (1A, 1B, …) and a student can be added to a team or removed again on
-   * its own board.
+   * The relay a cell already has, if it has one — the grid's own distance, in the
+   * page's own scope. Read from every event, not from the filtered list: the grids
+   * are about the programme, not about what the filter happens to be showing.
    *
-   * Two things are copied from the form's existing relay rather than invented: the
-   * event type and the grade. A form's boys relay and girls relay are the same race,
-   * so Form 1's Girls relay is the 4x100M its Boys relay is, in the grade the school
-   * already keeps that form's relay in. Only a form with no relay at all falls back
-   * to the 4x100M and the grade its age band runs, and the fallback is named on the
-   * panel rather than left for somebody to notice.
+   * **Matched on the grid's type and this page's own axis, and nothing else.** A class
+   * cell is the relay of that distance scoped to that form, whatever grade it is stored
+   * under — a form is not a grade — and a house cell is the relay of that grade. A
+   * 4x400M relay therefore never answers for the 4x100M grid, which is what makes each
+   * page's two grids say the truth about two different distances — and what a house grid
+   * of no particular distance could not do at all, reading every cell as missing.
+   */
+  const relayInCell = (type: string, cell: RelayCell): EventDTO | undefined =>
+    events.find(event => {
+      if (event.type !== type || kindOf(event) !== familyKind || event.sex !== cell.sex) {
+        return false;
+      }
+      return classRelays ? formOf(event) === cell.key : event.grade === cell.grade;
+    });
+
+  /**
+   * The grids this page holds, one per distance the school runs at this level:
+   * **two on the class page** — the 4x100M and the 4x400M for every one of the six
+   * forms in both divisions, twenty-four relays — and **two on the house page**, the
+   * same two distances over Grades A to C and both divisions, twelve relays. Each
+   * carries the cells that are missing from it, which is the whole of what its button
+   * makes: nothing is created that already exists, so pressing a button twice creates
+   * nothing the second time.
+   *
+   * `rowKeys` is the groups down the left of every grid here: the forms, or the grades.
+   */
+  const rowKeys = classRelays ? RELAY_FORMS : [...GRADES];
+  const grids: RelayGrid[] = RELAY_TYPES.map(type => {
+    const cells: RelayCell[] = [];
+    rowKeys.forEach(key => RELAY_DIVISIONS.forEach(sex => {
+      cells.push({
+        key,
+        label: classRelays ? t('relayEvents.formN', { form: key }) : label('grade', key),
+        sex,
+        grade: classRelays ? undefined : (key as Grade),
+      });
+    }));
+    // The distance names the grid, read off a relay of **that very type** — the
+    // server's own label — so a reader of either grid knows which race they are
+    // looking at without the page spelling 4x100M and 4x400M out a second time. A
+    // programme holding no relay of this distance yet has no label to read, and the
+    // grid then names its own type rather than borrowing the other distance's label,
+    // which would put the wrong race over the table.
+    const named = events.find(event => event.type === type);
+    return {
+      type,
+      title: t(classRelays ? 'relayEvents.gridTitle' : 'relayEvents.gridTitleHouse', {
+        type: named ? named.typeLabel : type,
+      }),
+      rows: rowKeys.map(key => ({
+        key,
+        label: classRelays ? t('relayEvents.formN', { form: key }) : label('grade', key),
+      })),
+      missing: isAdmin ? cells.filter(cell => !relayInCell(type, cell)) : [],
+      cells: cells.length,
+    };
+  });
+
+  /**
+   * **Creates every missing relay of one grid, ready to fill.** For each cell: the
+   * event itself — the grid's own distance, under this page's rule, scoped to the
+   * cell's form or belonging to its grade — and then its derive, so it arrives
+   * holding its teams (1A, 1B, … on the class page, `C Grade Yellow`, … on the
+   * house one) and a student can be added to a team or removed again on its own
+   * board.
+   *
+   * **Each cell is made from itself.** The distance is the grid's, the grade is the
+   * cell's own on the house page — Grade A's relay is the A grade relay — and the form
+   * is the cell's own on the class page; a new relay copies nothing from another
+   * distance or another grade. Only a cell with no relay of its distance anywhere to
+   * learn the name convention from takes the server's own name, which is what the
+   * panel says rather than leaving it for somebody to notice.
    *
    * One at a time, and each failure is reported with the server's own words: a
-   * refusal for one relay must not stop the other five being made, and the panel
-   * says which.
+   * refusal for one relay must not stop the others being made, and the panel says
+   * which.
    */
-  const createMissingRelays = async () => {
+  const createMissingRelays = async (grid: RelayGrid) => {
     setBusy('create-missing');
     setError(null);
     setBuilt(null);
     const names: string[] = [];
     const failed: string[] = [];
-    for (const cell of missingRelays) {
-      // The other division of the same form is the twin to copy: the same race, the
-      // same grade, and a name one word away.
-      const sibling = classRelayOf(cell.form, cell.sex === 'MALE' ? 'FEMALE' : 'MALE')
-        ?? events.find(event => kindOf(event) === 'FORM' && formOf(event) === cell.form);
+    for (const cell of grid.missing) {
+      /*
+       * The same distance as this grid, in this cell: the other division of a house
+       * cell, or — on a class cell, where the scope is the form rather than the grade —
+       * any relay of that form at that distance. Nothing is taken from another distance
+       * or another grade.
+       */
+      const siblings = events.filter(event => {
+        if (kindOf(event) !== familyKind || event.type !== grid.type) return false;
+        return classRelays ? formOf(event) === cell.key : event.grade === cell.grade;
+      });
+      const sibling = siblings.find(event => event.sex !== cell.sex) ?? siblings[0];
       // Whatever the new relay stands beside on the day, in the place and at the size
-      // of: its own sibling when it has one, otherwise a class relay, otherwise any
-      // relay at all — so a new event lands on the sport day, not on today's date.
+      // of: its own cell's relay when it has one, otherwise any relay at all — so a new
+      // event lands on the sport day, not on today's date.
       const beside = sibling
-        ?? events.find(event => kindOf(event) === 'FORM')
+        ?? events.find(event => kindOf(event) === familyKind)
         ?? events.find(event => event.category === 'RELAY');
-      const type = sibling?.type ?? DEFAULT_CLASS_RELAY_TYPE;
-      const name = sibling ? twinName(sibling.name, cell.sex) : undefined;
+      /*
+       * The grid's own distance, which is now always one of the school's two: a grid
+       * is built per distance on both pages, so a relay made for a cell can never be
+       * made at the other distance — a 4x400M cell makes a 4x400M.
+       */
+      const type = grid.type;
+      /*
+       * A class relay's name is its sibling's with the division changed — the pair
+       * reads as one set whatever convention the school named its relays by. A house
+       * relay takes the server's own name (`Boys 4x100M Relay · C Grade`), which is
+       * already the school's way of naming one.
+       */
+      const name = classRelays && sibling ? twinName(sibling.name, cell.sex) : undefined;
+      // The cell's own grade: a house cell is that grade by definition, and a class
+      // cell keeps the grade the school already files that form's relay under.
+      const grade = sibling?.grade ?? cell.grade ?? formBandGrade(cell.key);
       let created: EventDTO | null = null;
       try {
         created = await api.createEvent({
@@ -573,9 +665,9 @@ export default function RelayEventsList({ family }: { family: RelayFamily }) {
           name,
           type,
           sex: cell.sex,
-          grade: sibling?.grade ?? formBandGrade(cell.form),
-          form: cell.form,
-          relayTeamKind: 'FORM',
+          grade,
+          form: classRelays ? cell.key : '',
+          relayTeamKind: familyKind,
           // The same day, place and size as the relay it stands beside.
           eventDate: beside?.eventDate,
           location: beside?.location,
@@ -595,7 +687,7 @@ export default function RelayEventsList({ family }: { family: RelayFamily }) {
         failed.push(t(created
           ? 'relayEvents.createMissingDivideFailed'
           : 'relayEvents.createMissingOneFailed', {
-          name: created?.name ?? name ?? t('relayEvents.formN', { form: cell.form }),
+          name: created?.name ?? name ?? cell.label,
           reason: errorText(err, t('relayEvents.makeFailed')),
         }));
       }
@@ -618,11 +710,11 @@ export default function RelayEventsList({ family }: { family: RelayFamily }) {
   /**
    * The relays this page lists: **its own family, plus any relay still undivided**.
    *
-   * A relay with no kind has not been assigned to a family yet, and the rule pressed
-   * on its card is what assigns it — so it is listed on both pages, which is also
-   * the only place it can be divided from. A relay of the other family is not listed
-   * here at all: it belongs to the other page, and the second button on its card
-   * there is how it is moved back.
+   * A relay with no kind has not been assigned to a family yet, and it is listed on
+   * both pages so that neither hides an event the school still holds: its card
+   * carries its board and its readiness wherever it is read. Its kind is set on the
+   * event's own form. A relay of the other family is not listed here at all — it
+   * belongs to the other page, where its card says the same thing.
    */
   const listed = events.filter(event => {
     const kind = kindOf(event);
@@ -664,33 +756,22 @@ export default function RelayEventsList({ family }: { family: RelayFamily }) {
     });
   });
 
-  /** The rule one press applies, named as the press it will be. */
-  const ruleLabel = (kind: RelayTeamKind | '', asked: RelayTeamKind): string => {
-    const refresh = kind === asked;
-    if (asked === 'FORM') {
-      return refresh ? t('relayEvents.refreshForm') : t('relayEvents.makeForm');
-    }
-    return refresh ? t('relayEvents.refreshHouse') : t('relayEvents.makeHouse');
-  };
-
   /**
-   * What the last attempt on one event produced: the derivation's own counts and
-   * the teams it left standing, the sheet it saved, or the server's refusal in
-   * its own words. This is the whole of the feedback the page gives per event.
+   * What the last press on one event produced: the marking sheet it saved, or the
+   * server's own wording of why it was refused. A print clears the deletion notice,
+   * so this is the one line the card carries and it is always about the press the
+   * reader just made. A **deleted** relay has no card left to carry a line, so its
+   * report is the page's own notice (see `deleted`).
    */
   const outcomeFor = (event: EventDTO): ReactNode => {
     const failure = failures[event.id];
     const downloaded = saved[event.id];
-    const outcome = outcomes[event.id];
 
     if (failure) {
-      const kindText =
-        failure.kind === 'FORM' ? t('relay.kindForm') : t('relay.kindHouse');
       return (
         <div className="alert alert-error">
-          <strong>{t('relayEvents.refused')}</strong>
+          <strong>{t(failure.what)}</strong>
           <p>{failure.error}</p>
-          {failure.kind !== null && <p className="muted">{t('relayEvents.refusedWhat', { kind: kindText })}</p>}
         </div>
       );
     }
@@ -703,161 +784,160 @@ export default function RelayEventsList({ family }: { family: RelayFamily }) {
       );
     }
 
-    if (!outcome) return null;
+    return null;
+  };
 
-    const derived = outcome.derived;
-    const derivedKind = derived.kind === 'FORM' ? t('relay.kindForm') : t('relay.kindHouse');
-    const kept = derived.keptWithRunners;
-    const teams = derived.board.teams;
+  /**
+   * **The card's title: the axis this page is about**, standing where the relay's
+   * own name puts its scope.
+   *
+   * A relay's stored name carries the scope it was made for, and the live names
+   * come in both shapes: `Boys 4x400M Relay - Form 3` for a seed relay, `Girls
+   * 4x400M Relay · C Grade` for one the school named after the relay was re-scoped
+   * to a form. The grade is **decorative on the form page** — a Form 1 relay takes
+   * `1A` to `1D` whatever grade those students are in, so a form card reading `C
+   * Grade` names the one thing that does not decide who runs.
+   *
+   * So the class page shows the **form** the relay is scoped to, and the scope the
+   * name already carried is *replaced* rather than stacked: `… · C Grade` becomes
+   * `… · Form 1`, and a name that already says `Form 3` stays a single `Form 3` —
+   * never `Form 3 · Form 3`. A relay with no form keeps its own name, because
+   * there the grade really is its scope.
+   *
+   * The house page keeps the name exactly as the school wrote it: there the grade
+   * **is** the point, and the name already says it.
+   */
+  const titleFor = (event: EventDTO): string => {
+    if (!classRelays) return event.name;
+    const form = formOf(event);
+    // A relay scoped to no form keeps the older rule and is scoped by its own
+    // grade, so its name is the honest axis — exactly as on the grade page.
+    if (!form) return event.name;
+    // A name that already says this form, wherever it says it, is the school's own
+    // line: `… - Form 3` is kept as it stands, and `Form 3` never becomes
+    // `Form 3 · Form 3`.
+    if (new RegExp(`\\bForm\\s*${form}\\b`, 'i').test(event.name)) return event.name;
+    const scope = NAME_SCOPE_AT_END.exec(event.name);
+    const base = (scope ? event.name.slice(0, scope.index) : event.name).trim();
+    return base ? `${base} · ${t('relayEvents.formN', { form })}` : event.name;
+  };
+
+  /**
+   * What a relay is **short of**, as the school counts it, or `null` when it is
+   * ready to be run and marked.
+   *
+   * Ready means exactly two things, and both are read from the board this page
+   * already fetches for every relay: **at least two teams** — one team is not a
+   * relay, and a single team cannot be raced against itself — and **every team
+   * holding a runner for every leg**. The per-team verdict is the server's own
+   * `complete` (true once each leg has a runner, reserves not counted); where a
+   * response carries none, the members are counted against the team's `legCount`.
+   * Nothing here needed a new API field.
+   */
+  const shortfallOf = (board: RelayEventTeamsDTO): RelayShortfall | null => {
+    const legs = board.legsPerTeam ?? 0;
+    const shortTeams = board.teams
+      .filter(team => {
+        if (team.complete !== undefined) return !team.complete;
+        const running = team.members.filter(member => !member.reserve).length;
+        return running < (team.legCount ?? legs);
+      })
+      .map(team => ({
+        label: team.label || String(team.id),
+        runners: team.members.filter(member => !member.reserve).length,
+        needed: team.legCount ?? legs,
+      }));
+    if (board.teams.length >= TEAMS_NEEDED && shortTeams.length === 0) return null;
+    return { teams: board.teams.length, shortTeams };
+  };
+
+  /**
+   * **A relay that is not ready, said in the school's terms** — how many teams it
+   * has, and which of them is short of its runners — or nothing at all on a relay
+   * that can be run, so a card without this line is one that is ready.
+   *
+   * It is a warning and nothing more: a relay below two teams is the normal state
+   * of one that has just been made, and the runner who is missing is placed on the
+   * event's own board, which the card links to. What is short of its runners is
+   * named the way the per-event board names it (`relay.shortOfLegs`), so the two
+   * pages read the same.
+   */
+  const readinessFor = (event: EventDTO): ReactNode => {
+    const board = boardOf(event.id);
+    if (!board) return null;
+    const shortfall = shortfallOf(board);
+    if (!shortfall) return null;
     return (
-      <div className="alert alert-success">
-        <strong>{t('relayEvents.done', { kind: derivedKind })}</strong>
-        <p>
-          {t('relay.derived', {
-            created: derived.created,
-            kept: derived.kept,
-            pruned: derived.pruned,
-            eligible: derived.eligibleStudents,
-          })}
-          {kept > 0 ? t('relay.derivedKeptWithRunners', { count: kept }) : ''}
-        </p>
-        {outcome.removed !== null && (
-          <p className="muted">{t('relayEvents.clearedFirst', { count: outcome.removed })}</p>
-        )}
-        {teams.length > 0 && (
-          <div className="mt-2">
-            <p className="muted">{t('relayEvents.teamsMade')}</p>
-            <div className="pill-actions mt-1">
-              {teams.map(team => (
-                <span key={team.id} className="badge badge-success">
-                  {team.label || t('relay.unnamed')}
-                </span>
-              ))}
-            </div>
-          </div>
+      <div className="alert alert-warning mt-2">
+        <strong>{t('relayEvents.notReadyTitle')}</strong>
+        <p>{t('relayEvents.notReadyTeams', { count: shortfall.teams, needed: TEAMS_NEEDED })}</p>
+        {shortfall.shortTeams.length > 0 && (
+          <ul className="mt-1">
+            {shortfall.shortTeams.map(team => (
+              <li key={team.label}>
+                {team.label}: {t('relay.shortOfLegs', {
+                  missing: Math.max(1, team.needed - team.runners),
+                })}
+              </li>
+            ))}
+          </ul>
         )}
       </div>
     );
   };
 
   /**
-   * The form picker and the two rule buttons, the way out of a refusal, and each
-   * event's own links.
+   * Each event's own controls: its board, where the runners of its teams are placed
+   * or moved; for an administrator, the deletion of the relay itself, its marking
+   * sheets and the print run.
+   *
+   * The making of an event's teams used to be offered here too: a form picker and
+   * one button per rule, which set the event's kind and then derived its teams.
+   * That block is **gone** — the grids above the list are what make the programme
+   * now, one press for every relay of a distance — and what is left on the card is
+   * the event, the way into it, and the one press that **deletes the relay** when the
+   * programme holds it twice.
+   *
+   * **Delete this relay** is offered on every relay of both pages: a relay with no
+   * teams is as deletable as one with four, because the duplicate a grid made carries
+   * no teams at all, and nothing else on either page removes a relay.
    */
-  const actionsFor = (event: EventDTO) => {
-    const board = boardOf(event.id);
-    const failure = failures[event.id];
-    const kind = kindOf(event);
-    const undivided = kind === '';
-    const teamCount = board ? board.teamCount ?? 0 : null;
-    const working = busy === `make-${event.id}`;
-    const formLabel = working ? t('relayEvents.working') : ruleLabel(kind, 'FORM');
-    const houseLabel = working ? t('relayEvents.working') : ruleLabel(kind, 'HOUSE');
-    const teacherNote = undivided
-      ? t('relayEvents.teacherUndivided')
-      : t('relayEvents.teacherDeriveOnly');
-    const clearable = isAdmin && !!failure && failure.kind !== null && !!teamCount && teamCount > 0;
-
-    return (
-      <div className="mt-3">
-        <h4>{t('relayEvents.actionsTitle')}</h4>
-        <div className="pill-actions mt-2">
-          {isAdmin && (
-            <label className="muted" htmlFor={`relay-form-${event.id}`}>
-              {t('relay.kindForm')}
-              <select
-                id={`relay-form-${event.id}`}
-                className="ml-1"
-                value={forms[event.id] ?? formOf(event)}
-                disabled={busy !== null}
-                onChange={changed => setForms(previous => ({
-                  ...previous, [event.id]: changed.target.value,
-                }))}
-              >
-                {/* Empty keeps the older rule: one team per class of this event's grade. */}
-                <option value="">{t('relayEvents.anyForm')}</option>
-                {['1', '2', '3', '4', '5', '6'].map(form => (
-                  <option key={form} value={form}>{t('relayEvents.formN', { form })}</option>
-                ))}
-              </select>
-            </label>
-          )}
-          {/* This page's own rule is the primary button; the other family's is the
-              secondary one, which is how an event is moved to the other page. */}
-          <button
-            type="button"
-            className={`btn ${classRelays ? 'btn-primary' : 'btn-secondary'}`}
-            disabled={busy !== null || !isAdmin}
-            title={isAdmin ? undefined : t('relayEvents.teacherLimits')}
-            onClick={() => makeTeams(event, 'FORM', forms[event.id] ?? formOf(event))}
-          >
-            {formLabel}
-          </button>
-          <button
-            type="button"
-            className={`btn ${classRelays ? 'btn-secondary' : 'btn-primary'}`}
-            disabled={busy !== null || !isAdmin}
-            title={isAdmin ? undefined : t('relayEvents.teacherLimits')}
-            onClick={() => makeTeams(event, 'HOUSE')}
-          >
-            {houseLabel}
-          </button>
-        </div>
-
-        {!isAdmin && <p className="muted mt-2">{teacherNote}</p>}
-        {isAdmin && undivided && <p className="muted mt-2">{t('relayEvents.noTeamsYet')}</p>}
-        {isAdmin && undivided && <p className="muted">{t('relayEvents.kindWillBeSet')}</p>}
-        {isAdmin && !undivided && <p className="muted mt-2">{t('relayEvents.kindAlreadySet')}</p>}
-
-        {clearable && !!failure && failure.kind !== null && (
-          <div className="alert alert-warning mt-2">
-            <p>{t('relayEvents.clearOffer')}</p>
-            <button
-              type="button"
-              className="btn btn-sm btn-danger"
-              disabled={busy !== null}
-              onClick={() => clearAndMake(
-                event,
-                failure.kind === 'HOUSE' ? 'HOUSE' : 'FORM',
-                forms[event.id] ?? formOf(event)
-              )}
-            >
-              {busy === `clear-${event.id}`
-                ? t('common.processing')
-                : t('relayEvents.clearAndMake', {
-                    kind: failure.kind === 'FORM' ? t('relay.kindForm') : t('relay.kindHouse'),
-                  })}
-            </button>
-          </div>
-        )}
-
-        <div className="pill-actions mt-3">
-          <Link href={`/admin/events/${event.id}/relay`} className="btn btn-sm btn-secondary">
-            {t('relay.openBoard')}
-          </Link>
-          {isAdmin ? (
-            <button
-              type="button"
-              className="btn btn-sm btn-secondary"
-              disabled={busy !== null}
-              onClick={() => printSheets(event)}
-            >
-              {busy === `print-${event.id}`
-                ? t('common.downloading')
-                : t('relayEvents.printSheets')}
-            </button>
-          ) : (
-            <span className="muted">{t('relayEvents.teacherPrintLimit')}</span>
-          )}
-          {isAdmin && (
-            <Link href="/admin/print" className="btn btn-sm btn-secondary">
-              {t('relayEvents.printRun')}
-            </Link>
-          )}
-        </div>
-      </div>
-    );
-  };
+  const linksFor = (event: EventDTO) => (
+    <div className="pill-actions mt-3">
+      <Link href={`/admin/events/${event.id}/relay`} className="btn btn-sm btn-secondary">
+        {t('relay.openBoard')}
+      </Link>
+      {isAdmin && (
+        <button
+          type="button"
+          className="btn btn-sm btn-danger"
+          disabled={busy !== null}
+          onClick={() => deleteRelay(event)}
+        >
+          {busy === `delete-${event.id}` ? t('common.processing') : t('relayEvents.deleteRelay')}
+        </button>
+      )}
+      {isAdmin ? (
+        <button
+          type="button"
+          className="btn btn-sm btn-secondary"
+          disabled={busy !== null}
+          onClick={() => printSheets(event)}
+        >
+          {busy === `print-${event.id}`
+            ? t('common.downloading')
+            : t('relayEvents.printSheets')}
+        </button>
+      ) : (
+        <span className="muted">{t('relayEvents.teacherPrintLimit')}</span>
+      )}
+      {isAdmin && (
+        <Link href="/admin/print" className="btn btn-sm btn-secondary">
+          {t('relayEvents.printRun')}
+        </Link>
+      )}
+    </div>
+  );
 
   /** What an event is, and what it already holds. */
   const factsFor = (event: EventDTO) => {
@@ -887,8 +967,8 @@ export default function RelayEventsList({ family }: { family: RelayFamily }) {
             What a class relay is scoped to, said out loud. The grade badge above
             is the event's own grade, which no longer decides who may run once a
             form is set — a Form 1 relay's 1A to 1D teams can be of any grade — so
-            the scope is named here rather than left to the picker an administrator
-            happens to be looking at.
+            the scope is named here rather than left to whichever axis the reader
+            happens to be on.
           */}
           {kind === 'FORM' && (
             <div>
@@ -945,12 +1025,18 @@ export default function RelayEventsList({ family }: { family: RelayFamily }) {
     );
   };
 
-  /** One event's card, assembled from the pieces above. */
+  /**
+   * One event's card, assembled from the pieces above.
+   *
+   * The title is this page's own axis — the form on the class page, the grade on
+   * the house one (see `titleFor`) — and the readiness line stands with the facts,
+   * so a relay short of teams says so where its counts are.
+   */
   const eventCard = (event: EventDTO) => {
     const card = (
       <div key={event.id} className="card">
         <div className="flex justify-between items-center">
-          <h3>{event.name}</h3>
+          <h3>{titleFor(event)}</h3>
           <div className="pill-actions">
             <span className="badge badge-info">{event.typeLabel}</span>
             <span className="badge badge-info" title={label('grade', event.grade)}>
@@ -963,7 +1049,8 @@ export default function RelayEventsList({ family }: { family: RelayFamily }) {
           </div>
         </div>
         {factsFor(event)}
-        {actionsFor(event)}
+        {readinessFor(event)}
+        {linksFor(event)}
         <div className="mt-3">{outcomeFor(event)}</div>
         {teamsFor(event)}
       </div>
@@ -1025,6 +1112,12 @@ export default function RelayEventsList({ family }: { family: RelayFamily }) {
 
       {error && <div className="alert alert-error">{error}</div>}
 
+      {/* The one report that cannot live on a card: the relay a press deleted is no
+          longer on the page, so what was deleted is said where the page says things. */}
+      {deleted && (
+        <div className="alert alert-success">{t('adminEvents.deletedNotice', { name: deleted })}</div>
+      )}
+
       <div className="card">
         <h2>{t('relayEvents.rulesTitle')}</h2>
         <p className="muted mt-2">{t('relayEvents.rulesHint')}</p>
@@ -1042,47 +1135,65 @@ export default function RelayEventsList({ family }: { family: RelayFamily }) {
       </div>
 
       {/*
-        The twelve class relays the programme should hold, as a form x division grid,
-        and the one press that makes the ones that are missing. Only the class relay
-        page has it: the grid is its own axis, and creating a class relay is that
-        page's job. ADMIN only, because creating an event is hasAnyRole('ADMIN',
-        'MANAGER') and a teacher cannot press it anyway.
+        The relays the programme should hold, one grid per distance the school runs at
+        this level. **Both pages hold two** — the 4x100M and the 4x400M: on the class
+        page over Forms 1 to 6 × boys and girls, so a form class has a relay of both
+        distances in both divisions (twenty-four relays), and on the house page over
+        Grades A to C × boys and girls (twelve). Each grid makes the relays of its own
+        distance under this page's own rule, so the school's whole programme is one
+        press away on either page. ADMIN only, because creating an event is
+        hasAnyRole('ADMIN','MANAGER') and a teacher cannot press it anyway.
       */}
-      {classRelays && isAdmin && (
-        <div className="card">
+      {isAdmin && grids.map(grid => (
+        <div className="card" key={grid.type}>
           <div className="flex justify-between items-center">
-            <h2>{t('relayEvents.createMissingTitle')}</h2>
+            <h2>{grid.title}</h2>
             <div className="pill-actions">
               <span className="badge badge-info">
-                {t('relayEvents.createMissingCount', {
-                  have: RELAY_FORMS.length * RELAY_DIVISIONS.length - missingRelays.length,
-                  wanted: RELAY_FORMS.length * RELAY_DIVISIONS.length,
+                {t(classRelays ? 'relayEvents.createMissingCount' : 'relayEvents.createMissingCountHouse', {
+                  have: grid.cells - grid.missing.length,
+                  wanted: grid.cells,
                 })}
               </span>
             </div>
           </div>
-          <p className="muted mt-2">{t('relayEvents.createMissingHint')}</p>
+          <p className="muted mt-2">
+            {t(classRelays ? 'relayEvents.createMissingHint' : 'relayEvents.createMissingHouseHint')}
+          </p>
 
           <div className="table-wrap mt-2">
             <table>
               <thead>
                 <tr>
-                  <th>{t('relay.form')}</th>
+                  <th>{classRelays ? t('relay.form') : t('marks.grade')}</th>
                   {RELAY_DIVISIONS.map(sex => (
                     <th key={sex}>{label('sex', sex)}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {RELAY_FORMS.map(form => (
-                  <tr key={form}>
-                    <td>{t('relayEvents.formN', { form })}</td>
+                {grid.rows.map(row => (
+                  <tr key={row.key}>
+                    <td>{row.label}</td>
                     {RELAY_DIVISIONS.map(sex => {
-                      const there = classRelayOf(form, sex);
+                      const there = relayInCell(grid.type, {
+                        key: row.key,
+                        label: row.label,
+                        sex,
+                        grade: classRelays ? undefined : (row.key as Grade),
+                      });
                       return (
                         <td key={sex}>
                           {there ? (
-                            <span className="badge badge-success">{there.name}</span>
+                            /*
+                             * The relay's title, not its stored name: on the class page
+                             * the stored names of several form relays still say the grade
+                             * they were filed under (`… · B Grade` on a Form 3 relay), and
+                             * a grid of class relays must not read like a grid of grade
+                             * ones. `titleFor` is the same line the card's own heading
+                             * shows, so the grid and the card name a relay identically.
+                             */
+                            <span className="badge badge-success">{titleFor(there)}</span>
                           ) : (
                             <span className="badge badge-warning">
                               {t('relayEvents.createMissingCell')}
@@ -1097,9 +1208,11 @@ export default function RelayEventsList({ family }: { family: RelayFamily }) {
             </table>
           </div>
 
-          <p className="muted mt-2">{t('relayEvents.createMissingRule')}</p>
+          <p className="muted mt-2">
+            {t(classRelays ? 'relayEvents.createMissingRule' : 'relayEvents.createMissingHouseRule')}
+          </p>
 
-          {missingRelays.length === 0 ? (
+          {grid.missing.length === 0 ? (
             <p className="muted mt-2">{t('relayEvents.createMissingNone')}</p>
           ) : (
             <div className="pill-actions mt-3">
@@ -1107,35 +1220,37 @@ export default function RelayEventsList({ family }: { family: RelayFamily }) {
                 type="button"
                 className="btn btn-primary"
                 disabled={busy !== null}
-                onClick={createMissingRelays}
+                onClick={() => createMissingRelays(grid)}
               >
                 {busy === 'create-missing'
                   ? t('common.processing')
-                  : t('relayEvents.createMissingButton', { count: missingRelays.length })}
+                  : t('relayEvents.createMissingButton', { count: grid.missing.length })}
               </button>
             </div>
           )}
+        </div>
+      ))}
 
-          {built && (
-            <div className="alert alert-success mt-2">
-              <strong>{t('relayEvents.createMissingDone', { count: built.names.length })}</strong>
-              {built.names.length > 0 && (
-                <ul className="mt-1">
-                  {built.names.map(name => <li key={name}>{name}</li>)}
-                </ul>
-              )}
-              {/* Where the students go, said where the relays were just made. */}
-              <p className="muted mt-1">{t('relayEvents.createMissingNext')}</p>
-            </div>
+      {/* What the last press produced, said once rather than under either grid: the
+          report names the relays themselves, so it belongs to the page. */}
+      {built && (
+        <div className="alert alert-success">
+          <strong>{t('relayEvents.createMissingDone', { count: built.names.length })}</strong>
+          {built.names.length > 0 && (
+            <ul className="mt-1">
+              {built.names.map(name => <li key={name}>{name}</li>)}
+            </ul>
           )}
-          {built && built.failed.length > 0 && (
-            <div className="alert alert-error mt-2">
-              <strong>{t('relayEvents.createMissingFailed')}</strong>
-              <ul className="mt-1">
-                {built.failed.map(line => <li key={line}>{line}</li>)}
-              </ul>
-            </div>
-          )}
+          {/* Where the students go, said where the relays were just made. */}
+          <p className="muted mt-1">{t('relayEvents.createMissingNext')}</p>
+        </div>
+      )}
+      {built && built.failed.length > 0 && (
+        <div className="alert alert-error">
+          <strong>{t('relayEvents.createMissingFailed')}</strong>
+          <ul className="mt-1">
+            {built.failed.map(line => <li key={line}>{line}</li>)}
+          </ul>
         </div>
       )}
 

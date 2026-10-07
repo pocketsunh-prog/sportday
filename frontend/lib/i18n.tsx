@@ -424,6 +424,8 @@ const en = {
   'groups.clear': 'Remove all heats',
   'groups.clearConfirm': 'Remove every heat from this event?',
   'groups.noGroups': 'No heats yet.',
+  'groups.noGroupsRelay':
+    'A relay is divided into teams, not heats — its sheet prints one line per team. Build its teams on the relay board.',
 
   /* ---------------- results ---------------- */
   'results.title': 'Results',
@@ -1252,6 +1254,7 @@ const en = {
   'relay.orderFailed': 'Failed to save the running order',
   'relay.openBoard': 'Relay teams',
   'relay.backToGroups': 'Back to heats & sheets',
+  'relay.backToRelays': 'Back to the relay events',
   'relay.backToTeacher': 'Back to my students',
 
   /*
@@ -1304,40 +1307,57 @@ const en = {
    */
   'relayEvents.formTitle': 'Form class relays',
   'relayEvents.formSubtitle':
-    'The class relays: one team per class of the form the relay is scoped to — Forms 1 to 6, each class of that form across every grade. Filter by form to see one at a time, then press the rule on an event to make its teams.',
+    'The class relays: one team per class of the form the relay is scoped to — Forms 1 to 6, each class of that form across every grade. Filter by form to see one at a time, and make the ones the programme is missing from the grids above.',
   'relayEvents.houseTitle': 'Grade house relays',
   'relayEvents.houseSubtitle':
-    'The house relays: one team per grade × house — Grades A to C. Filter by grade to see one at a time, then press the rule on an event to make its teams.',
+    'The house relays: one team per grade × house — Grades A to C. Filter by grade to see one at a time, and make the ones the programme is missing from the grid above.',
   'relayEvents.filterForm': 'Form:',
   'relayEvents.filterGrade': 'Grade:',
   'relayEvents.allForms': 'All forms',
   'relayEvents.allGrades': 'All grades',
   'relayEvents.groupNoForm': 'No form — the event’s own grade only',
   'relayEvents.noFormRelays':
-    'No class relay is on the programme yet. Set a relay’s rule to “one team per class” here, and its Forms 1 to 6 teams are made from the register.',
+    'No class relay is on the programme yet. The grids above make every class relay the programme is missing, each with its class teams made from the register.',
   'relayEvents.noHouseRelays':
-    'No house relay is on the programme yet. Set a relay’s rule to “one team per house” here, and its Grade A to C teams are made from the register.',
+    'No house relay is on the programme yet. The grid above makes every house relay the programme is missing, each with its grade × house teams made from the register.',
   'relayEvents.filterEmpty': 'No relay of this family matches the filter.',
   /*
-   * The twelve class relays as a form x division grid, and the one press that makes
-   * the ones that are missing.
+   * The class relays as a form x division grid — **one grid per distance**, because
+   * the school runs both a 4x100M and a 4x400M on every form class — and the one
+   * press that makes the ones a grid is missing.
+   *
+   * A grid's heading names its distance: `4x100M Relay — class relays`. The distance
+   * is the server's own label for the event type, read off a relay that already runs
+   * it, so the page never spells the two distances out itself.
    */
-  'relayEvents.createMissingTitle': 'The class relays of the programme',
+  'relayEvents.gridTitle': '{type} — class relays',
   'relayEvents.createMissingCount': '{have} of {wanted} class relays are here',
   'relayEvents.createMissingHint':
-    'A class relay is one per form and division: Forms 1 to 6, each with a boys relay and a girls relay. This makes the ones that are missing — the class rule, scoped to that form, with its class teams made at the same time — so pressing it twice creates nothing the second time.',
+    'A class relay is one per form and division, and the school runs both distances at form level: the 4x100M and the 4x400M, each of them for Forms 1 to 6, boys and girls. Each grid below makes the ones its own distance is missing — the class rule, scoped to that form, with its class teams made at the same time — so pressing a button twice creates nothing the second time.',
   'relayEvents.createMissingCell': 'missing',
   'relayEvents.createMissingRule':
-    'A new relay copies the form’s existing relay: the same event type and the same grade, so a form’s boys and girls relays are the same race, and its name is the sibling’s name with the division changed. A form with no relay at all is made as a 4x100M, in the grade that form’s age band runs — Forms 1 and 2 are C, 3 and 4 are B, 5 and 6 are A — and is named by the system, because there is no sibling name to copy.',
-  'relayEvents.createMissingNone': 'All twelve class relays are on the programme.',
+    'A new relay is made at its own grid’s distance and scoped to its own form, so a 4x400M grid only ever makes a 4x400M. It is named after the other division’s relay of that form at that distance where there is one, and by the server otherwise. It takes the grade the school already files that form’s relay under, or — for a form with no relay at all — the grade that form’s age band runs: Forms 1 and 2 are C, 3 and 4 are B, 5 and 6 are A.',
+  'relayEvents.createMissingNone': 'Every class relay of the programme is already here.',
   'relayEvents.createMissingButton': 'Create the {count} missing relay(s)',
-  'relayEvents.createMissingDone': 'Created {count} relay(s), each with its class teams.',
+  'relayEvents.createMissingDone': 'Created {count} relay(s), each with its teams.',
   'relayEvents.createMissingNext':
     'Open a relay’s board to add a student to one of its teams, or remove one again.',
   'relayEvents.createMissingFailed': 'Some relays were not created:',
   'relayEvents.createMissingOneFailed': '{name}: {reason}',
   'relayEvents.createMissingDivideFailed':
-    '{name} was created, but its class teams could not be made: {reason} — press its own rule on the card below.',
+    '{name} was created, but its teams could not be made: {reason} — open its board below and make them there.',
+
+  /*
+   * The other half of the same panel, on the grade house page: the **twelve** house
+   * relays the programme should hold — the 4x100M and the 4x400M, each of them for
+   * Grades A to C, boys and girls.
+   */
+  'relayEvents.gridTitleHouse': '{type} — house relays',
+  'relayEvents.createMissingCountHouse': '{have} of {wanted} house relays are here',
+  'relayEvents.createMissingHouseHint':
+    'A house relay is one per grade and division, and the school runs both distances at house level: the 4x100M and the 4x400M, each of them for Grades A to C, boys and girls. Each grid below makes the ones its own distance is missing — the house rule, in that grade, with its house teams made at the same time — so pressing a button twice creates nothing the second time.',
+  'relayEvents.createMissingHouseRule':
+    'Each relay is made in its own grade — C Grade’s relay is the C grade relay — and takes only its event type from the other relay of that grade, so a grade’s boys and girls relays are the same race. A grade with no relay at all is made as a 4x100M and named by the system.',
   'relayEvents.loading': 'Loading the relay events…',
   'relayEvents.loadFailed': 'Failed to load the relay events',
   'relayEvents.listTitle': 'The programme’s relay events',
@@ -1348,55 +1368,36 @@ const en = {
   'relayEvents.boardFailed': 'Failed to read this event’s relay board',
   'relayEvents.boardFailedTitle': 'This event’s teams could not be read:',
   'relayEvents.countUnknown': 'unknown',
+  'relayEvents.notReadyTitle': 'This relay is not ready to run:',
+  'relayEvents.notReadyTeams':
+    'It has {count} team(s). A relay needs at least {needed}, each with a runner on every leg.',
   'relayEvents.rulesTitle': 'The two ways a relay is divided',
   'relayEvents.rulesHint':
     'The division belongs to the event, not to this page, so the buttons below set the event’s own setting before they make anything.',
   'relayEvents.formRule':
-    'one team per class — of the form you pick here, taken across that form’s grades (1A, 1B, 1C, 1D), or of this event’s own grade when you pick no form.',
+    'one team per class — of the form the relay is scoped to, taken across that form’s grades (1A, 1B, 1C, 1D), or of this event’s own grade when it is scoped to no form.',
   'relayEvents.houseRule':
     'one team per house within the event’s grade — for example C Grade Yellow.',
   'relayEvents.kindIsStoredOnTheEvent':
     'Both rules are the event’s relay kind, held on the event itself — the same setting the event form and the per-event board show.',
   'relayEvents.adminClearHint':
-    'Making the teams by one rule after the other leaves the first rule’s teams in place: the server refuses to change an event’s kind while it still has teams, and says so. This page offers to remove them, as a second confirmed step, when that happens.',
+    'Making the teams by one rule after the other leaves the first rule’s teams in place: the server refuses to change an event’s kind while it still has teams, and says so. An event that already holds teams is therefore changed from its own board, where they can be removed first.',
   'relayEvents.teacherLimits':
-    'A teacher may make the teams of a relay that is already divided, and open any event’s board. Setting an event’s relay kind and printing marking sheets are administrator actions, so those controls are held back here.',
-  'relayEvents.teacherUndivided':
-    'This relay is not divided yet, so there is nothing for a teacher to make here. An administrator sets the kind — by form and class, or by grade and house — and the teams follow.',
-  'relayEvents.teacherDeriveOnly':
-    'The teams of this relay can be refreshed from the roster. Changing an event’s relay kind is an administrator action.',
+    'A teacher may open any relay’s board and place their own classes’ students. Creating a relay, deleting a relay, setting its kind and printing marking sheets are administrator actions, so those controls are held back here.',
   'relayEvents.teacherPrintLimit':
     'Printing a marking sheet is an administrator action, so it is not offered here.',
-  'relayEvents.actionsTitle': 'Make this event’s teams',
-  'relayEvents.makeForm': 'Make the teams by form and class',
-  'relayEvents.makeHouse': 'Make the teams by grade and house',
-  'relayEvents.refreshForm': 'Refresh the class teams from the roster',
-  'relayEvents.refreshHouse': 'Refresh the house teams from the roster',
-  'relayEvents.working': 'Working…',
-  'relayEvents.kindWillBeSet':
-    'Pressing a rule sets this event’s relay kind to it, then makes the teams.',
-  'relayEvents.kindAlreadySet':
-    'This event is already divided, so a press below only refreshes or replaces its teams under the same rule.',
-  'relayEvents.noTeamsYet':
-    'No teams yet — that is the starting state, not a fault. Choose a rule above and the teams appear.',
   'relayEvents.anyForm': 'This grade only',
   'relayEvents.formN': 'Form {form}',
   'relayEvents.makeFailed': 'Failed to make the relay teams',
-  'relayEvents.refused': 'The server refused this, in its own words:',
-  'relayEvents.refusedWhat': 'This was the attempt to make {kind} teams.',
-  'relayEvents.clearOffer':
-    'Its teams are in the way, so removing them is the step the server asks for.',
-  'relayEvents.clearAndMake': 'Remove this event’s teams, then make them by {kind}',
-  'relayEvents.clearConfirm':
-    'Remove every team of “{name}”, with the runners named on them? This frees the event to be divided by the other rule. Every team of the event goes, not only the empty ones.',
-  'relayEvents.clearFailed': 'Failed to remove the relay teams',
-  'relayEvents.clearedFirst': 'Removed {count} team(s) first, then made them again as below.',
-  'relayEvents.done': 'Made the teams by {kind}.',
-  'relayEvents.teamsMade': 'The teams now standing:',
   'relayEvents.currentTeams': 'The teams of this event',
   'relayEvents.printSheets': 'Print the marking sheets',
   'relayEvents.printRun': 'Open the print run',
   'relayEvents.printFailed': 'Failed to print the marking sheets',
+  'relayEvents.deleteRelay': 'Delete this relay',
+  'relayEvents.deleteRelayConfirm':
+    'Delete the relay “{name}” — the relay itself, with its {count} team(s) and the runners named on them, and its entries? This cannot be undone.',
+  'relayEvents.deleteRelayConfirmUnknown':
+    'Delete the relay “{name}” — the relay itself, with its teams and the runners named on them, and its entries? This cannot be undone.',
 
   /* ---------------- the teacher's way into a relay board ---------------- */
   'teacher.relayTitle': 'Relay events',
@@ -1760,6 +1761,8 @@ const zh: Record<keyof typeof en, string> = {
   'groups.clear': '清除所有分組',
   'groups.clearConfirm': '確定清除此項目的所有分組？',
   'groups.noGroups': '尚未分組。',
+  'groups.noGroupsRelay':
+    '接力項目以隊伍區分，而非分組 — 點名表每隊一行。請於接力隊伍編排頁面建立隊伍。',
 
   'results.title': '成績',
   'results.notes': '備註',
@@ -2504,6 +2507,7 @@ const zh: Record<keyof typeof en, string> = {
   'relay.orderFailed': '無法儲存接力次序',
   'relay.openBoard': '接力隊伍',
   'relay.backToGroups': '返回分組及點名表',
+  'relay.backToRelays': '返回接力項目',
   'relay.backToTeacher': '返回我的學生',
 
   /* 把報名接力的學生編成隊伍。伺服器沒有「以指定學生開設一隊」的端點，因此本頁的流程是：
@@ -2546,35 +2550,42 @@ const zh: Record<keyof typeof en, string> = {
   /* ---------------- every relay event, and one-click teams ---------------- */
   'relayEvents.formTitle': '班際接力',
   'relayEvents.formSubtitle':
-    '班際接力：接力項目所屬年級的每班一隊 — 中一至中六，該年級各級別的班別都會成隊。可用年級篩選，逐個查看，然後在項目上按下編隊規則即可產生隊伍。',
+    '班際接力：接力項目所屬年級的每班一隊 — 中一至中六，該年級各級別的班別都會成隊。可用年級篩選，逐個查看；尚未建立的接力可在上方方格一次過建立。',
   'relayEvents.houseTitle': '社際接力',
   'relayEvents.houseSubtitle':
-    '社際接力：每個組別 × 每社一隊 — A 至 C 組。可用組別篩選，逐個查看，然後在項目上按下編隊規則即可產生隊伍。',
+    '社際接力：每個組別 × 每社一隊 — A 至 C 組。可用組別篩選，逐個查看；尚未建立的接力可在上方方格一次過建立。',
   'relayEvents.filterForm': '年級：',
   'relayEvents.filterGrade': '組別：',
   'relayEvents.allForms': '所有年級',
   'relayEvents.allGrades': '所有組別',
   'relayEvents.groupNoForm': '未設年級 — 只限本級',
   'relayEvents.noFormRelays':
-    '本年度暫時未有班際接力項目。在此把某個接力的規則設為「每班一隊」，即會由名冊產生其中一至中六的隊伍。',
+    '本年度暫時未有班際接力項目。上方方格會建立所有尚未建立的班際接力，並同時由名冊編好班隊。',
   'relayEvents.noHouseRelays':
-    '本年度暫時未有社際接力項目。在此把某個接力的規則設為「每社一隊」，即會由名冊產生其 A 至 C 組的隊伍。',
+    '本年度暫時未有社際接力項目。上方方格會建立所有尚未建立的社際接力，並同時由名冊編好各組別 × 各社的隊伍。',
   'relayEvents.filterEmpty': '此類接力項目沒有符合篩選條件的項目。',
-  'relayEvents.createMissingTitle': '本年度班際接力項目',
+  'relayEvents.gridTitle': '{type} — 班際接力',
   'relayEvents.createMissingCount': '已有 {have} / {wanted} 個班際接力',
   'relayEvents.createMissingHint':
-    '班際接力按年級與組別組成：中一至中六，每年級各有男子及女子接力。此頁會建立尚未有的項目 — 套用班際規則、設定所屬年級，並同時編好班隊，因此再按一次不會重複建立。',
+    '班際接力按年級與組別組成，而學校於各年級均設兩個距離：4x100M 及 4x400M，中一至中六各有男子及女子接力。下方每個方格會建立其所屬距離尚未有的項目 — 套用班際規則、設定該年級，並同時編好班隊，因此再按一次不會重複建立。',
   'relayEvents.createMissingCell': '尚未建立',
   'relayEvents.createMissingRule':
-    '新接力會沿用該年級現有接力項目的項目類別與組別，因此同一級的男子與女子接力屬同一項賽事，名稱則沿用該項目的名稱並改為另一組別。若某年級完全未有接力，會以 4x100M 建立，並設定該年級的組別 — 中一、中二為 C 組，中三、中四為 B 組，中五、中六為 A 組 — 名稱由系統產生，因為沒有可沿用的同級項目名稱。',
-  'relayEvents.createMissingNone': '十二個班際接力項目已全部建立。',
+    '新接力會以其方格所屬的距離建立，並設定其所屬年級，因此 4x400M 的方格只會建立 4x400M。若該年級於同一距離已有另一組別的接力，名稱會沿用該名稱並改為另一組別，否則由系統產生。組別則沿用該年級現有接力所屬的組別；若該年級完全未有接力，會採用該年級的組別 — 中一、中二為 C 組，中三、中四為 B 組，中五、中六為 A 組。',
+  'relayEvents.createMissingNone': '本年度所有班際接力項目均已建立。',
   'relayEvents.createMissingButton': '建立 {count} 個尚未建立的接力',
-  'relayEvents.createMissingDone': '已建立 {count} 個接力，並已編好班隊。',
+  'relayEvents.createMissingDone': '已建立 {count} 個接力，並已編好隊伍。',
   'relayEvents.createMissingNext': '開啟該接力的接力隊伍編排頁，即可在隊伍中加入或移除學生。',
   'relayEvents.createMissingFailed': '部分接力未能建立：',
   'relayEvents.createMissingOneFailed': '{name}：{reason}',
   'relayEvents.createMissingDivideFailed':
-    '{name} 已建立，但未能編好班隊：{reason} — 請在下方該項目的卡片上按下它自己的編隊規則。',
+    '{name} 已建立，但未能編好隊伍：{reason} — 請在下方開啟該項目的編排頁，在該頁編隊。',
+
+  'relayEvents.gridTitleHouse': '{type} — 社際接力',
+  'relayEvents.createMissingCountHouse': '已有 {have} / {wanted} 個社際接力',
+  'relayEvents.createMissingHouseHint':
+    '社際接力按組別與分組組成，而學校於社際同樣設兩個距離：4x100M 及 4x400M，A 至 C 組各有男子及女子接力。下方每個方格會建立其所屬距離尚未有的項目 — 套用社際規則、設定該組別，並同時編好社隊，因此再按一次不會重複建立。',
+  'relayEvents.createMissingHouseRule':
+    '每個接力均以其所屬組別建立 — C 組接力即 C 組的接力 — 只沿用同組另一接力項目的項目類別，因此同一組的男子與女子接力屬同一項賽事。若某組別完全未有接力，會以 4x100M 建立，名稱由系統產生。',
   'relayEvents.loading': '載入接力項目…',
   'relayEvents.loadFailed': '無法載入接力項目',
   'relayEvents.listTitle': '本年度接力項目',
@@ -2585,54 +2596,35 @@ const zh: Record<keyof typeof en, string> = {
   'relayEvents.boardFailed': '無法讀取此項目的接力隊伍',
   'relayEvents.boardFailedTitle': '無法讀取此項目的隊伍：',
   'relayEvents.countUnknown': '未能確定',
+  'relayEvents.notReadyTitle': '此接力尚未齊隊，暫未能作賽：',
+  'relayEvents.notReadyTeams':
+    '現有 {count} 隊。接力至少需要 {needed} 隊，且每隊每一棒都要有跑手。',
   'relayEvents.rulesTitle': '接力的兩種分隊方式',
   'relayEvents.rulesHint':
     '分隊方式屬於項目本身而非本頁，因此下方按鈕會先設定項目自己的設定，然後才編隊。',
   'relayEvents.formRule':
-    '每班一隊 — 依你在此選定的級別，涵蓋該級別各年級的班別（1A、1B、1C、1D）；不選級別時，則為本項目所屬年級的每班一隊。',
+    '每班一隊 — 依該接力所屬的級別，涵蓋該級別各年級的班別（1A、1B、1C、1D）；未設級別時，則為本項目所屬年級的每班一隊。',
   'relayEvents.houseRule':
     '該項目年級內每社一隊 — 例如 C Grade Yellow。',
   'relayEvents.kindIsStoredOnTheEvent':
     '兩種規則就是項目的接力類別，儲存在項目本身 — 與項目設定頁及該項目的編排頁所顯示的是同一個設定。',
   'relayEvents.adminClearHint':
-    '以一種規則編隊後再改用另一種，原有隊伍會成為阻礙：伺服器在項目仍有隊伍時拒絕更改類別，並會說明原因。屆時本頁會提供另一個已確認的步驟，先移除隊伍再重新編隊。',
+    '以一組規則編隊後再改用另一組，原有隊伍會成為阻礙：伺服器在項目仍有隊伍時拒絕更改類別，並會說明原因。因此已有隊伍的項目須在其接力隊伍編排頁更改，先在該頁移除隊伍。',
   'relayEvents.teacherLimits':
-    '教師可為已分隊的接力項目編隊，並可開啟任何項目的編排頁。設定項目的接力類別及列印記錄表屬管理員權限，因此本頁不提供該等操作。',
-  'relayEvents.teacherUndivided':
-    '此接力項目尚未分隊，教師在此沒有可編的隊伍。由管理員設定類別 — 班際或社際 — 隊伍便會產生。',
-  'relayEvents.teacherDeriveOnly':
-    '可由此項目名冊重新整理隊伍。更改項目的接力類別屬管理員權限。',
+    '教師可開啟任何接力項目的編排頁，安排自己任教班別的學生。建立接力項目、刪除接力項目、設定其類別及列印記錄表屬管理員權限，因此本頁不提供該等操作。',
   'relayEvents.teacherPrintLimit': '列印記錄表屬管理員權限，因此本頁不提供。',
-  'relayEvents.actionsTitle': '為此項目編隊',
-  'relayEvents.makeForm': '按班別編隊（班際）',
-  'relayEvents.makeHouse': '按年級及社編隊（社際）',
-  'relayEvents.refreshForm': '由名冊重新整理班際隊伍',
-  'relayEvents.refreshHouse': '由名冊重新整理社際隊伍',
-  'relayEvents.working': '處理中…',
-  'relayEvents.kindWillBeSet':
-    '按下規則後，會先把此項目的接力類別設為該規則，然後編隊。',
-  'relayEvents.kindAlreadySet':
-    '此項目已分隊，因此按下後只會在同一規則下重新整理或取代其隊伍。',
-  'relayEvents.noTeamsYet': '尚未有隊伍 — 這是起始狀態，並非故障。在上方選擇規則，隊伍便會出現。',
   'relayEvents.anyForm': '只限本級',
   'relayEvents.formN': '{form} 年級',
   'relayEvents.makeFailed': '無法編排接力隊伍',
-  'relayEvents.refused': '伺服器拒絕此操作，以下是其原文訊息：',
-  'relayEvents.refusedWhat': '這次是嘗試編排{kind}隊伍。',
-  'relayEvents.clearOffer':
-    '此項目的隊伍造成阻礙，移除它們正是伺服器要求的步驟。',
-  'relayEvents.clearAndMake':
-    '移除此項目的隊伍，然後按{kind}重新編隊',
-  'relayEvents.clearConfirm':
-    '確定移除「{name}」的所有隊伍及其已安排的跑手？這樣該項目才可以改用另一種規則分隊。此項目所有隊伍都會被移除，不只是空隊伍。',
-  'relayEvents.clearFailed': '無法移除接力隊伍',
-  'relayEvents.clearedFirst': '已先移除 {count} 隊，然後按以下結果重新編隊。',
-  'relayEvents.done': '已按{kind}編隊。',
-  'relayEvents.teamsMade': '現時已成立的隊伍：',
   'relayEvents.currentTeams': '此項目的隊伍',
   'relayEvents.printSheets': '列印記錄表',
   'relayEvents.printRun': '開啟列印頁',
   'relayEvents.printFailed': '無法列印記錄表',
+  'relayEvents.deleteRelay': '刪除此接力項目',
+  'relayEvents.deleteRelayConfirm':
+    '確定刪除接力項目「{name}」？其 {count} 支隊伍、已安排的跑手及報名紀錄都會一併刪除。此操作無法復原。',
+  'relayEvents.deleteRelayConfirmUnknown':
+    '確定刪除接力項目「{name}」？其所有隊伍、已安排的跑手及報名紀錄都會一併刪除。此操作無法復原。',
   'teacher.relayTitle': '接力項目',
   'teacher.relayHint':
     '開啟接力項目即可看到其隊伍並加入跑手：每隊下方的名單會列出名冊上屬於該班別或社的學生，跑手可隨時移除並重新加入。接力項目分為班際（每班一隊）及社際（該級別每社一隊）；您可安排自己任教班別的學生，而項目的所有隊伍均會顯示，讓您看到各隊的組合。',
