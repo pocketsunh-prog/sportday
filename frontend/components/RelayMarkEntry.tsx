@@ -17,7 +17,7 @@ import {
 import { useI18n } from '@/lib/i18n';
 
 /**
- * **A relay's marks, where the relay is: one time per team.**
+ * **A relay's marks, on the relay's own card: one time per team.**
  *
  * The line is the team, exactly as it is on the relay's marking sheet: the team's
  * name, and one stopwatch time written for its four runners together. That is the
@@ -28,14 +28,21 @@ import { useI18n } from '@/lib/i18n';
  * through it** rather than inventing a second one. A relay has no heats and no
  * final, so the stage is always the heats (`HEAT`).
  *
- * ## Why it is here and not on the marking grid
+ * ## Why it is here and not on the marking grid, nor on the event's own board
  *
  * The marking grid at `/admin/marks` is about individual athletes: its rows are
  * athletes, its columns are the athlete's heat, lane, grade and class, and its
  * filters are the event's heats and grades. A relay has none of those — its lines
  * are teams and its one number is the team's — so a relay is **not offered there
- * at all** any more, and is keyed in here instead, on the relay's own board,
- * beside the teams and runners it belongs to.
+ * at all**, and is keyed in here instead.
+ *
+ * It stands on the **relay programme pages** (`/admin/relay-events/form` and
+ * `/grade`), on the relay's own card, which is where the relays are listed and
+ * where the office goes to run them: the page opens one card's grid at a time
+ * rather than a grid per relay — up to twenty-four relays, each with its own teams
+ * and its own save, would be a wall of inputs. It **used to sit on the event's own
+ * board** (`/admin/events/[id]/relay`); it was moved, not copied, so there is
+ * exactly one grid in the app and no second copy to drift from it.
  *
  * ## What a line holds, and what it refuses
  *
@@ -51,7 +58,9 @@ import { useI18n } from '@/lib/i18n';
  * be marked — fewer than two teams in the race, or a team in the race short of its
  * runners — is refused by the endpoint with the reason, and that reason names
  * *which team* is short, so it is put on screen as it stands rather than being
- * replaced with a generic failure.
+ * replaced with a generic failure. The endpoint is ADMIN, MANAGER or HELPER (there
+ * is no `/api/admin/events/{id}/marks`), so whoever renders this owes a teacher the
+ * plain sentence that keying a mark is not theirs.
  */
 export default function RelayMarkEntry({
   eventId,

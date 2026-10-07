@@ -313,7 +313,7 @@ export default function MarkEntryPage() {
      * categories and not in the counts below. Relays are run and scored by *team*:
      * a grid line is a team's name with one time written for its four runners
      * together, which is a different sheet from the athlete-per-line grid this page
-     * draws, and it is keyed in on the relay's own board beside that relay's teams.
+     * draws, and it is keyed in on the relay programme page, on the relay's own card.
      * Leaving them out here is what makes the two pages agree, and the page says so
      * rather than leaving the school to wonder where its relays went.
      */
@@ -393,10 +393,11 @@ export default function MarkEntryPage() {
    * headings and columns it has always had.
    *
    * **No relay reaches this page any more**: a relay's grid is one line per team
-   * and is keyed in on the relay's own board, so in practice this is false here.
+   * and is keyed in on the relay programme page, on the relay's own card, so in
+   * practice this is false here.
    * The shape is kept because it is the endpoint's own — `GET
    * /api/events/{id}/marks` still answers a relay with team lines — and the
-   * relay board reads the very same rows.
+   * relay card reads the very same rows.
    */
   const teamSheet = useMemo(() => (sheet?.rows ?? []).some(isTeamRow), [sheet]);
   const attemptCount = fieldEvent ? sheet?.attemptCount ?? 3 : 1;
@@ -1056,7 +1057,8 @@ export default function MarkEntryPage() {
                   {/*
                     Where the relays are, said where a reader would look for them.
                     They are not on this page at all — a relay's lines are teams and
-                    its times are keyed in on the relay's own board — and a note that
+                    its times are keyed in on the relay programme page, on the
+                    relay's own card — and a note that
                     only left them out would read as a programme with no relays in it.
                   */}
                   <p className="muted">

@@ -416,8 +416,8 @@ export interface EventDTO {
   relayTitle?: string;
   /**
    * The form this relay is scoped to — `1` for a **Form 1** relay, whose teams
-   * are that form's **first two classes** across every grade (`1A` and `1B` of a
-   * form holding `1A`, `1B`, `1C` and `1D`), not the classes of its own grade
+   * are one per class its **entrants are in**, across every grade (`1A`, `1B`, `1C`
+   * and `1D` when students from all four entered), not the classes of its own grade
    * alone. A form is not a grade: a Form 1 relay takes whoever is in Form 1
    * whatever grade they are, which is how the school asks for it.
    *
@@ -740,9 +740,9 @@ export interface EventGroupDTO {
    * one. Absent on an individual event and on a relay that has no teams yet.
    *
    * The sheet's lines are the *event's* teams, not the heat's entrants: a form
-   * relay's derived teams are the first two classes of that form (`3A` and `3B`),
-   * built from the register, and the students who entered the event need not be the
-   * ones running in it. So `athletes`
+   * relay's teams are one per class its entrants are in (`3A` and `3B` when those
+   * entered) and are filled from the register of that class, so the students who
+   * entered the event need not be the ones running in it. So `athletes`
    * (who entered, and who the heat is allocated from) and this list (what the sheet
    * and the grid name) are deliberately different lists.
    */
@@ -2221,13 +2221,37 @@ class ApiClient {
   }
 
   /**
+   * **The relay programme's print run: every relay named, in one PDF.**
+   *
+   * `eventIds` is the list the caller is showing — the relay programme page sends the
+   * relays of its own family that its filter is listing, in the order they are on
+   * screen — so the file is the list the reader is looking at rather than a programme
+   * that quietly differs from it. One request, one document: the school gets a single
+   * file instead of a dozen downloads.
+   *
+   * A relay that **cannot be printed yet** has no markable sheet at all (fewer than two
+   * teams in the race, or a team in the race short of its runners) and is refused by the
+   * endpoint with its own reason, every such relay named at once. The caller is
+   * therefore expected to send the relays the event list already reports as ready
+   * (`relayReady`) and to say on screen which ones it left out and why — the same
+   * verdict, read the same way, so the file and the page cannot disagree.
+   */
+  async downloadRelaySheets(eventIds: number[], fallbackFilename: string): Promise<string> {
+    return this.downloadFile(
+      `/relay-events/sheets.pdf${buildQuery({ eventIds: eventIds.join(',') })}`,
+      fallbackFilename
+    );
+  }
+
+  /**
    * The whole programme's marking sheets in one PDF — one page per heat, at the
    * event's own paper size. `sex` and `category` narrow it to one division or one
    * half of the programme, exactly as the print page's filters do.
    *
    * `includeRelays: false` leaves every relay event out of the run, which is what
    * the print page asks for: a relay's paper is one line per team rather than one
-   * per athlete, and it is printed from the relay's own page. The omission is the
+   * per athlete, and it is printed from the relay's own page — a card's own button, or
+   * the whole relay programme in one press (`downloadRelaySheets`). The omission is the
    * caller's explicit request and not a server-side side effect, so the page that
    * asks for it can say so on screen. Left out of the filters, the run is the
    * whole programme with the relays in it, which is what it always was.
@@ -2608,22 +2632,25 @@ class ApiClient {
   }
 
   /**
-   * Creates the teams the roster calls for — a form relay's first two classes, or
-   * one per house of the event's grade, in its own division — and refreshes their
-   * labels.
+   * Creates the teams the entries call for — one per class a form relay's entrants
+   * are in, or one per house of the event's grade, in its own division — and refreshes
+   * their labels.
    *
    * The scope is the event's **kind and its form together**: a form-scoped relay
-   * (`form` set) takes the **first two classes of that form** *across grades*,
-   * in class order — `3A` and `3B` for a Form 3 relay, not `3A`, `3B`, `3C` and
-   * `3D` — while a relay with no form keeps the older rule and takes one team per
+   * (`form` set) takes <strong>one team per class its confirmed entrants are
+   * in</strong>, across grades, in class order — `3A`, `3B` and `3C` when students
+   * from those three entered, and no team at all for a class nobody entered from.
+   * Fewer than two classes with an entrant is not an error: the teams that exist are
+   * made and the relay is simply not ready to be marked yet. A relay with no form
+   * keeps the older rule and takes one team per
    * class of its own grade. A house relay is one team per house of that grade
    * either way.
    *
    * Additive on purpose: a team somebody has already put runners into is never
-   * removed, because those selections are not the roster's to throw away. An
-   * *empty* team the roster no longer calls for is only dropped when `prune` is
-   * set — which is what trims a relay derived before this rule down to its two
-   * classes, and what a re-scoped form relay needs, or the classes of the form it
+   * removed, because those selections are not the entries' to throw away. An
+   * *empty* team nothing calls for any more is only dropped when `prune` is
+   * set — which is what trims a relay down to the classes that entered it, and what a
+   * re-scoped form relay needs, or the classes of the form it
    * just left would sit there empty and hold the relay back from being ready. A
    * relay that has not been divided yet is refused with a 409 telling the
    * administrator to set its kind first.

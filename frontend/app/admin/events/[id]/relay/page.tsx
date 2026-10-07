@@ -15,7 +15,6 @@ import {
 import { useAuth } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n';
 import { classText, formText, houseText } from '@/lib/students';
-import RelayMarkEntry from '@/components/RelayMarkEntry';
 
 /** The message the server sent, or our own wording when there is none. */
 function errorText(err: unknown, fallback: string): string {
@@ -43,19 +42,22 @@ function studentLabel(student: {
 }
 
 /**
- * The relay team board for one event: the teams, their runners and their order —
- * **and the relay's marks, one time per team.**
+ * The relay team board for one event: the teams, their runners and their order.
  *
  * A relay is divided into form or house teams on the event itself; this board is
- * where those teams are **derived from the roster**, filled, renamed and ordered
- * — a form relay's first two classes, or one team per house of a grade relay —
- * and where the one time each team runs is keyed in and saved, because a relay is
- * run and scored by *team* and its own page is where its paper is printed from.
+ * where those teams are **derived from the entries**, filled, renamed and ordered
+ * — one team per class the relay's entrants are in, or one team per house of a
+ * grade relay.
  *
- * ## One page, four roles, each offered exactly what the endpoints allow
+ * ## The marks are not here — they are on the relay programme page
  *
- * The two halves of this page answer to two different sets of endpoints, and the
- * page reads each half with the role that may use it:
+ * A relay's times are keyed on the **relay programme page**
+ * ({@code /admin/relay-events/form} and {@code /grade}), on the relay's own card,
+ * where the relays are listed: one time per team, one line per team, saved relay by
+ * relay. This board is the teams and the runners. The grid did live here; it was
+ * moved, and there is exactly one of it, so nothing is keyed twice.
+ *
+ * ## One page, three roles, each offered exactly what the endpoints allow
  *
  * <ul>
  *   <li>the <strong>team board</strong> — the teams, their runners, the derive and
@@ -66,15 +68,18 @@ function studentLabel(student: {
  *   <li>the <strong>mark entry</strong> — one time per team — is served by
  *       {@code GET/POST /api/events/{id}/marks}, which admits
  *       <strong>ADMIN, MANAGER and HELPER</strong> ({@code MarkEntryController}
- *       and the request rules in {@code SecurityConfig}). So it is offered to
- *       exactly those three, and a teacher — who may place runners but may not
- *       key a mark — is told so plainly rather than offered a control whose only
- *       outcome is a 403.</li>
+ *       and the request rules in {@code SecurityConfig}) and lives on the relay
+ *       programme page. A manager or an input helper therefore still reaches this
+ *       page — the way in is on the programme page, and this one tells them so and
+ *       links to it rather than offering a control whose only outcome is a 403;</li>
+ *   <li>a <strong>teacher</strong> may place runners and may not key a mark: the
+ *       programme page is where they are told that, because that is where the
+ *       control is.</li>
  * </ul>
  *
- * A manager or an input helper therefore reaches this page for the one thing they
- * are for, and the lines they mark come from the endpoint itself: the relay's
- * teams, named as the school names them.
+ * A manager or an input helper therefore reaches this page for one thing only — the
+ * signpost to the relay's times — and the teams they cannot read are said to be
+ * read elsewhere.
  *
  * ## Filling a team
  *
@@ -393,7 +398,7 @@ export default function AdminEventRelayPage() {
           ) : (
             /*
              * Back to the relay programme, not to the heats page. A relay is
-             * divided into TEAMS — a form relay's first two classes, or one per
+             * divided into TEAMS — one per class the relay's entrants are in, or one per
              * grade and house — so there is nothing to shuffle and no heats to
              * allocate: its lines on the sheet and its rows in the mark grid are
              * teams, not athletes. Sending the reader to the heat page from here
@@ -456,7 +461,8 @@ export default function AdminEventRelayPage() {
 
         {/*
           The **derive** control: it makes a FORM or HOUSE relay's class or house
-          teams out of the roster itself — a form relay's first two classes, or one
+          teams out of the entries themselves — one per class a form relay's entrants
+          are in, or one
           per house — and is the way this board's teams come into being. Each one is
           then filled from its own card below. It belongs to the two roles the
           relay-team endpoints admit, so a manager or a helper is not shown it at
@@ -495,35 +501,37 @@ export default function AdminEventRelayPage() {
       </div>
 
       {/*
-        **The relay's marks, where the relay is.** One line per team, one time
-        written for the four runners together — the grid itself is
+        **The relay's marks are keyed on the relay programme page now.** One line per
+        team, one time written for the four runners together — the grid is
         `RelayMarkEntry`, which reads and saves through `GET`/`POST
-        /api/events/{id}/marks`, the endpoint a relay's sheet has always answered
-        on. It is here, on the event's own board, and nowhere else: it is offered
-        once, beside the teams it marks, rather than on each card of the relay
-        list as well.
+        /api/events/{id}/marks`, and it stands on the relay's own card on
+        `/admin/relay-events/form` (or `/grade`), where the relays are listed.
+
+        It is **moved, not copied**: it used to be rendered here, and this page now
+        points at where it went rather than keeping a second grid that could drift
+        from the first.
 
         The roles are the endpoint's own: ADMIN, MANAGER and HELPER may key a
         relay's time, and a teacher — who may place the runners but may not record
-        the mark — is told so plainly.
+        the mark — is told so on the programme page, where the control would be.
       */}
-      {canKeyMarks ? (
-        <RelayMarkEntry
-          eventId={eventId}
-          onSaved={canReadBoard ? refreshBoard : undefined}
-        />
-      ) : (
+      {canKeyMarks && (
         <div className="card">
           <h2>{t('relayMark.title')}</h2>
-          <p className="muted mt-2">{t('relayMark.teacherLimit')}</p>
+          <p className="muted mt-2">{t('relayMark.movedToProgramme')}</p>
+          <div className="pill-actions mt-3">
+            <Link href="/admin/relay-events/form" className="btn btn-sm btn-secondary">
+              {t('relayMark.openProgramme')}
+            </Link>
+          </div>
         </div>
       )}
 
       {/*
         What a manager or an input helper cannot see, said rather than left blank:
         the teams and their runners are read by the relay-team endpoints, which
-        admit an administrator and a teacher only. The lines they mark come from
-        the mark sheet above, so nothing they are here for is missing.
+        admit an administrator and a teacher only. What they are here for — the
+        relays' times and their sheets — is on the relay programme page.
       */}
       {!canReadBoard && (
         <div className="card">

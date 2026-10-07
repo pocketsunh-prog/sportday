@@ -47,7 +47,8 @@ public class RelayTeamController {
 
     @Operation(summary = "An event's relay teams, and the students who applied to it",
             description = "Every team of a relay event with the runners down for its legs: one team "
-                    + "per form for a form relay, or one per house of the event's grade for a house "
+                    + "per class a form relay's entrants are in, or one per house of the event's "
+                    + "grade for a house "
                     + "relay. A relay with no team kind is undivided and reports no teams. An event "
                     + "that is not a relay at all is refused. Beside the teams, the applicants: "
                     + "every student with a confirmed entry in the event, with form, class, house "
@@ -60,13 +61,16 @@ public class RelayTeamController {
         return ResponseEntity.ok(relayTeamService.getBoard(eventId));
     }
 
-    @Operation(summary = "Create the event's teams from the roster",
-            description = "Creates a form relay's first two classes, or one team per house, among "
-                    + "the students of the event's own scope and division — the same students an "
-                    + "entry is judged eligible by. Additive: teams already there are kept and "
+    @Operation(summary = "Create the event's teams from its entries",
+            description = "Creates one team per class the relay's entrants are in — a form relay's "
+                    + "teams are the classes its confirmed entrants belong to, not the form's first "
+                    + "two classes — or one team per house, among the students of the event's own "
+                    + "scope and division. Fewer than two classes with an entrant is not an error: "
+                    + "the team or teams are still made and the relay is simply not ready to mark. "
+                    + "Additive: teams already there are kept and "
                     + "their labels refreshed, and a team somebody already runs in is never "
                     + "removed. Pass prune=true to also drop teams that are empty and no longer "
-                    + "on the roster.")
+                    + "called for by the entries.")
     @PostMapping("/events/{eventId}/relay-teams/derive")
     public ResponseEntity<RelayTeamDerivationDTO> deriveTeams(
             @PathVariable Long eventId,

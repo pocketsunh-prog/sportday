@@ -90,10 +90,11 @@ public class RelayTeamDTO {
      * judged by — a board can never offer a student the add would then refuse.</p>
      *
      * <p>Deliberately <em>not</em> the event's list of applicants. An applicant is
-     * someone who entered the event, and on a form relay the derived teams are that
-     * form's first two classes, filled from the register: the students running in it
-     * need never have entered it, so a list of entrants holds nobody who can join the
-     * team, and a runner removed from one had no way back.</p>
+     * someone who entered the event, while a team is filled from the register of its
+     * class: a form relay's teams are one per class its entrants are in, but the
+     * students running in one need never have entered it themselves — so a list of
+     * entrants holds nobody who can join the team, and a runner removed from one had no
+     * way back.</p>
      *
      * <p>{@code []} on a team made by hand: it is no class's and no house's, so the
      * register has no group to offer it, and it is filled through the tick list and the

@@ -190,9 +190,9 @@ class EventGroupSheetsRelaySkipTest {
                 .filter(dto -> READY_RELAY_GROUP_ID == dto.getId())
                 .findFirst().orElseThrow();
         // The sheet's lines are the event's teams, not the heat's entrants: a form
-        // relay's derived teams are the first two classes of that form (5A and 5B
-        // here), and the students who entered the event need not be the ones running
-        // in it.
+        // relay's teams are one per class its entrants are in (5A and 5B here) and are
+        // filled from the register of that class, and the students who entered the
+        // event need not be the ones running in it.
         assertEquals(List.of("5A", "5B"), relay.getRelayTeamLabels(),
                 "the teams travel with every group of the relay");
 

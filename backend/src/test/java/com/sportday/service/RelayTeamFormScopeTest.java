@@ -42,22 +42,27 @@ import static org.mockito.Mockito.*;
 
 /**
  * A relay scoped to a <strong>form</strong>: the event the school writes as "Form 1
- * 4x100M", whose derived teams are {@code 1A} and {@code 1B} — the first two of the
- * form's classes, in class order.
+ * 4x100M", whose derived teams are one per class its <strong>entrants are in</strong> —
+ * {@code 1A}, {@code 1B}, {@code 1C} and {@code 1D} here — in class order.
  *
  * <p>The school's requirement, as confirmed: a form relay event is scoped to a
- * <em>form</em>, so a Form 1 event takes the first two classes of Form 1 <strong>whatever
+ * <em>form</em>, so a Form 1 event is read from the classes of Form 1 <strong>whatever
  * grade its students are in</strong>, and Form 2 is a separate event. That is the whole
  * point of the feature and the thing nothing else in the suite can notice: every other
  * relay test builds its register inside one grade, where a form-scoped derive and a
- * grade-scoped one give the same answer. (The rule that it makes two teams rather than
- * one per class has its own file, {@code RelayTeamFormRelayTwoTeamsTest}; this one
- * covers the scope.)</p>
+ * grade-scoped one give the same answer. (The rule that a form relay's teams are the
+ * classes of its <em>entrants</em> — and that one class, or none, is not an error — has
+ * its own file, {@code FormRelayTeamsFromEntrantsTest}; this one covers the scope.)</p>
  *
  * <p>So the register here spans grades on purpose. {@code 1A} holds an A-grade boy and
  * a B-grade boy, {@code 1B} and {@code 1D} hold C-grade boys only, and the event itself
  * is a B-grade event — the grade it must keep, because an event is run by exactly one
  * grade, but which a form-scoped event does not judge its runners by.</p>
+ *
+ * <p>Who entered the relay is part of the fixture: every class of Form 1 that can field
+ * a runner has an entrant, and the two classes that cannot — {@code 1E}, whose only
+ * athlete is locked, and {@code 1F}, whose only athlete is a girl — have one too, so the
+ * file proves that an entry is not enough on its own.</p>
  *
  * <p>The other half of the file is the <strong>regression guard</strong>: the twelve
  * relay events already on the programme have no form, so an event with no form must
@@ -79,7 +84,7 @@ class RelayTeamFormScopeTest {
     @Mock private EventRepository eventRepository;
     @Mock private StudentRepository studentRepository;
     @Mock private TeacherClassService teacherClassService;
-    /** The event's entries: no confirmed entry, so the board has no applicants. */
+    /** The event's entries: a form relay's teams are the classes its entrants are in. */
     @Mock private com.sportday.repository.EnrollmentRepository enrollmentRepository;
 
     private RelayTeamService service;
@@ -87,6 +92,8 @@ class RelayTeamFormScopeTest {
     private final List<RelayTeam> teams = new ArrayList<>();
     private final List<RelayTeamMember> members = new ArrayList<>();
     private final Map<Long, Student> students = new LinkedHashMap<>();
+    /** Who has entered this relay, by account id. */
+    private final java.util.Set<Long> entrants = new java.util.LinkedHashSet<>();
     private long nextTeamId = 1;
     private long nextMemberId = 1;
 
@@ -135,11 +142,22 @@ class RelayTeamFormScopeTest {
         student(10L, "1B", Grade.B, Sex.MALE, "Blue", true);
         student(11L, "1C", Grade.B, Sex.MALE, "Green", true);
 
+        // Who entered the relay: a class of the form that can field a runner, plus 1E
+        // (whose only athlete is locked) and 1F (whose only athlete is a girl), so the
+        // file says both that the teams are the entrants' classes and that an entry
+        // alone is not enough to make one.
+        entered(1L, 3L, 4L, 5L, 8L, 9L);
+
         // A "Form 1 4x100M": scoped to Form 1, run in the Boys division, and it is a
         // B-grade event only because every event must name one grade.
         event = formEvent("1");
 
         wireRepositories();
+    }
+
+    /** Takes an entry in this relay for the given accounts. */
+    private void entered(Long... userIds) {
+        entrants.addAll(List.of(userIds));
     }
 
     // ============================================================== fixtures
@@ -294,6 +312,27 @@ class RelayTeamFormScopeTest {
                             && form.equalsIgnoreCase(Student.formOf(student.getClassName())))
                     .collect(Collectors.toList());
         });
+        // The event's entries, as the repository hands them over: one row per account
+        // that entered, carrying its user.
+        when(enrollmentRepository.findConfirmedWithUserByEvent(anyLong(), any()))
+                .thenAnswer(invocation -> {
+                    if (!EVENT_ID.equals(invocation.getArgument(0))) {
+                        return List.of();
+                    }
+                    return entrants.stream().map(userId -> com.sportday.entity.Enrollment.builder()
+                            .id(userId)
+                            .event(event)
+                            .user(students.containsKey(userId)
+                                    ? students.get(userId).getUser()
+                                    : com.sportday.entity.User.builder().id(userId)
+                                            .username("U" + userId)
+                                            .role(com.sportday.entity.User.Role.STUDENT)
+                                            .enabled(true).build())
+                            .status(com.sportday.entity.Enrollment.EnrollmentStatus.CONFIRMED)
+                            .enrolledAt(LocalDate.of(2026, 9, 1).atStartOfDay())
+                            .build())
+                            .collect(Collectors.toList());
+                });
     }
 
     private List<RelayTeamMember> membersOf(Long teamId) {
@@ -332,29 +371,45 @@ class RelayTeamFormScopeTest {
     // ============================================== a form event is scoped to its form
 
     @Test
-    @DisplayName("a Form 1 event derives 1A and 1B — two teams, the first two classes of the form")
+    @DisplayName("a Form 1 event derives one team per class its entrants are in, across every grade")
     void derivesEveryClassOfTheFormAcrossGrades() {
         service.deriveTeams(EVENT_ID, false);
 
-        // The form spans every grade, and that is still what decides WHO may run — a
-        // 1A team takes a 1A student whatever grade they are. What changed is how many
-        // teams are made: two, not one per class, because readiness asks every team to
-        // be filled and four teams meant four to fill before the relay could print.
-        assertEquals(List.of("1A", "1B"), teamKeys());
-        assertEquals(List.of("1A", "1B"),
+        // The form spans every grade, and that is what decides WHO may run — a 1A team
+        // takes a 1A student whatever grade they are. The classes are the ones the
+        // entrants are in, in class order.
+        assertEquals(List.of("1A", "1B", "1C", "1D"), teamKeys());
+        assertEquals(List.of("1A", "1B", "1C", "1D"),
                 board().getTeams().stream().map(RelayTeamDTO::getLabel).toList());
 
         assertEquals(Grade.A, students.get(4L).getGrade(),
-                "1B holds an A-grade athlete, from a B-grade event — the form is the scope");
-        assertTrue(teamKeys().contains("1B"));
+                "1C holds an A-grade athlete, from a B-grade event — the form is the scope");
+        assertTrue(teamKeys().contains("1C"));
 
-        // The classes that were not derived are still classes of the form; they are
-        // simply not made until the school wants them.
-        assertFalse(teamKeys().contains("1D"), "only the first two classes are derived");
+        // A class of the form whose entrants are not on this year's list, or are not in
+        // this division, is no team: nobody could ever be named in one.
+        assertFalse(teamKeys().contains("1E"), "1E's entrant is locked, so it is no team");
+        assertFalse(teamKeys().contains("1F"), "1F's entrant is a girl, and this is the boys' relay");
 
         // Another form is another event: neither Form 2 nor Form 10 has a team here.
         assertFalse(teamKeys().contains("2A"), "Form 2 is a separate event");
         assertFalse(teamKeys().contains("10B"), "and Form 10 is not folded into Form 1");
+    }
+
+    @Test
+    @DisplayName("a class of the form nobody entered from is not a team of the relay")
+    void aClassNobodyEnteredFromIsNoTeam() {
+        // 1C and 1D hold eligible boys, and nobody entered the relay from them: the two
+        // classes are NOT teams. That is the rule that replaced the form's first two
+        // classes, and it is the one thing a register-only derive cannot see.
+        entrants.clear();
+        entered(1L, 3L);
+
+        service.deriveTeams(EVENT_ID, false);
+
+        assertEquals(List.of("1A", "1B"), teamKeys());
+        assertFalse(teamKeys().contains("1C"), "1C has students, but no entrant");
+        assertFalse(teamKeys().contains("1D"), "and neither has 1D");
     }
 
     @Test
@@ -395,7 +450,7 @@ class RelayTeamFormScopeTest {
 
         service.deriveTeams(EVENT_ID, false);
 
-        assertEquals(List.of("1A", "1B"), teamKeys());
+        assertEquals(List.of("1A", "1B", "1C", "1D"), teamKeys());
     }
 
     // ==================================== who may run: the form, not the grade

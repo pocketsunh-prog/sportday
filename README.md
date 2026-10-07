@@ -36,13 +36,13 @@ Spring Boot 4.1 (Java 25) backend, Next.js 16 web app, MySQL 8.
 | 22 | **An event belongs to one grade** — no grade is ever ranked against another | `Event.grade`, `EventService.createDefaults` |
 | 23 | A sprint with **8 or fewer entered** switches itself to direct to final — a final would be the same athletes as the heat | `FinalQualificationService.syncFinalFormat` |
 | 24 | A race **longer than 400M** is timed in **minutes and seconds**; the mark is still stored in seconds | `EventType.usesMinutesAndSeconds` |
-| 25 | Mark entry lists only events with **more than one athlete** entered — and **no relay**, which is marked by team on its own page | `app/admin/marks`, `app/admin/events/[id]/relay` |
+| 25 | Mark entry lists only events with **more than one athlete** entered — and **no relay**, which is marked by team on the relay programme pages | `app/admin/marks`, `app/admin/relay-events/form`, `app/admin/relay-events/grade` |
 | 26 | A **100M hurdles** for the C grade, with the 110M hurdles for A and B | `EventType.HURDLES_100M`, `EventGradeRule` |
 | 27 | A result reads the way the sport writes it — **14.123s, 1.04.123s, 18.12M** — and prints to PDF | `MarkFormatter`, `PdfResultService` |
 | 28 | A season reset **writes a restorable backup first**, and refuses to reset if the backup fails; backups can be listed, downloaded and restored | `SeasonBackupService`, `BackupStore`, `POST /api/admin/season/reset` |
 | 29 | An admin **uploads teacher accounts**, each carrying the classes they look after | `TeacherService`, `POST /api/admin/teachers/upload` |
 | 30 | A teacher may **enter, withdraw and look up a student's events — but only in their own classes** | `TeacherClassService`, `TeacherHelpService`, `/api/teacher/**` |
-| 31 | **Relay teams**: a form relay makes **two** teams — the first two classes of the event's form — and a house relay one per grade × house, four runners and one reserve each, with the runners, their legs and the team's name chosen for it | `RelayTeam`, `RelayTeamService` |
+| 31 | **Relay teams**: a form relay makes **one team per class its entrants are in** — at least two are wanted, and a class nobody entered from is not a team — and a house relay one per grade × house, four runners and one reserve each | `RelayTeam`, `RelayTeamService` |
 | 32 | **A relay event built around its teams**: the school chooses the teams by hand first, on a *draft* relay event, and then moves them onto the race — all of them or none | `Event.isDraft()`, `RelayTeamService.moveTeamsToEvent` |
 
 Events are also split by **sex division** (Boys / Girls), so each event is
@@ -530,41 +530,62 @@ that category which gives a relay its own entry allowance rather than the studen
 track ones. A live database needs `db/migration/relay-category-migration.sql` for it;
 see the note at the head of that file.
 
-**A relay is run entirely from its own page.** Its board —
-`/admin/events/{id}/relay`, reached from the relay programme at
-`/admin/relay-events/form` and `/grade` — holds its teams and runners, **its marks**
-and the way to its sheets, and two other pages deliberately hold no relay at all:
+**A relay is run from the relay programme.** Its teams and runners live on its own
+board — `/admin/events/{id}/relay`, reached from the relay programme at
+`/admin/relay-events/form` and `/grade` — while **its marks and its sheets are on the
+programme page itself**, on the relay's own card, and two other pages deliberately hold
+no relay at all:
 
 - the **mark-entry grid** (`/admin/marks`) picks individual events only. A relay's
   grid lines are teams and its one number is the team's, so the grid is drawn on the
-  relay's own board instead (`RelayMarkEntry`, reading and saving through the same
-  `GET`/`POST /api/events/{id}/marks` — a relay answers with one row per team,
-  carrying `teamId`, `teamLabel`, `time`, `standardLabel` and `belowStandard`, and
-  the save carries the `teamId` back so the mark hangs off the team);
+  relay's card on the relay programme instead (`RelayMarkEntry`, reading and saving
+  through the same `GET`/`POST /api/events/{id}/marks` — a relay answers with one row
+  per team, carrying `teamId`, `teamLabel`, `time`, `standardLabel` and
+  `belowStandard`, and the save carries the `teamId` back so the mark hangs off the
+  team). One card's grid is open at a time: the pages list up to twenty-four relays,
+  each with its own teams and its own save. It was on the event's own board and was
+  **moved**, not copied, so there is exactly one of it;
 - the **print run** (`/admin/print`) lists individual events only, and its
   whole-programme download asks for `includeRelays=false`. A relay's sheets are
-  downloaded from its own card, one relay at a time.
+  downloaded from its own card, one relay at a time — or, in one press, for the whole
+  list this page is showing, through
+  `GET /api/relay-events/sheets.pdf?eventIds=…`: one PDF, composed by the same
+  renderer (`PdfSheetService.renderSheets`) the per-event run uses, in the order the
+  caller names the relays. The request carries the relays **the page is listing**
+  (its own family and the filter it is on), so the file is the list on screen. A relay
+  with no markable sheet yet is **refused with its own reason, every such relay named
+  at once** — the run is never quietly short of a relay — and the page leaves those
+  relays out of the request and names them, with the server's reason, under the
+  button.
 
 The roles follow the endpoints and nothing else: the relay boards are ADMIN
 (`/api/admin/**`) or ADMIN and TEACHER (`/api/teacher/**`), while a relay's marks
 and its sheets are ADMIN, MANAGER or HELPER (`MarkEntryController`,
 `EventGroupController`). So all four roles reach the relay programme, and each sees
 the part that is theirs — a manager or an input helper keys the teams' times and
-prints the sheets, an administrator or a teacher fills the teams, and a teacher,
-who may place runners but may not record a mark or print a sheet, is told so.
+prints the sheets **on the cards**, an administrator or a teacher fills the teams,
+and a teacher, who may place runners but may not record a mark or print a sheet, is
+told so rather than shown a control whose only outcome is a 403.
 
 A relay event can be divided two ways, chosen on the event itself:
 
-- a **form relay** is **two teams — the first two classes of the form in class
-  order** — `1A` and `1B` for a Form 1 relay, `3A` and `3B` for a Form 3 one — and
+- a **form relay** is **one team per class its entrants are in** — `3A` and `3B`
+  when students from those two classes have entered the relay — and
   each team is named after its class. Which classes those are is the event's
-  **form**: a "Form 1 4x100M" takes the first two classes of Form 1 **whatever
-  grade its students are in**, and Form 2 is a separate event. The school's rule is
-  "a form class relay makes two teams": with a team per class, a Form 3 relay
-  arrived holding `3A`, `3B`, `3C` and `3D`, and because readiness asked **every**
-  team to hold its runners, all four had to be filled before the relay could print.
-  A third or fourth team is still the school's to add by hand, and nothing refuses
-  it;
+  **form**: a "Form 1 4x100M" reads the form's classes **whatever
+  grade its students are in**, and Form 2 is a separate event. What makes a team is
+  an **entry**, not the register: `Enrollment.EnrollmentStatus.CONFIRMED`, the same
+  reading of "entered" the applicant list beside the board and the entry service use,
+  so a class nobody entered the relay from is *not* one of its teams — which is what
+  replaced the older rule that made the form's first two classes whether anybody had
+  entered from them or not. **The school's rule is at least two teams**, and fewer
+  than two is **not an error**: one class with an entrant derives that one team and
+  the relay is simply not ready to be marked (`RelayReadiness` needs two teams in the
+  race), and no entrant at all derives no teams and refuses nothing. An entrant whose
+  class is outside the relay's own form, or who is not on this year's list, yields no
+  team either — nobody could ever run in it. A class of the form is still filled from
+  the **register** of that class, so a team may name a student who never entered the
+  relay themselves;
 - a **house relay** is one team per **grade × house**, since the event already
   belongs to one grade, named the way the school writes it: `C Grade Yellow`,
   `C Grade Green`.
@@ -597,11 +618,12 @@ The same runners, legs and names are available to a teacher under
 `/api/teacher/**`, with `PUT /api/teacher/relay-teams/{teamId}/name` admitted only
 for a team that is theirs — see below.
 
-The teams are **derived from the register**: a form relay makes **two teams — the
-first two classes that have athletes in that form and the event's division** —
-across grades, so a B-grade athlete and a C-grade athlete in `1A` are one `1A` team,
-in school order (`1A` then `1B`, never `1B` before `1A`, and never `10B` before
-`2A`). A form with fewer than two classes that can field a runner derives what there
+The teams are **derived from the entries**: a form relay makes **one team per class
+its confirmed entrants are in** — across grades, so a B-grade athlete and a C-grade
+athlete in `1A` are one `1A` team — in
+school order (`1A` then `1B`, never `1B` before `1A`, and never `10B` before
+`2A`), and the same entrants always derive the same teams twice. A form whose
+entrants hold fewer than two classes derives what there
 is — one team for one class, none for none — rather than refusing the derive; a
 relay below two teams is simply not ready to mark yet. An event with no form derives
 one team per class from its **own grade** and division, exactly as before. A relay
@@ -609,11 +631,14 @@ with no kind is *undivided* — which is how every existing relay event stays,
 untouched, until the school divides it, and deriving one is refused with the reason
 rather than inventing teams.
 
-The derive is **additive**: it creates the two teams and refreshes their names, and
+The derive is **additive**: it creates the teams the entries call for and refreshes
+their names, and
 it never drops a team that holds runners — a relay derived before this rule keeps
 the four teams it has, and the school trims it by emptying a team on its board. An
-**empty** team the roster no longer calls for is dropped only when `prune` is asked
-for.
+**empty** team nothing calls for any more is dropped only when `prune` is asked
+for. That is also what keeps a relay whose entries have since moved — a legacy
+"Form 1" relay whose entrants are all in Form 6, say — printable: its filled teams
+are kept, and the derive simply wants nothing new.
 
 **A relay may run with two teams to four, and an empty team does not hold it back.**
 Readiness — the one rule in `RelayReadiness`, which the relay's own board, its
@@ -650,7 +675,8 @@ the same rule as helping a student.
 
 #### Teams made by hand
 
-A derive gives **two** class teams, or one team per house, which is not always what
+A derive gives **one class team per class that entered**, or one team per house, which
+is not always what
 the school wants. A teacher can instead **tick the students who applied and create a
 team from them**, typing the team's own name:
 
@@ -1576,13 +1602,19 @@ final (the default, the four splittable types, and a final needing both conditio
 and grade eligibility (the starting rules, a missing rule meaning allowed, a cell
 being closed and reopened, and the grid counting each grade's events).
 
-The relay work is covered on its own: the teams derived from the roster — that a form
-relay derives the form's **first two classes** and nothing more, that deriving twice
-gives the same two, that a team already holding runners survives a re-derive, and
-that a two-team form relay is ready while a one-team one is not — the readiness rule
+The relay work is covered on its own: the teams derived from the **entries** — that a
+form relay derives one team per class its entrants are in and nothing more, that a
+class nobody entered from is not a team, that an entrant of another form or with no
+register row invents no team, that deriving twice gives the same teams, that a team
+already holding runners survives a re-derive while an empty one goes only on a prune,
+and that one class with an entrant derives one team without refusing anything — plus
+the readiness rule
 itself (two teams to four, an empty team not in the race and so not holding the relay
 back, a half-filled team in the race still refusing it, and the exact words each
-refusal uses) — and the teams
+refusal uses), and the combined relay print run (every relay named is rendered in the
+order asked for, a relay named twice is printed once, and a relay that cannot print
+refuses the run with its own reason rather than dropping out of the file) — and the
+teams
 made **by hand** out of chosen students (that a derive never matches, renames,
 re-keys or prunes one), the applicant list beside them, the relay's mark grid (one row per
 team) and its marking sheet (one line per team), the rename rule and a teacher's scope

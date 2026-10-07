@@ -105,9 +105,9 @@ public class EventGroupDTO {
      * <p><strong>A relay sheet's lines are the event's teams, not the heat's
      * entrants.</strong> A relay is run and scored by team, and its teams belong to
      * the <em>event</em> while {@link #athletes} is the group's own roster of
-     * entries — the two are not the same list: a form relay's derived teams are that
-     * form's first two classes, built from the register, and the students who happened
-     * to enter the event need not be the ones running in it. Reading the team names off
+     * entries — the two are not the same list: a form relay's teams are one per class
+     * its entrants are in, and a team is filled from the register of that class, so a
+     * runner need not be one of the students who entered. Reading the team names off
      * the roster therefore printed the entrants' names on a sheet whose lines are
      * teams.
      * This field is what the sheet draws those lines from, so the paper a helper marks

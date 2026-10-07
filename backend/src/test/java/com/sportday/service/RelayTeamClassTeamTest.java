@@ -288,8 +288,8 @@ class RelayTeamClassTeamTest {
             + "unchanged where there is no form")
     void derivesOneTeamPerClassInSchoolOrder() {
         // The event carries no form, so it is scoped by its grade and keeps one team per
-        // class of it. A relay scoped to a FORM makes two teams instead — see
-        // RelayTeamFormRelayTwoTeamsTest.
+        // class of it. A relay scoped to a FORM makes one team per class its entrants
+        // are in instead — see FormRelayTeamsFromEntrantsTest.
         service.deriveTeams(EVENT_ID, false);
 
         assertEquals(List.of("1A", "1B", "2A", "10B"), teamKeys());

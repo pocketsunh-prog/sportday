@@ -49,8 +49,8 @@ import static org.mockito.Mockito.when;
  * A <strong>form relay's printed sheet names the class teams</strong>.
  *
  * <p>Requirement: <em>"form relay should show class team name not student name on
- * print form"</em>. A form relay's derived teams are the first two classes of that form
- * — 1A and 1B of 1A, 1B, 1C and 1D — built from the student register, and the board may
+ * print form"</em>. A form relay's teams are one per class its entrants are in — 1A and
+ * 1B of 1A, 1B, 1C and 1D here — filled from the student register, and the board may
  * carry further class teams made by hand beside them. The heat's roster, on the other
  * hand, is the students who <em>entered</em> the event, and the two are not the same
  * people: the event was a grade relay before it was made form-scoped, so its entries

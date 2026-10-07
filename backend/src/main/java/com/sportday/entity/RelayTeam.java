@@ -12,12 +12,13 @@ import java.util.List;
  * One relay team of one {@link Event} — a class's team or a house's team.
  *
  * <p>A relay event that has been given a {@link Event#getRelayTeamKind() kind} has
- * its teams derived from the student register rather than typed in one at a time
- * ({@code RelayTeamService}): an event scoped to a form is made of that form's
- * <strong>first two classes</strong> ({@code 3A} and {@code 3B} of a Form 3 relay), an
- * event with no form of one team per class of its own grade, and a house relay of one
- * team per house of its grade and division. An event with no kind has no teams at all,
- * which is how the relay events already in the programme behave.</p>
+ * its teams derived rather than typed in one at a time ({@code RelayTeamService}): an
+ * event scoped to a form is made of <strong>one team per class its entrants are
+ * in</strong> ({@code 3A} and {@code 3B} when those are the classes that entered the
+ * Form 3 relay), an event with no form of one team per class of its own grade, and a
+ * house relay of one team per house of its grade and division. An event with no kind
+ * has no teams at all, which is how the relay events already in the programme
+ * behave.</p>
  *
  * <h2>The key and the label</h2>
  * <p>{@link #teamKey} is what the team is <em>matched on</em>: the class as the

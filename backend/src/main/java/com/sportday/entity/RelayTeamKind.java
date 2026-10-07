@@ -5,15 +5,18 @@ package com.sportday.entity;
  * base on each form and house relay base on each grade and house".
  *
  * <ul>
- *   <li>{@link #FORM} — a form relay's teams are <strong>the first two classes of the
- *       event's form in class order</strong>: {@code 3A} and {@code 3B} for a Form 3
- *       relay, whatever other classes the form holds. The school's rule is "a form
- *       class relay makes two teams"; a third or fourth is still the school's to add by
- *       hand. An event with no form keeps the older reading — one team per class of its
- *       own grade and division: {@code 1A}, {@code 1B}, {@code 1C}, {@code 1D}, then
- *       {@code 2A}. A team's name is the class name, and a class is taken from
- *       {@link Student#getClassName()} whole, so {@code 10B} is class {@code 10B}
- *       rather than being folded in with {@code 1B}.</li>
+ *   <li>{@link #FORM} — a form relay's teams are <strong>the classes its entrants are
+ *       in</strong>: one team per class of the event's form that a student has
+ *       <em>entered</em> the relay from — {@code 3A} and {@code 3B} when the Form 3
+ *       relay's entrants are in those two classes — and the school wants at least two of
+ *       them. It is the entries, not the register's first two classes, that decide which
+ *       teams exist; fewer than two classes with an entrant is not an error, it is simply
+ *       a relay that is not ready to be marked yet. An event with no form keeps the older
+ *       reading — one team per class of its own grade and division: {@code 1A},
+ *       {@code 1B}, {@code 1C}, {@code 1D}, then {@code 2A}. A team's name is the class
+ *       name, and a class is taken from {@link Student#getClassName()} whole, so
+ *       {@code 10B} is class {@code 10B} rather than being folded in with
+ *       {@code 1B}.</li>
  *   <li>{@link #HOUSE} — one team per <strong>house</strong> within the event's
  *       grade. An event already belongs to exactly one grade, so a house relay is
  *       one team per house present among that grade's students in the event's
@@ -28,7 +31,7 @@ package com.sportday.entity;
  */
 public enum RelayTeamKind {
 
-    /** A form relay's two teams — the first two classes of the form, 中一 to 中六. */
+    /** A form relay's teams — one per class that entered it, 中一 to 中六. */
     FORM("Form", "班際"),
 
     /** One team per house within the event's grade — Red, Blue, Green, Yellow. */

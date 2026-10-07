@@ -404,14 +404,20 @@ class TeacherSecurityWiringTest {
     }
 
     /**
-     * The marking-sheet PDFs, by exactly the three patterns SecurityConfig guards
+     * The marking-sheet PDFs, by exactly the patterns SecurityConfig guards
      * them with. Kept as patterns rather than a list of paths so a new sheet
      * endpoint is picked up rather than missed.
+     *
+     * <p>The relay programme's own run — {@code /api/relay-events/sheets.pdf}, one
+     * PDF for many relays — is the fourth of them: it is the same job as the other
+     * three, printed from the relay cards, so a helper reaches it exactly as they
+     * reach the rest.</p>
      */
     private static boolean isMarkingSheet(String path) {
         return PATHS.match("/api/groups/*/sheet.pdf", path)
                 || PATHS.match("/api/events/*/sheets.pdf", path)
-                || PATHS.match("/api/sheets.pdf", path);
+                || PATHS.match("/api/sheets.pdf", path)
+                || PATHS.match("/api/relay-events/sheets.pdf", path);
     }
 
     private static List<Endpoint> markingSheetEndpoints() {
@@ -688,6 +694,8 @@ class TeacherSecurityWiringTest {
         assertTrue(permitted("GET", "/api/groups/1/sheet.pdf", "HELPER"), "one group's sheet");
         assertTrue(permitted("GET", "/api/events/2/sheets.pdf", "HELPER"), "all of an event's sheets");
         assertTrue(permitted("GET", "/api/sheets.pdf", "HELPER"), "and the whole-school print run");
+        assertTrue(permitted("GET", "/api/relay-events/sheets.pdf", "HELPER"),
+                "and the relay programme's own run, one PDF for many relays");
     }
 
     @Test

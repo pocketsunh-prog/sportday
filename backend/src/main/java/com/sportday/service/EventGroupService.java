@@ -235,8 +235,9 @@ public class EventGroupService {
      * rosters: heats first and then the final.
      *
      * <p><strong>A relay that has its teams is drawn from them, heats or no heats.</strong>
-     * A relay is run and scored by <em>team</em> — a form relay's first two classes, or
-     * one per grade and house — and its marking sheet carries one line per team
+     * A relay is run and scored by <em>team</em> — a form relay's classes, one per class
+     * its entrants are in, or one per grade and house — and its marking sheet carries one
+     * line per team
      * ({@link EventGroupDTO#getRelayTeamLabels()}). It has no heats to allocate, and a
      * relay whose teams are built is therefore already printable: the sheet it needs is
      * the event's own, and {@code event_groups} holding nothing says nothing about

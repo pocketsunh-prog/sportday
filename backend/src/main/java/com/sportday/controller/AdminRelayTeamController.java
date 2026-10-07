@@ -126,10 +126,13 @@ public class AdminRelayTeamController {
         return ResponseEntity.ok(relayTeamService.getBoard(eventId));
     }
 
-    @Operation(summary = "Create the event's teams from the roster",
-            description = "The same derivation a teacher can run: a form relay's first two classes, "
-                    + "or one team per house of the event's grade and division. Additive, and pass "
-                    + "prune=true to also drop teams that are empty and no longer on the roster.")
+    @Operation(summary = "Create the event's teams from its entries",
+            description = "The same derivation a teacher can run: one team per class the relay's "
+                    + "entrants are in — a form relay's teams come from its confirmed entries, not "
+                    + "from the form's first two classes — or one team per house of the event's "
+                    + "grade and division. Additive, and pass "
+                    + "prune=true to also drop teams that are empty and no longer called for by the "
+                    + "entries.")
     @PostMapping("/events/{eventId}/relay-teams/derive")
     public ResponseEntity<RelayTeamDerivationDTO> deriveTeams(
             @PathVariable Long eventId,

@@ -59,11 +59,12 @@ import java.util.List;
  * sheet.</p>
  *
  * <p><strong>Those teams are the event's, not the heat's.</strong> A relay's teams are
- * one per class or per house of the event — for a form relay, the classes of that form —
- * while the group's roster is the students who entered the event. The two are different
- * lists, so the sheet takes its lines from the event's teams
- * ({@link EventGroupDTO#getRelayTeamLabels()}) and never from the roster: drawn from the
- * roster, a form relay printed the entrants' names where the class team's name belongs.</p>
+ * one per class that entered it or per house of the event — for a form relay, the
+ * classes its entrants are in — while the group's roster is the students who entered
+ * the event. The two are different lists, so the sheet takes its lines from the event's
+ * teams ({@link EventGroupDTO#getRelayTeamLabels()}) and never from the roster: drawn
+ * from the roster, a form relay printed the entrants' names where the class team's name
+ * belongs.</p>
  *
  * <p><strong>The heading is the relay's own line, not its stored name.</strong> A
  * relay's name carries the scope it was made for, and several form relays on the
@@ -376,10 +377,11 @@ public class PdfSheetService {
      *
      * <p><strong>And the teams are the event's, not the heat's.</strong>
      * {@link EventGroupDTO#getRelayTeamLabels()} is asked first, because a relay's teams
-     * are a form's first two classes or one per house of the event while the group's
+     * are one per class that entered it or one per house of the event while the group's
      * roster is the students who entered it — for a form relay, whose teams are the
-     * first two classes of that form, the two are different sets, and a sheet drawn from
-     * the roster printed the entrants' names where the team's name belongs. A group that
+     * classes its entrants are in but which is filled from the register of those classes,
+     * the two are different sets, and a sheet drawn from the roster printed the entrants'
+     * names where the team's name belongs. A group that
      * carries no team list falls back to the labels its own lines carry, and one with no
      * labels at all — an individual event, or a relay whose teams have not been derived
      * — keeps the athlete-per-line sheet it has always had.</p>

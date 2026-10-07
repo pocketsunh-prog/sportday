@@ -4,6 +4,7 @@ import com.sportday.dto.RelayEventTeamsDTO;
 import com.sportday.dto.RelayTeamCreateRequest;
 import com.sportday.dto.RelayTeamDTO;
 import com.sportday.dto.RelayTeamDerivationDTO;
+import com.sportday.entity.Enrollment;
 import com.sportday.entity.Event;
 import com.sportday.entity.EventCategory;
 import com.sportday.entity.Grade;
@@ -31,10 +32,12 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -42,48 +45,55 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /**
- * The school's rule for a <strong>form class relay</strong>: it makes
- * <strong>two teams</strong>, not one per class of the form.
+ * The school's rule for a <strong>form class relay</strong>: its teams are the
+ * <strong>classes its entrants are in</strong> — one team per class that entered the
+ * relay — and not the form's first two classes.
  *
- * <p>As the school put it, "form class relay event from 4 team to 2 team required",
- * and the option they chose was "make only 2 teams for a form relay in the first
- * place" — so this is the <em>derive</em> that changed. The readiness rule changed
- * only in what it counts: a relay may hold two teams to four, a team nobody has been
- * named in is not in the race, and two full teams beside two empty ones are ready —
- * which is the school's own case, a Form 2 relay holding 2A, 2B, 2C and 2D with 2B
- * and 2D still empty.</p>
+ * <p>As the school put it: "form class relay should be at least 2 team enroll relay and
+ * not the first two classes of the form the relay". The word that decides the rule is
+ * <em>enroll</em>: what makes a team is a student with a <strong>confirmed entry</strong>
+ * in the relay, the same reading of "entered" the applicant list beside this board uses,
+ * and a class of the form that nobody entered from is <em>not</em> one of its teams any
+ * more — which is what replaced the derive that made the form's first two classes
+ * whether anybody had entered from them or not.</p>
  *
  * <p>What the file pins down, one test each:</p>
  * <ul>
- *   <li>a Form 3 relay derives {@code 3A} and {@code 3B} — the form's first two
- *       classes <strong>in class order</strong> — and not {@code 3C} or {@code 3D};</li>
- *   <li>deriving twice gives the same two, because the pair is read from the classes
- *       and not from the order the register came back in;</li>
- *   <li>a team that already holds runners survives a re-derive, and an empty extra
- *       from a four-team relay is dropped only when the caller asks to prune — which
- *       is how the school trims a relay that was derived before this rule;</li>
+ *   <li>the teams are the <strong>classes of the entrants</strong>, in class order, and a
+ *       class of the form with no entrant is not a team even though the register holds
+ *       its students;</li>
+ *   <li>deriving twice gives the same teams, because they are read from the classes and
+ *       not from the order the register came back in;</li>
+ *   <li><strong>at least two teams are wanted, and one is not an error</strong>: one
+ *       class with an entrant derives that one team, nothing is refused, and the relay is
+ *       simply not ready to mark — and no entrant at all derives no teams, also without
+ *       a refusal;</li>
+ *   <li>a team from a class <strong>nobody entered from</strong> that already holds
+ *       runners is <strong>kept</strong>, prune or no prune, so a relay derived before
+ *       this rule stays printable until its runners are taken off its board — while an
+ *       <em>empty</em> such team goes only when the caller asks to prune;</li>
+ *   <li>an entrant whose account has <strong>no register row</strong> invents no team:
+ *       there is no class to key one from;</li>
+ *   <li>an entrant who is <strong>not in the relay's own form</strong> yields no team
+ *       either: the eligibility rule would refuse every runner of such a team, and a team
+ *       nobody could ever be named in is not a team;</li>
  *   <li>a two-team form relay with every leg filled is <strong>ready</strong> and its
- *       board renders both teams;</li>
- *   <li>a relay left holding four teams of which two are empty is ready too: the empty
- *       teams are not in the race and do not hold it back;</li>
- *   <li>a form with one eligible class derives one team and a form with none derives
- *       none — neither is an error, and one team is simply not ready to mark yet;</li>
- *   <li>a form with a third or fourth team — made by hand — is still <strong>accepted
- *       and ready</strong>: nothing refuses more than two and nothing demands
- *       exactly two, so the school may run two, three or four;</li>
+ *       board renders both teams; a four-team relay of which two are empty is ready too,
+ *       because an empty team is not in the race;</li>
  *   <li>a house relay is untouched: one team per house of the event's grade.</li>
  * </ul>
  *
- * <p>The register spans the classes on purpose — {@code 3A} to {@code 3D}, four
- * athletes each — with a Form 2 athlete, a girl and a locked athlete beside them, so
- * a derive that took the wrong two classes, the wrong form or the wrong division
- * would be visible rather than accidentally right. The repositories are backed by
- * in-memory lists, as in the other relay tests, so a derive, a selection and a
+ * <p>The register spans the classes on purpose — {@code 3A} to {@code 3D}, four athletes
+ * each — with a Form 2 athlete, a girl and a locked athlete beside them, so a derive that
+ * took the wrong classes, the wrong form or the wrong division would be visible rather
+ * than accidentally right. The entries are the test's own: each test says which students
+ * entered the relay, which is the fact the whole rule turns on. The repositories are
+ * backed by in-memory lists, as in the other relay tests, so a derive, a selection and a
  * re-derive run against real read-then-write behaviour.</p>
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
-class RelayTeamFormRelayTwoTeamsTest {
+class FormRelayTeamsFromEntrantsTest {
 
     private static final Long EVENT_ID = 42L;
 
@@ -92,7 +102,7 @@ class RelayTeamFormRelayTwoTeamsTest {
     @Mock private EventRepository eventRepository;
     @Mock private StudentRepository studentRepository;
     @Mock private TeacherClassService teacherClassService;
-    /** The event's entries: no confirmed entry, so the board has no applicants. */
+    /** The event's entries — the fact a form relay's teams are read from. */
     @Mock private EnrollmentRepository enrollmentRepository;
 
     private RelayTeamService service;
@@ -102,6 +112,8 @@ class RelayTeamFormRelayTwoTeamsTest {
     private final List<RelayTeam> teams = new ArrayList<>();
     private final List<RelayTeamMember> members = new ArrayList<>();
     private final Map<Long, Student> students = new LinkedHashMap<>();
+    /** Who has entered this relay: the account ids with a confirmed entry. */
+    private final Set<Long> entrants = new LinkedHashSet<>();
     private long nextTeamId = 1;
     private long nextMemberId = 1;
 
@@ -128,6 +140,7 @@ class RelayTeamFormRelayTwoTeamsTest {
         teams.clear();
         members.clear();
         students.clear();
+        entrants.clear();
         nextTeamId = 1;
         nextMemberId = 1;
 
@@ -210,6 +223,15 @@ class RelayTeamFormRelayTwoTeamsTest {
                 .build();
         students.put(userId, roster);
         return roster;
+    }
+
+    /**
+     * Takes an entry in this relay for the given accounts — the fact the teams are read
+     * from. An id with no register row is allowed on purpose: an account with no roster
+     * row can enter an event, and the derive has to cope with it.
+     */
+    private void entered(Long... userIds) {
+        entrants.addAll(List.of(userIds));
     }
 
     /** Takes an athlete off this year's list — the register then offers them nobody. */
@@ -357,6 +379,27 @@ class RelayTeamFormRelayTwoTeamsTest {
                     .filter(student -> Boolean.TRUE.equals(student.getEnabled()))
                     .collect(Collectors.toList());
         });
+        // The event's entries, as the repository hands them over: one row per account
+        // that entered, carrying its user. An entrant with no register row still has a
+        // user — an account — which is exactly the case the derive has to survive.
+        when(enrollmentRepository.findConfirmedWithUserByEvent(anyLong(), any()))
+                .thenAnswer(invocation -> {
+                    Long eventId = invocation.getArgument(0);
+                    if (!EVENT_ID.equals(eventId)) {
+                        return List.of();
+                    }
+                    return entrants.stream().map(userId -> Enrollment.builder()
+                            .id(userId)
+                            .event(event)
+                            .user(students.containsKey(userId)
+                                    ? students.get(userId).getUser()
+                                    : User.builder().id(userId).username("U" + userId)
+                                            .role(User.Role.STUDENT).enabled(true).build())
+                            .status(Enrollment.EnrollmentStatus.CONFIRMED)
+                            .enrolledAt(LocalDate.of(2026, 9, 1).atStartOfDay())
+                            .build())
+                            .collect(Collectors.toList());
+                });
     }
 
     private List<RelayTeamMember> membersOf(Long teamId) {
@@ -404,49 +447,103 @@ class RelayTeamFormRelayTwoTeamsTest {
         }
     }
 
-    // =============================================== the derive makes exactly two
+    // ================================== the teams are the classes that entered
 
     @Test
-    @DisplayName("a Form 3 relay derives 3A and 3B — the form's first two classes, in class order")
-    void derivesTheFirstTwoClassesInOrder() {
+    @DisplayName("the teams are the classes of the entrants — 3B and 3D when they entered, not 3A and 3B")
+    void theTeamsAreTheClassesOfTheEntrants() {
+        entered(5L, 6L, 11L, 12L);
+
         RelayTeamDerivationDTO result = service.deriveTeams(EVENT_ID, false);
 
         assertEquals(2, result.getCreated());
         assertEquals(0, result.getKept());
         assertEquals("FORM", result.getKind());
-        assertEquals(List.of("3A", "3B"), teamKeys());
-        assertEquals(List.of("3A", "3B"), teamLabels());
+        assertEquals(List.of("3B", "3D"), teamKeys());
+        assertEquals(List.of("3B", "3D"), teamLabels());
         assertEquals(2, result.getBoard().getTeamCount());
         assertEquals(4, result.getBoard().getLegsPerTeam());
 
-        // Sixteen eligible athletes: the four boys of each of 3A, 3B, 3C and 3D. The
-        // Form 2 boy, the girl and the locked athlete are none of this relay's field.
-        assertEquals(16, result.getEligibleStudents());
-
-        assertFalse(teamKeys().contains("3C"), "the form's third class is not derived");
-        assertFalse(teamKeys().contains("3D"), "nor its fourth");
+        // 3A and 3C hold students on the register, and nobody entered the relay from
+        // them: they are NOT teams of it. That is the whole of the change.
+        assertFalse(teamKeys().contains("3A"), "a class nobody entered from is not a team");
+        assertFalse(teamKeys().contains("3C"), "nor is another one");
         assertFalse(teamKeys().contains("2A"), "Form 2 is a separate event");
     }
 
     @Test
-    @DisplayName("deriving again gives the same two — the pair is the classes', not the register's order")
-    void derivingTwiceGivesTheSameTwo() {
+    @DisplayName("the class order is the school's, whatever order the entrants came in")
+    void theClassOrderIsTheSchools() {
+        // Entered in the wrong order on purpose: the teams still read 3A, 3C.
+        entered(16L, 1L);
+
+        service.deriveTeams(EVENT_ID, false);
+
+        assertEquals(List.of("3A", "3C"), teamKeys());
+    }
+
+    @Test
+    @DisplayName("deriving twice gives the same teams — they are the classes', not the entries' order")
+    void derivingTwiceGivesTheSameTeams() {
+        entered(17L, 4L, 8L);
         service.deriveTeams(EVENT_ID, false);
         RelayTeamDerivationDTO second = service.deriveTeams(EVENT_ID, false);
 
         assertEquals(0, second.getCreated());
-        assertEquals(2, second.getKept());
-        assertEquals(List.of("3A", "3B"), teamKeys());
+        assertEquals(3, second.getKept());
+        assertEquals(List.of("3A", "3B", "3C"), teamKeys());
 
-        // And a third derive, after a class has been emptied of runners, still gives
-        // 3A and 3B: the choice never wanders.
+        // And a third derive, this time pruning, still gives the same three.
         service.deriveTeams(EVENT_ID, true);
-        assertEquals(List.of("3A", "3B"), teamKeys());
+        assertEquals(List.of("3A", "3B", "3C"), teamKeys());
     }
 
     @Test
-    @DisplayName("a team that already holds runners survives a re-derive; an empty extra goes only on a prune")
-    void aTeamWithRunnersSurvivesAReDerive() {
+    @DisplayName("an entry is the confirmed one — the status is named, not assumed")
+    void onlyAConfirmedEntryCounts() {
+        entered(1L, 5L);
+
+        service.deriveTeams(EVENT_ID, false);
+
+        verify(enrollmentRepository, atLeastOnce())
+                .findConfirmedWithUserByEvent(EVENT_ID, Enrollment.EnrollmentStatus.CONFIRMED);
+        assertEquals(List.of("3A", "3B"), teamKeys());
+    }
+
+    // ==================================== two wanted, one or none is no error
+
+    @Test
+    @DisplayName("one class with an entrant derives that one team — and is simply not ready")
+    void oneClassWithAnEntrantDerivesOneTeam() {
+        entered(1L, 2L, 3L, 4L);
+
+        RelayTeamDerivationDTO result = service.deriveTeams(EVENT_ID, false);
+
+        // Nothing is refused: the school did not ask for an error, and one team is a
+        // relay being built rather than a request that cannot be honoured.
+        assertEquals(1, result.getCreated());
+        assertEquals(List.of("3A"), teamKeys());
+
+        // The floor of two is the readiness rule's, and it says so in its own words.
+        assertTrue(readiness.shortfallOf(event).isPresent(), "one team is not a race yet");
+        assertTrue(readiness.shortfallOf(event).orElseThrow().contains("at least 2"),
+                readiness.shortfallOf(event).orElseThrow());
+    }
+
+    @Test
+    @DisplayName("no entrant at all derives no teams — and that is no error either")
+    void noEntrantDerivesNothing() {
+        RelayTeamDerivationDTO result = service.deriveTeams(EVENT_ID, false);
+
+        assertEquals(0, result.getCreated());
+        assertTrue(teamKeys().isEmpty(), "nothing is invented when nobody entered");
+        assertTrue(readiness.shortfallOf(event).isPresent(),
+                "and the relay is not ready, in the readiness rule's own words");
+    }
+
+    @Test
+    @DisplayName("a team from a class nobody entered from is kept while it holds runners")
+    void aTeamWithRunnersIsKeptEvenWhenNobodyEnteredFromIt() {
         // A relay derived before this rule: four teams, and somebody already runs in 3D.
         team("3A");
         team("3B");
@@ -454,6 +551,8 @@ class RelayTeamFormRelayTwoTeamsTest {
         RelayTeam threeD = team("3D");
         relayTeamMemberRepository.save(RelayTeamMember.builder()
                 .team(threeD).user(students.get(12L).getUser()).leg(1).build());
+        // Only 3A and 3B have entrants now — or ever again.
+        entered(1L, 5L);
 
         RelayTeamDerivationDTO kept = service.deriveTeams(EVENT_ID, false);
 
@@ -465,23 +564,55 @@ class RelayTeamFormRelayTwoTeamsTest {
 
         RelayTeamDerivationDTO trimmed = service.deriveTeams(EVENT_ID, true);
 
-        assertEquals(2, trimmed.getKept(), "3A and 3B are the roster's own two");
+        assertEquals(2, trimmed.getKept(), "3A and 3B are the classes that entered");
         assertEquals(1, trimmed.getPruned(), "the empty 3C goes");
         assertEquals(1, trimmed.getKeptWithRunners(), "the 3D somebody runs in stays");
         assertEquals(List.of("3A", "3B", "3D"), teamKeys());
         assertEquals(1, membersOf(threeD.getId()).size(), "and its runner is untouched");
     }
 
+    // ======================================= an entrant with no register row
+
     @Test
-    @DisplayName("a class of the form with no eligible athlete is passed over for the next one")
-    void aClassThatCannotFieldARunnerIsNotOneOfTheTwo() {
-        // 3A's four boys are locked, so the form's first two classes that CAN field a
-        // runner are 3B and 3C.
-        lock(1L, 2L, 3L, 4L);
+    @DisplayName("an entrant with no register row invents no team — there is no class to key one from")
+    void anEntrantWithNoRegisterRowInventsNoTeam() {
+        entered(1L, 99L);
 
         service.deriveTeams(EVENT_ID, false);
 
-        assertEquals(List.of("3B", "3C"), teamKeys());
+        assertEquals(List.of("3A"), teamKeys(), "the account with no roster row makes no class");
+
+        // And with only that account entered, the relay derives nothing at all.
+        teams.clear();
+        entrants.clear();
+        entered(99L);
+        service.deriveTeams(EVENT_ID, false);
+        assertTrue(teamKeys().isEmpty());
+    }
+
+    @Test
+    @DisplayName("a locked student's entry makes no team — they are not on this year's list")
+    void aLockedStudentsEntryMakesNoTeam() {
+        entered(15L, 1L);
+
+        service.deriveTeams(EVENT_ID, false);
+
+        assertEquals(List.of("3A"), teamKeys(), "3E is off this year's list, so it is no team");
+    }
+
+    @Test
+    @DisplayName("an entrant of another form makes no team: nobody could ever run in it")
+    void anEntrantOfAnotherFormMakesNoTeam() {
+        // 2A and 3A. The event is the Form 3 one, so a 2A team could never be filled:
+        // the eligibility rule refuses a Form 2 runner here, and the register the teams
+        // are filled from holds no Form 2 student. A team nobody can be named in is not
+        // a team, so the relay derives 3A alone.
+        entered(13L, 1L);
+
+        service.deriveTeams(EVENT_ID, false);
+
+        assertEquals(List.of("3A"), teamKeys());
+        assertFalse(teamKeys().contains("2A"), "a class outside the relay's form is no team");
     }
 
     // ===================================================== ready, and accepted
@@ -489,6 +620,7 @@ class RelayTeamFormRelayTwoTeamsTest {
     @Test
     @DisplayName("a two-team form relay with every leg filled is ready, and its board renders both")
     void aTwoTeamFormRelayIsReadyAndRenders() {
+        entered(1L, 5L);
         service.deriveTeams(EVENT_ID, false);
         fill(teamNamed("3A"), 1L, 2L, 3L, 4L);
         fill(teamNamed("3B"), 5L, 6L, 7L, 8L);
@@ -516,14 +648,12 @@ class RelayTeamFormRelayTwoTeamsTest {
     @Test
     @DisplayName("four teams of which two are empty is ready too — the empty ones are not in the race")
     void aFourTeamRelayWithTwoEmptyTeamsIsReady() {
-        // The school's own live case: a relay that already held 3A, 3B, 3C and 3D, with
-        // 3A and 3B filled and 3C and 3D still empty ("2B: Short — 4 runner(s) needed").
+        // Four classes entered the relay, and the school has filled two of them so far.
         // The race is 3A against 3B, and it is ready: a team nobody has been named in is
         // not in the race, and the school's rule is two teams to four.
-        team("3A");
-        team("3B");
-        team("3C");
-        team("3D");
+        entered(1L, 5L, 9L, 11L);
+        service.deriveTeams(EVENT_ID, false);
+        assertEquals(List.of("3A", "3B", "3C", "3D"), teamKeys());
         fill(teamNamed("3A"), 1L, 2L, 3L, 4L);
         fill(teamNamed("3B"), 5L, 6L, 7L, 8L);
 
@@ -541,8 +671,9 @@ class RelayTeamFormRelayTwoTeamsTest {
     }
 
     @Test
-    @DisplayName("three or four teams are accepted and ready — nothing refuses more than two")
-    void threeOrFourTeamsAreAcceptedAndReady() {
+    @DisplayName("a team made by hand is never the derive's to drop, and more than two are accepted")
+    void handMadeTeamsAreLeftAlone() {
+        entered(1L, 5L);
         service.deriveTeams(EVENT_ID, false);
         fill(teamNamed("3A"), 1L, 2L, 3L, 4L);
         fill(teamNamed("3B"), 5L, 6L, 7L, 8L);
@@ -556,40 +687,11 @@ class RelayTeamFormRelayTwoTeamsTest {
         assertTrue(readiness.isReady(event), "and so are four");
         assertEquals(4, service.getBoard(EVENT_ID).getTeamCount());
 
-        // A re-derive leaves both hand-made teams where they are.
         RelayTeamDerivationDTO again = service.deriveTeams(EVENT_ID, true);
         assertEquals(0, again.getPruned(), "a hand-made team is never the derive's to drop");
         assertEquals(4, again.getBoard().getTeamCount());
         assertTrue(teamKeys().contains("3C Team"));
         assertTrue(teamKeys().contains("3D Team"));
-    }
-
-    // ==================================== fewer than two classes, and the house relay
-
-    @Test
-    @DisplayName("a form with one eligible class derives that one team — and is simply not ready")
-    void aFormWithOneEligibleClassDerivesOneTeam() {
-        lock(5L, 6L, 7L, 8L, 9L, 10L, 16L, 17L, 11L, 12L, 18L, 19L);
-
-        RelayTeamDerivationDTO result = service.deriveTeams(EVENT_ID, false);
-
-        assertEquals(1, result.getCreated());
-        assertEquals(List.of("3A"), teamKeys());
-        assertTrue(readiness.shortfallOf(event).isPresent(), "one team is not a race yet");
-        assertTrue(readiness.shortfallOf(event).orElseThrow().contains("at least 2"),
-                readiness.shortfallOf(event).orElseThrow());
-    }
-
-    @Test
-    @DisplayName("a form with no eligible class derives no teams at all, and is no error")
-    void aFormWithNoEligibleClassDerivesNothing() {
-        lock(1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L, 9L, 10L, 16L, 17L, 11L, 12L, 18L, 19L);
-
-        RelayTeamDerivationDTO result = service.deriveTeams(EVENT_ID, false);
-
-        assertEquals(0, result.getCreated());
-        assertEquals(0, result.getEligibleStudents());
-        assertTrue(teamKeys().isEmpty(), "nothing is derived from an empty field");
     }
 
     @Test
@@ -598,6 +700,8 @@ class RelayTeamFormRelayTwoTeamsTest {
         event.setRelayTeamKind(RelayTeamKind.HOUSE);
         event.setForm(null);
         event.setName("Boys 4x100M Relay · A Grade");
+        // A house relay is not read from the entries at all: the register divides it.
+        entered(1L);
 
         RelayTeamDerivationDTO result = service.deriveTeams(EVENT_ID, false);
 
@@ -606,5 +710,19 @@ class RelayTeamFormRelayTwoTeamsTest {
         assertEquals(List.of("A Grade Blue", "A Grade Green", "A Grade Red", "A Grade Yellow"),
                 teamLabels());
         assertNull(board().getForm());
+    }
+
+    @Test
+    @DisplayName("a graded form relay with no form still keys one team per class of its grade")
+    void anUnscopedFormRelayIsStillReadFromTheRegister() {
+        event.setForm(null);
+        // Nobody entered from 3A or 3C, and it makes no difference: with no form the
+        // relay is scoped by its grade, exactly as it was before the form existed, and
+        // the register of that grade is what divides it.
+        entered(5L);
+
+        service.deriveTeams(EVENT_ID, false);
+
+        assertEquals(List.of("2A", "3A", "3B", "3C", "3D"), teamKeys());
     }
 }

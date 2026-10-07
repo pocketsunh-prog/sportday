@@ -21,6 +21,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 
@@ -150,6 +152,58 @@ public class EventGroupController {
         relayReadiness.requireRelayIsReadyToMark(group.getEvent());
         byte[] pdf = pdfSheetService.renderGroupSheet(groupId);
         return pdfResponse(pdf, sheetFileName(group));
+    }
+
+    @Operation(summary = "Download every relay's marking sheets in one file",
+            description = "The relay programme's own print run: one sheet per relay named in "
+                    + "`eventIds`, in the order given, composed into a single PDF by the same "
+                    + "renderer the per-event run uses. The caller names the relays — the relay "
+                    + "programme page sends the ones it is listing, so the file and the list on "
+                    + "screen agree. A relay with no markable sheet at all is **refused with its "
+                    + "own reason**, every one of them listed, so nothing can drop silently out of "
+                    + "the file; a relay named twice is printed once, and an event that is not a "
+                    + "relay is refused by name (ADMIN, MANAGER or HELPER).")
+    @GetMapping("/relay-events/sheets.pdf")
+    @PreAuthorize("hasAnyRole('ADMIN','MANAGER','HELPER')")
+    public ResponseEntity<byte[]> relaySheets(@RequestParam(required = false) List<Long> eventIds) {
+        List<Long> wanted = eventIds == null ? List.of()
+                : new ArrayList<>(new LinkedHashSet<>(eventIds));
+        if (wanted.isEmpty()) {
+            throw new IllegalArgumentException("Name the relays to print: send `eventIds` with the "
+                    + "ids of the relay events whose sheets belong in the run, in the order they "
+                    + "are to be printed. A relay that cannot be printed yet cannot be skipped "
+                    + "past silently, so the run is asked for plainly.");
+        }
+
+        List<Event> relays = new ArrayList<>(wanted.size());
+        for (Long eventId : wanted) {
+            Event event = eventService.requireEvent(eventId);
+            if (!event.isRelay()) {
+                throw new IllegalArgumentException(event.getName() + " is not a relay event, so it "
+                        + "has no relay sheet to print. This run is the relay programme's; an "
+                        + "individual event's sheets are printed from the whole-programme run.");
+            }
+            relays.add(event);
+        }
+
+        // Every relay that cannot print is named BEFORE anything is rendered — all of them at
+        // once, not the first — so one press tells the office everything it has to finish. Read
+        // in two queries for the whole run, however many relays it covers.
+        Map<Long, String> shortfalls = relayReadiness.shortfallsOf(relays);
+        if (!shortfalls.isEmpty()) {
+            throw new IllegalStateException("These relays have no sheet to print yet: "
+                    + String.join(" ", shortfalls.values()));
+        }
+
+        List<EventGroupDTO> groups = new ArrayList<>();
+        for (Event relay : relays) {
+            groups.addAll(eventGroupService.getGroupsWithAthletes(relay.getId()));
+        }
+        if (groups.isEmpty()) {
+            throw new IllegalStateException("None of the relays on this run has a sheet to print "
+                    + "yet. Build a relay's teams and fill them first.");
+        }
+        return pdfResponse(pdfSheetService.renderSheets(groups), "sportday-relay-sheets.pdf");
     }
 
     @Operation(summary = "Download every marking sheet of an event",

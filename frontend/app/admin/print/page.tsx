@@ -138,7 +138,8 @@ export default function PrintSheetsPage() {
        *
        * This page prints the individual athlete's paper: one line per athlete,
        * one sheet per heat. A relay is run and scored by *team*, its sheet is one
-       * line per team, and it is printed from the relay's own page — which is
+       * line per team, and it is printed from the relay programme page — from each
+       * relay's own card, or all of them in one press — which is
        * also where its marks are keyed in. The whole-run download asks the server
        * for the same thing (`includeRelays=false`) and the page says so out loud,
        * so nothing is omitted behind the reader's back.
@@ -302,8 +303,9 @@ export default function PrintSheetsPage() {
    * the category the filters are on, and **without the relays**.
    *
    * `includeRelays=false` is asked for on purpose rather than left to the server.
-   * A relay's paper is one line per team and is printed from the relay's own
-   * page, so this page prints the individual events only — and the file it hands
+   * A relay's paper is one line per team and is printed from the relay programme
+   * page — a card at a time, or the whole list in one press — so this page prints
+   * the individual events only, and the file it hands
    * over is exactly the list above it rather than a programme that quietly
    * differs from what the count says. The control and the page both say so
    * (`print.relayNote`), because a print run that omits a relay must be a

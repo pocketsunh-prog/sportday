@@ -294,9 +294,10 @@ public class Event {
     private Boolean directToFinalAuto;
 
     /**
-     * How a relay event's teams are divided — a form relay's <strong>first two
-     * classes</strong> ({@code 3A} and {@code 3B} for a Form 3 relay), or one per house
-     * within the event's grade. <strong>Nullable and optional</strong>: a relay with
+     * How a relay event's teams are divided — one team per class a form relay's
+     * <strong>entrants are in</strong> ({@code 3A} and {@code 3B} for a Form 3 relay
+     * whose entrants are in those two classes), or one per house within the event's
+     * grade. <strong>Nullable and optional</strong>: a relay with
      * no kind is simply undivided, which is how the relay events already in the
      * programme behave, so this feature adds a choice without taking one away. A
      * non-relay event must not have one at all, and {@code EventService} refuses a

@@ -97,6 +97,19 @@ public class MarkEntryService {
     }
 
     /**
+     * True when this relay team belongs to this event.
+     *
+     * <p>A team row is judged by its team — see the save loop — so this is the answer
+     * to "may this row be saved here". The team's own runners are not consulted: who
+     * runs in a team is the relay board's business, and the register's classes and the
+     * event's entrants are different sets.</p>
+     */
+    private boolean teamOf(Long eventId, Long teamId) {
+        return relayTeamRepository.findByEventIdOrderByIdAsc(eventId).stream()
+                .anyMatch(team -> team.getId().equals(teamId));
+    }
+
+    /**
      * The teams of a relay event, or none for anything else — an individual event, or a
      * relay nobody has divided yet.
      *
@@ -457,7 +470,27 @@ public class MarkEntryService {
                 outcome.addError(userId, "This athlete appears twice in the same save.");
                 continue;
             }
-            if (!allowed.contains(userId)) {
+            /*
+             * A relay's row is the TEAM, not the athlete the result happens to hang
+             * off. Its runners come from the register — the classes of the form, or
+             * the houses of the grade — while `allowed` is who ENTERED the event, and
+             * the two are different sets: a team is filled from the class list, and a
+             * school relay is often entered by different students altogether.
+             *
+             * So a row carrying a team is judged by its team: the team must belong to
+             * this event. Its anchor runner need not have entered, and demanding it
+             * refused every relay save with "The athlete is not entered in this event"
+             * — which is true of the person and irrelevant to the team.
+             */
+            Long teamId = row.getTeamId();
+            if (teamId != null) {
+                if (!teamOf(eventId, teamId)) {
+                    outcome.setFailed(outcome.getFailed() + 1);
+                    outcome.addError(userId,
+                            "That relay team does not belong to this event.");
+                    continue;
+                }
+            } else if (!allowed.contains(userId)) {
                 outcome.setFailed(outcome.getFailed() + 1);
                 outcome.addError(userId, stage == EventStage.FINAL
                         ? "The athlete did not qualify for the final."

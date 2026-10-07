@@ -19,6 +19,7 @@ import {
 import { useAuth } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n';
 import type { MessageKey } from '@/lib/i18n';
+import RelayMarkEntry from '@/components/RelayMarkEntry';
 
 /** The two families of relay, one page each: class teams, or grade x house teams. */
 export type RelayFamily = RelayTeamKind;
@@ -182,9 +183,9 @@ interface RelayGrid {
  *
  * <ul>
  *   <li>{@code family="FORM"} — the <strong>form class</strong> relays, at
- *       {@code /admin/relay-events/form}: one team per <strong>class</strong>
- *       ({@code 5A}, {@code 5B}) of the form the relay is scoped to, Forms 1 to 6,
- *       with a filter on each form;</li>
+ *       {@code /admin/relay-events/form}: one team per <strong>class that entered the
+ *       relay</strong> ({@code 5A}, {@code 5B}), across the form the relay is scoped
+ *       to, Forms 1 to 6, with a filter on each form;</li>
  *   <li>{@code family="HOUSE"} — the <strong>grade house</strong> relays, at
  *       {@code /admin/relay-events/grade}: one team per <strong>grade x house</strong>
  *       ({@code C Grade Yellow}), Grades A to C, with a filter on each grade.</li>
@@ -217,7 +218,9 @@ interface RelayGrid {
  *
  * A FORM relay may also be **scoped to a form**. A form is not a grade: a relay
  * scoped to Form 1 takes whoever is in Form 1 whatever grade they are, so its
- * teams are that form's classes across every grade — `1A`, `1B`, `1C`, `1D`. Left
+ * teams are **the classes its entrants are in**, across every grade — `1A`, `1B`,
+ * `1C` when students from those three entered, and no team for a class nobody
+ * entered from. Left
  * unscoped (no form), a FORM relay keeps the older rule and takes one team per
  * class of **the event's own grade**. The scope is a field of the event, set where
  * the event itself is edited — and a cell of a grid is created already carrying the
@@ -274,19 +277,27 @@ interface RelayGrid {
  *       names and the way into each one — rather than a page of failed requests;</li>
  *   <li>a relay's <strong>marking sheets</strong> are ADMIN, MANAGER or HELPER
  *       ({@code EventGroupController}), so an administrator, a manager and a
- *       helper each get the card's own print button, and a <strong>teacher</strong>
+ *       helper each get the card's own print button and the one press that prints the
+ *       whole list in a single file, and a <strong>teacher</strong>
  *       is told plainly that printing is not theirs;</li>
+ *   <li>a relay's <strong>marks</strong> are ADMIN, MANAGER or HELPER too
+ *       ({@code GET}/{@code POST /api/events/{id}/marks}; there is no
+ *       {@code /api/admin/events/{id}/marks}), so those three are offered the card's
+ *       mark-entry panel and a <strong>teacher</strong> — who may build a relay and
+ *       place its runners but may not key its times — is told so on the card;</li>
  *   <li>creating the programme's relays (the grids above) and
  *       <strong>deleting</strong> one are {@code hasAnyRole('ADMIN','MANAGER')} and
  *       {@code hasRole('ADMIN')}, so both are an administrator's.</li>
  * </ul>
  *
  * What every role can do from here is open a relay's board, which is where its
- * teams are filled **and where its marks are keyed in**: a relay is marked by
- * team, one time for the four runners together, and that grid lives on the
- * relay's own board (see `RelayMarkEntry`). This page is the index to it.
+ * teams are filled. A relay's **marks are keyed in here**, on the relay's own card:
+ * a relay is marked by team, one time for the four runners together, and that grid
+ * (`RelayMarkEntry`) is opened by the card's *Key this relay's times* button rather
+ * than living on the event's own board — one panel at a time, because the page lists
+ * up to twenty-four relays and each has its own teams and its own save.
  *
- * ## A relay's sheets are printed from its own card, not from the print page
+ * ## A relay's sheets are printed from its own card, or from the whole list at once
  *
  * A relay is not on the print page at all any more and not in the whole-programme
  * print run: its paper is one line per team rather than one per athlete, and it
@@ -295,6 +306,13 @@ interface RelayGrid {
  * relay that has teams and no heats, and **refuses a relay with nothing to print
  * with the reason**, naming the team that is short. That refusal is shown exactly
  * as the server wrote it.
+ *
+ * And above the list stands **one press for the whole list**:
+ * {@code GET /api/relay-events/sheets.pdf?eventIds=…} composes every relay this page
+ * is showing into a single PDF — the relays the filter lets through, so the file is
+ * the list on screen — and names, on the screen, every relay it had to leave out and
+ * why, so a file short of a relay is never a surprise. A relay that cannot print is
+ * therefore refused by the server with its own reason rather than dropped quietly.
  *
  * ## An event with no teams is the normal starting state
  *
@@ -327,6 +345,20 @@ export default function RelayEventsList({ family }: { family: RelayFamily }) {
   const [deleted, setDeleted] = useState<string | null>(null);
   /** What the last "create the missing class relays" run produced. */
   const [built, setBuilt] = useState<{ names: string[]; failed: string[] } | null>(null);
+  /**
+   * The relay whose mark entry is open on its card, if any. **One at a time**, and it
+   * is the same component the relay's own board used to carry: a grid of up to
+   * twenty-four relays, each with its own teams and its own save, would be a wall of
+   * inputs nobody could read, so the page offers the grid for the relay being worked on
+   * and leaves the others as cards.
+   */
+  const [marking, setMarking] = useState<number | null>(null);
+  /**
+   * The file the combined relay print run saved, or `null` until it is pressed. The
+   * relays it had to leave out are computed from the list at render time rather than
+   * held here, so they are on screen before the press as well as after it.
+   */
+  const [printRunFile, setPrintRunFile] = useState<string | null>(null);
 
   const isAdmin = user?.role === 'ADMIN';
   /**
@@ -349,6 +381,14 @@ export default function RelayEventsList({ family }: { family: RelayFamily }) {
    * the relay's own sheets and its teams' times, which their endpoints do admit.
    */
   const canWork = canReadBoard || canPrintSheets;
+  /**
+   * **Who may key a relay's times** — exactly the roles
+   * `GET/POST /api/events/{id}/marks` admits: ADMIN, MANAGER and HELPER. A teacher
+   * may build a relay and place its runners but may not record its marks, so the
+   * grid is not offered to them and the reason is on the card instead. Nothing is
+   * narrowed here and nothing widened; there is no `/api/admin/events/{id}/marks`.
+   */
+  const canKeyMarks = isAdmin || user?.role === 'MANAGER' || user?.role === 'HELPER';
   /** The endpoint family this caller may use: `/teacher/**` for a teacher. */
   const role: Role = isAdmin ? 'ADMIN' : 'TEACHER';
 
@@ -515,6 +555,55 @@ export default function RelayEventsList({ family }: { family: RelayFamily }) {
         what: 'relayEvents.printFailed',
       };
       setFailures(previous => ({ ...previous, [event.id]: failure }));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  /**
+   * **Prints every relay this page is showing, in one file** — one press, one PDF,
+   * through `GET /api/relay-events/sheets.pdf?eventIds=…`.
+   *
+   * ## What it covers
+   *
+   * The **relays listed below**, as this page's own filter is showing them — not the
+   * whole programme: the class page prints the class relays it lists and the house page
+   * the house ones, so the file matches the count on the screen. The request names them,
+   * so the run cannot quietly widen.
+   *
+   * ## A relay that cannot print is named, never dropped in silence
+   *
+   * The relays the event list reports as **not ready** (`relayReady === false`) are left
+   * out of the request and named under the button with the server's own
+   * `readinessReason` — the same verdict the readiness gate would refuse the run with,
+   * read from the list the page already holds. The server is still the gate: if a relay
+   * it is sent has become unprintable since the list was read, the whole request is
+   * refused with every such relay's reason, shown here as it stands.
+   *
+   * **ADMIN, MANAGER or HELPER** — the three the endpoint admits. A teacher is not
+   * offered the control; the note beside it says so.
+   */
+  const printAllSheets = async () => {
+    const printable = relayEvents.filter(event => event.relayReady !== false);
+    setBusy('print-all');
+    setError(null);
+    setDeleted(null);
+    setPrintRunFile(null);
+    if (printable.length === 0) {
+      // Nothing to ask for: the warning under the button already names which relays
+      // are missing what, so no request that could only be refused is sent.
+      setBusy(null);
+      return;
+    }
+    try {
+      const filename = await api.downloadRelaySheets(
+        printable.map(event => event.id),
+        'sportday-relay-sheets.pdf'
+      );
+      setPrintRunFile(filename);
+    } catch (err) {
+      // The server's own sentence, which names every relay that has no sheet to print.
+      setError(errorText(err, t('relayEvents.printAllFailed')));
     } finally {
       setBusy(null);
     }
@@ -793,6 +882,24 @@ export default function RelayEventsList({ family }: { family: RelayFamily }) {
   const anyUnscoped = classRelays && listed.some(event => scopeValueOf(event) === '');
 
   /**
+   * **The relays the combined print run covers, split by whether they can print.**
+   *
+   * The list is `relayEvents` — this page's family, as the filter is showing it — read
+   * against the server's own readiness verdict on the event list (`relayReady`, absent
+   * meaning ready), which is the same fact the server's gate judges. The split is shown
+   * on screen rather than discovered in the file: every relay left out is named with the
+   * server's `readinessReason`, so a run that is short of a relay says why.
+   */
+  const printableRelays = relayEvents.filter(event => event.relayReady !== false);
+  const skippedRelays = relayEvents
+    .filter(event => event.relayReady === false)
+    .map(event => ({
+      id: event.id,
+      name: titleFor(event),
+      reason: event.readinessReason ?? t('relayEvents.notReadyUnknown'),
+    }));
+
+  /**
    * The events grouped by this page's own axis — form (1 to 6, then the unscoped
    * ones) on the class page, grade (A to C) on the house one — so a reader sees the
    * shape of the programme rather than one flat list. A group with nothing in it is
@@ -865,7 +972,14 @@ export default function RelayEventsList({ family }: { family: RelayFamily }) {
    * The house page keeps the name exactly as the school wrote it: there the grade
    * **is** the point, and the name already says it.
    */
-  const titleFor = (event: EventDTO): string => {
+  /*
+   * Declared as a function, not a `const` arrow, on purpose: this is called while the
+   * page is still building its lists — the skipped-relay note needs each relay's title —
+   * and a `const` would not be initialised yet at that point. A function declaration is
+   * hoisted, so the call above works. Everything it reads (`t`, `formOf`, `classRelays`)
+   * is already initialised by the time it runs.
+   */
+  function titleFor(event: EventDTO): string {
     if (!classRelays) return event.name;
     const form = formOf(event);
     // A relay scoped to no form keeps the older rule and is scoped by its own
@@ -878,7 +992,7 @@ export default function RelayEventsList({ family }: { family: RelayFamily }) {
     const scope = NAME_SCOPE_AT_END.exec(event.name);
     const base = (scope ? event.name.slice(0, scope.index) : event.name).trim();
     return base ? `${base} · ${t('relayEvents.formN', { form })}` : event.name;
-  };
+  }
 
   /**
    * What a relay is **short of**, as the school counts it, or `null` when it is
@@ -1005,11 +1119,24 @@ export default function RelayEventsList({ family }: { family: RelayFamily }) {
         <span className="muted">{t('relayEvents.teacherPrintLimit')}</span>
       )}
       {/*
-        Where a relay's times are keyed in, said on the card that opens that very
-        board: the reader who may not read the board (a manager, an input helper)
-        still needs to know that this is the way in.
+        Where a relay's times are keyed in: on this card, in the panel the button
+        opens. It is offered to exactly the three roles the mark-entry endpoints
+        admit — ADMIN, MANAGER and HELPER — and a teacher, who may build a relay but
+        may not key its marks, is told so rather than shown a control whose only
+        outcome would be a 403.
       */}
-      {canPrintSheets && <span className="muted">{t('relayEvents.markOnBoard')}</span>}
+      {canKeyMarks ? (
+        <button
+          type="button"
+          className="btn btn-sm btn-primary"
+          disabled={busy !== null}
+          onClick={() => setMarking(open => (open === event.id ? null : event.id))}
+        >
+          {marking === event.id ? t('relayMark.hide') : t('relayMark.keyTimes')}
+        </button>
+      ) : (
+        <span className="muted">{t('relayMark.teacherLimit')}</span>
+      )}
     </div>
   );
 
@@ -1117,6 +1244,14 @@ export default function RelayEventsList({ family }: { family: RelayFamily }) {
    * The title is this page's own axis — the form on the class page, the grade on
    * the house one (see `titleFor`) — and the readiness line stands with the facts,
    * so a relay short of teams says so where its counts are.
+   *
+   * **A relay's times are keyed in on its own card**, in the panel the card's
+   * *Key this relay's times* button opens. The grid is the relay's marks as they have
+   * always been read — one line per team, one time for the four runners together
+   * (`RelayMarkEntry`, `GET`/`POST /api/events/{id}/marks`) — and it is offered here,
+   * where the relays are listed, rather than on the event's own board. Only one is
+   * open at a time: a page listing twenty-four relays, each with its own teams and its
+   * own save, would otherwise be a wall of inputs.
    */
   const eventCard = (event: EventDTO) => {
     const card = (
@@ -1139,6 +1274,11 @@ export default function RelayEventsList({ family }: { family: RelayFamily }) {
         {linksFor(event)}
         <div className="mt-3">{outcomeFor(event)}</div>
         {teamsFor(event)}
+        {canKeyMarks && marking === event.id && (
+          <div className="mt-3">
+            <RelayMarkEntry eventId={event.id} />
+          </div>
+        )}
       </div>
     );
     return card;
@@ -1378,6 +1518,60 @@ export default function RelayEventsList({ family }: { family: RelayFamily }) {
           </div>
         </div>
         <p className="muted mt-2">{t('relayEvents.listHint')}</p>
+
+        {/*
+          **One press for every relay this page is showing.** The run covers the list
+          below — the relays of this family that the filter lets through — and the
+          request names them, so the file is the list on screen and not a programme that
+          quietly differs from it. A relay with no markable sheet yet is left out and
+          named with its reason underneath, so a file that is short of a relay is never a
+          surprise; the cards' own buttons stay, for one relay at a time.
+        */}
+        {canPrintSheets ? (
+          <>
+            <div className="pill-actions mt-3">
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={busy !== null || printableRelays.length === 0}
+                onClick={printAllSheets}
+              >
+                {busy === 'print-all'
+                  ? t('common.downloading')
+                  : t('relayEvents.printAllSheets', { count: printableRelays.length })}
+              </button>
+              <span className="muted">
+                {t('relayEvents.printAllScope', { count: relayEvents.length })}
+              </span>
+            </div>
+            {printRunFile && (
+              <div className="alert alert-success mt-2">
+                {t('relayEvents.printAllDone', {
+                  filename: printRunFile,
+                  count: printableRelays.length,
+                })}
+              </div>
+            )}
+            {skippedRelays.length > 0 && (
+              <div className="alert alert-warning mt-2">
+                <strong>
+                  {printableRelays.length === 0
+                    ? t('relayEvents.printAllNone')
+                    : t('relayEvents.printAllSkipped')}
+                </strong>
+                <ul className="mt-1">
+                  {skippedRelays.map(relay => (
+                    <li key={relay.id}>
+                      {relay.name} — {relay.reason}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </>
+        ) : (
+          <p className="muted mt-2">{t('relayEvents.teacherPrintLimit')}</p>
+        )}
       </div>
 
       {listed.length === 0 && (

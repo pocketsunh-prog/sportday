@@ -72,7 +72,8 @@ public class SecurityConfig {
                 // @PreAuthorize on EventGroupController that closes it, and that
                 // is why the annotation there has to name HELPER as well — the
                 // two layers are a conjunction, and method security runs second.
-                .requestMatchers("/api/groups/*/sheet.pdf", "/api/events/*/sheets.pdf", "/api/sheets.pdf")
+                .requestMatchers("/api/groups/*/sheet.pdf", "/api/events/*/sheets.pdf", "/api/sheets.pdf",
+                        "/api/relay-events/sheets.pdf")
                     .hasAnyRole("ADMIN", "MANAGER", "HELPER")
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
                 // Helping a student enter or withdraw is what a TEACHER is for. The
