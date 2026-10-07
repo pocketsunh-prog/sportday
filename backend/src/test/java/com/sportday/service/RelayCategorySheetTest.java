@@ -2,7 +2,6 @@ package com.sportday.service;
 
 import com.sportday.dto.EnrollmentDTO;
 import com.sportday.dto.EventGroupDTO;
-import com.sportday.entity.Event;
 import com.sportday.entity.EventCategory;
 import com.sportday.entity.Grade;
 import com.sportday.entity.Sex;

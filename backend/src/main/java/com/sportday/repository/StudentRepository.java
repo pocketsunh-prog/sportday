@@ -20,8 +20,6 @@ public interface StudentRepository extends JpaRepository<Student, Long> {
 
     Optional<Student> findByUserId(Long userId);
 
-    boolean existsByStudentId(String studentId);
-
     /** Students plus their login account, in student-id order. */
     @EntityGraph(attributePaths = "user")
     @Query("select s from Student s order by s.studentId asc")
@@ -46,7 +44,7 @@ public interface StudentRepository extends JpaRepository<Student, Long> {
     /**
      * The students who may run in an event: the event's own division and grade, and
      * on this year's list. This is what a relay team is derived from — one team per
-     * form, or one per house, among exactly these students — and the same filter the
+     * class, or one per house, among exactly these students — and the same filter the
      * entry rules apply when they judge an athlete eligible for the event.
      *
      * <p>A locked student is left out: they are not on this year's list and may not
@@ -103,15 +101,8 @@ public interface StudentRepository extends JpaRepository<Student, Long> {
 
     long countBySex(Sex sex);
 
-    long countByHouse(String house);
-
     @Query("select distinct s.className from Student s order by s.className asc")
     List<String> findDistinctClassNames();
-
-    @Query("select distinct s.house from Student s order by s.house asc")
-    List<String> findDistinctHouses();
-
-    List<Student> findByImportBatch(String importBatch);
 
     /**
      * The import batches in recency order, so the most recent upload can be

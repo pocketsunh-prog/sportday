@@ -1,7 +1,6 @@
 package com.sportday.repository;
 
 import com.sportday.entity.Event;
-import com.sportday.entity.EventCategory;
 import com.sportday.entity.Grade;
 import com.sportday.entity.Sex;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -9,7 +8,6 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
-import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
@@ -18,27 +16,11 @@ public interface EventRepository extends JpaRepository<Event, Long> {
 
     List<Event> findByEnabledTrue();
 
-    List<Event> findByEnabledTrueAndEventDateAfter(LocalDate date);
-
-    List<Event> findByTypeAndEnabledTrue(Event.EventType type);
-
-    List<Event> findByEnabledTrueAndSex(Sex sex);
-
-    List<Event> findByEnabledTrueAndCategory(Sex sex, EventCategory category);
-
-    List<Event> findByEnabledTrueAndCategoryOrderByTypeAsc(EventCategory category);
-
-    List<Event> findAllByOrderByCategoryAscTypeAscSexAsc();
-
     /**
      * One event of a type, division and grade — the combination that identifies an
      * event. Used to keep the catalogue seeding idempotent.
      */
     Optional<Event> findFirstByTypeAndSexAndGrade(Event.EventType type, Sex sex, Grade grade);
-
-    Optional<Event> findFirstByTypeAndSexAndEventDate(Event.EventType type, Sex sex, LocalDate eventDate);
-
-    long countByEnabledTrue();
 
     // ------------------------------------------------------------- by school year
 
@@ -65,7 +47,4 @@ public interface EventRepository extends JpaRepository<Event, Long> {
 
     /** Events created before seasons existed, so the bootstrap can adopt them. */
     List<Event> findBySeasonIsNull();
-
-    /** The first event of its type and division in a given year. */
-    Optional<Event> findFirstByTypeAndSexAndSeasonId(Event.EventType type, Sex sex, Long seasonId);
 }

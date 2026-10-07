@@ -1,7 +1,6 @@
 package com.sportday.service;
 
 import com.sportday.entity.Event;
-import com.sportday.entity.EventCategory;
 import com.sportday.entity.EventResult;
 
 import java.math.BigDecimal;

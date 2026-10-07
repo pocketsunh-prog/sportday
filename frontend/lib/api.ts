@@ -36,12 +36,6 @@ export type MarkStage = 'HEAT' | 'FINAL';
  */
 export type MarkOutcome = 'RESULT' | 'ABS' | 'DQ';
 
-export const CATEGORY_LABELS: Record<EventCategory, string> = {
-  TRACK: '徑項 Track',
-  FIELD: '田項 Field',
-  RELAY: '接力 Relay',
-};
-
 /**
  * The event types the standard catalogue covers. `groupSize` / `sheetSize`
  * follow the backend rule: lane-based short sprints run 8 per heat on A5
@@ -111,7 +105,7 @@ export function formatAttempts(attempts?: Array<number | null> | null): string {
  *
  * This is the rule behind `EventDTO.mayHaveFinal`.
  */
-export const FINAL_EVENT_TYPES: ReadonlyArray<string> = [
+const FINAL_EVENT_TYPES: ReadonlyArray<string> = [
   'RUN_60M',
   'RUN_100M',
   'RUN_200M',
@@ -149,17 +143,6 @@ export function asFinalState(value: string | null | undefined): FinalState | nul
   return value && (FINAL_STATES as ReadonlyArray<string>).includes(value)
     ? (value as FinalState)
     : null;
-}
-
-/**
- * Whether the final stage may be offered for an event in this state.
- *
- * Only `DRAWN` qualifies — the server refuses a final mark grid and a final
- * sheet with a 409 in every other state, so offering the stage would only lead
- * a helper into a control that cannot be worked on.
- */
-export function canWorkFinal(state: FinalState | null | undefined): boolean {
-  return state === 'DRAWN';
 }
 
 /**

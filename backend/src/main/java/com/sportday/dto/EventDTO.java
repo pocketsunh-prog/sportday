@@ -174,7 +174,7 @@ public class EventDTO {
 
     /**
      * {@code FORM} or {@code HOUSE} — how this relay's teams are divided into one
-     * team per form, or one per house within the event's grade. <strong>Null is
+     * team per class, or one per house within the event's grade. <strong>Null is
      * meaningful and normal</strong>: a relay with no kind is simply undivided,
      * which is how the relay events already in the programme behave. Only a relay
      * may carry one; an empty string on an update clears it.

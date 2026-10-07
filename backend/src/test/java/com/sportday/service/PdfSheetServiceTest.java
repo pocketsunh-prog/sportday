@@ -4,7 +4,6 @@ import com.sportday.dto.EnrollmentDTO;
 import com.sportday.dto.EventGroupDTO;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
-import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.rendering.ImageType;
 import org.apache.pdfbox.rendering.PDFRenderer;
 import org.apache.pdfbox.text.PDFTextStripper;
@@ -15,7 +14,6 @@ import org.junit.jupiter.api.condition.EnabledIf;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
-import java.io.ByteArrayInputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;

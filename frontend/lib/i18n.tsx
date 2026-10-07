@@ -60,7 +60,6 @@ const en = {
   'common.all': 'All',
   'common.none': 'None',
   'common.actions': 'Actions',
-  'common.retry': 'Try again',
 
   /* ---------------- roles ---------------- */
   'role.ADMIN': 'Administrator',
@@ -162,8 +161,6 @@ const en = {
     'One sheet per heat for the helper to write the results on, for the individual events of the programme. Short sprints print on A5, everything else on A4. Relays are not on this page — a relay’s paper carries one line per team, and it is printed from the relay’s own page.',
   'print.division': 'Division',
   'print.category': 'Category',
-  'print.event': 'Event',
-  'print.allEvents': 'All events with heats',
   'print.preview': 'Preview',
   'print.downloadAll': 'Download all matching sheets',
   'print.gradeDownloadHint':
@@ -183,8 +180,6 @@ const en = {
   'print.browserPrint': 'Print in browser',
   'print.columns':
     'Each sheet has five columns: student ID, name, grade, record and remark. Record and remark are left blank for the marker.',
-  'print.allDivisions': 'All divisions',
-  'print.allCategories': 'All categories',
   'print.matchingCount': '{count} matching event(s), {heats} heat(s) in total',
   'print.noMatching': 'No events match the current filters.',
   /*
@@ -204,11 +199,9 @@ const en = {
   'marks.title': 'Mark entry',
   'marks.subtitle':
     'Type the results straight into the grid and save them all at once. The grid is for the individual events: a relay’s lines are teams, and its times are keyed in on the relay’s own board.',
-  'marks.pickEvent': 'Event',
   'marks.pickGroup': 'Heat',
   /* The picker is narrowed by the event's own grade; the sheet's rows still
      carry the athlete's grade, which is what the second filter narrows. */
-  'marks.eventGrade': 'Event grade',
   'marks.pickGrade': 'Athlete grade',
   'marks.allGroups': 'All heats',
   'marks.allGrades': 'All grades',
@@ -242,7 +235,6 @@ const en = {
   'standards.standard': 'Standard',
   'standards.unit': 'Unit',
   'standards.none': 'No standard',
-  'standards.saveAll': 'Save standards',
   'standards.savedCount': '{count} standards saved.',
   'standards.failedCount': '{count} standards could not be saved:',
   'standards.saveFailed': 'Could not be saved',
@@ -257,8 +249,6 @@ const en = {
   'standards.defaultsKey':
     'The key is event type × grade × division. Boys and girls are separate on purpose: they are separate races with their own qualifying marks, so a boys\u2019 default is never applied to a girls\u2019 event.',
   'standards.grade': 'Grade',
-  'standards.sex.MALE': 'Boys',
-  'standards.sex.FEMALE': 'Girls',
   'standards.inheritors': 'inherited by {count} event(s)',
   'standards.noEvents': 'no such event in this programme',
   'standards.invalidDefault':
@@ -398,8 +388,6 @@ const en = {
      listed, so the register, the relay board and the mark grid cannot disagree. */
   'students.form': 'Form',
   'students.formValue': 'Form {form}',
-  'students.houseCodeHint':
-    'A house’s short code — R, Y, B, G. A house the school has not given a code is shown by its name alone.',
   'students.importResult': 'Import result',
   'students.created': 'Created',
   'students.updated': 'Updated',
@@ -1519,7 +1507,6 @@ const zh: Record<keyof typeof en, string> = {
   'common.all': '全部',
   'common.none': '無',
   'common.actions': '操作',
-  'common.retry': '再試一次',
 
   'role.ADMIN': '管理員',
   'role.MANAGER': '幹事',
@@ -1594,8 +1581,6 @@ const zh: Record<keyof typeof en, string> = {
     '每組一張記錄表，供工作人員填寫成績，適用於個人項目。短跑用 A5，其餘用 A4。接力項目不在本頁：接力記錄表每隊一行，請在接力項目自己的頁面列印。',
   'print.division': '組別',
   'print.category': '類別',
-  'print.event': '項目',
-  'print.allEvents': '所有已分組項目',
   'print.preview': '預覽',
   'print.downloadAll': '下載所有符合的記錄表',
   'print.gradeDownloadHint': '整批下載涵蓋所有級別。請先清除級別篩選，或於下方逐項下載。',
@@ -1610,8 +1595,6 @@ const zh: Record<keyof typeof en, string> = {
     '只要範圍內仍有項目等待決賽抽籤，整批下載便無法進行：只印初賽會令人以為決賽記錄表遺失了。',
   'print.browserPrint': '在瀏覽器列印',
   'print.columns': '每張記錄表有五欄：學號、姓名、級別、成績、備註。成績及備註留空供工作人員填寫。',
-  'print.allDivisions': '全部組別',
-  'print.allCategories': '全部類別',
   'print.matchingCount': '符合項目 {count} 個，共 {heats} 組',
   'print.noMatching': '沒有符合篩選條件的項目。',
   'print.relayNote':
@@ -1625,9 +1608,7 @@ const zh: Record<keyof typeof en, string> = {
   'marks.title': '輸入成績',
   'marks.subtitle':
     '直接在表格輸入成績，一次儲存全部。本表格適用於個人項目：接力的每一行是隊伍，其時間請在接力項目自己的編排頁輸入。',
-  'marks.pickEvent': '項目',
   'marks.pickGroup': '組別',
-  'marks.eventGrade': '項目級別',
   'marks.pickGrade': '運動員級別',
   'marks.allGroups': '全部組別',
   'marks.allGrades': '全部級別',
@@ -1659,7 +1640,6 @@ const zh: Record<keyof typeof en, string> = {
   'standards.standard': '標準',
   'standards.unit': '單位',
   'standards.none': '不設標準',
-  'standards.saveAll': '儲存標準',
   'standards.savedCount': '已儲存 {count} 項標準。',
   'standards.failedCount': '有 {count} 項標準未能儲存：',
   'standards.saveFailed': '未能儲存',
@@ -1674,8 +1654,6 @@ const zh: Record<keyof typeof en, string> = {
   'standards.defaultsKey':
     '鍵值為項目類型 × 組別 × 性別。男子與女子刻意分開：兩者是獨立賽事，各有自己的達標標準，因此男子的預設標準永遠不會套用到女子項目。',
   'standards.grade': '組別',
-  'standards.sex.MALE': '男子',
-  'standards.sex.FEMALE': '女子',
   'standards.inheritors': '由 {count} 個項目繼承',
   'standards.noEvents': '本屆賽事沒有此項目',
   'standards.invalidDefault': '{event} {grade}："{value}" 不是大於零的數字',
@@ -1783,7 +1761,6 @@ const zh: Record<keyof typeof en, string> = {
   /* 班別所屬的級別 — 5D 即 Form 5 — 以及社及其簡寫。 */
   'students.form': '級別',
   'students.formValue': 'Form {form}',
-  'students.houseCodeHint': '社的簡寫 — R、Y、B、G。學校未設定簡寫的社只顯示社名。',
   'students.importResult': '匯入結果',
   'students.created': '新增',
   'students.updated': '更新',

@@ -137,11 +137,6 @@ public class StudentImportParser {
         return toGrid(records);
     }
 
-    /** The same, for a file already read as a list of rows. */
-    public static Grid gridOf(List<List<String>> records) {
-        return toGrid(records);
-    }
-
     private static Grid toGrid(List<List<String>> records) {
         int headerIndex = -1;
         for (int i = 0; i < records.size(); i++) {

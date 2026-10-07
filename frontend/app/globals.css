@@ -297,16 +297,6 @@ table tr:hover {
   color: #1a1a2e;
 }
 
-.auth-link {
-  text-align: center;
-  margin-top: 1rem;
-}
-
-.auth-link a {
-  color: #e94560;
-  text-decoration: none;
-}
-
 .text-center { text-align: center; }
 .mt-2 { margin-top: 1rem; }
 .mt-3 { margin-top: 1.5rem; }
@@ -549,19 +539,6 @@ code {
 .lang-option-active:hover {
   background: #e94560;
   color: #fff;
-}
-
-.lang-switch-on-light {
-  border-color: #c9ccd6;
-}
-
-.lang-switch-on-light .lang-option {
-  color: #555;
-}
-
-.lang-switch-on-light .lang-option:hover {
-  color: #1a1a2e;
-  background: #eef0f5;
 }
 
 /* Amber badge, used to draw attention to unsaved edits. */

@@ -1,7 +1,6 @@
 package com.sportday.controller;
 
 import com.sportday.dto.TeacherUploadResultDTO;
-import com.sportday.entity.User;
 import com.sportday.service.TeacherService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;

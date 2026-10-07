@@ -95,17 +95,3 @@ export function houseText(student: StudentLike): string {
   if (!house) return '-';
   return code ? `${house} (${code})` : house;
 }
-
-/**
- * The three facts on one line, for the places that show a student in a sentence
- * rather than in columns: `S0440 · Chan Tai Man · 5D 8 · Red (R)`.
- *
- * A missing piece is left out rather than replaced by a dash, so a sentence never
- * reads as though a fact were known to be absent when it was simply not carried.
- */
-export function studentSummary(
-  student: StudentLike & { studentId?: string | null; name?: string | null }
-): string {
-  const parts = [text(student.studentId), text(student.name), classText(student), houseText(student)];
-  return parts.filter(part => part && part !== '-').join(' · ');
-}

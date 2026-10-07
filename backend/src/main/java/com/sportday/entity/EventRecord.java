@@ -151,14 +151,4 @@ public class EventRecord {
         }
         return manualMark == null ? Source.NONE : Source.BASELINE;
     }
-
-    /** True when {@code a} is the better of two marks for this event. */
-    @Transient
-    public boolean isBetter(BigDecimal a, BigDecimal b) {
-        if (a == null) return false;
-        if (b == null) return true;
-        return eventType != null && eventType.isLowerBetter()
-                ? a.compareTo(b) < 0
-                : a.compareTo(b) > 0;
-    }
 }

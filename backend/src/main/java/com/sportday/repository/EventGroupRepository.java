@@ -17,11 +17,6 @@ public interface EventGroupRepository extends JpaRepository<EventGroup, Long> {
 
     List<EventGroup> findByEventIdOrderByGroupNumberAsc(Long eventId);
 
-    /** Heats only, in heat order. */
-    List<EventGroup> findByEventIdAndStageOrderByGroupNumberAsc(Long eventId, EventStage stage);
-
-    Optional<EventGroup> findByEventIdAndGroupNumber(Long eventId, Integer groupNumber);
-
     /** The final of an event, if one has been drawn. */
     Optional<EventGroup> findFirstByEventIdAndStage(Long eventId, EventStage stage);
 

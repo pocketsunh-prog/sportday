@@ -178,9 +178,4 @@ public class TeacherImportParser {
         }
         return classes;
     }
-
-    /** The accepted headings, for the empty upload template and the API docs. */
-    public static Map<Field, Set<String>> acceptedHeadings() {
-        return HEADER_ALIASES;
-    }
 }

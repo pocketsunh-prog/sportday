@@ -11,11 +11,5 @@ public interface FinalEntryRepository extends JpaRepository<FinalEntry, Long> {
 
     List<FinalEntry> findByGroupIdOrderByLaneAsc(Long groupId);
 
-    List<FinalEntry> findByGroupIdOrderBySeedAsc(Long groupId);
-
-    long countByGroupId(Long groupId);
-
     void deleteByGroupId(Long groupId);
-
-    boolean existsByGroupIdAndUserId(Long groupId, Long userId);
 }

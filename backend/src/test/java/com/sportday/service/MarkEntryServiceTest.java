@@ -5,7 +5,6 @@ import com.sportday.dto.EventResultDTO;
 import com.sportday.dto.MarkRowDTO;
 import com.sportday.entity.Enrollment;
 import com.sportday.entity.Event;
-import com.sportday.entity.EventCategory;
 import com.sportday.entity.EventResult;
 import com.sportday.entity.EventStage;
 import com.sportday.entity.Grade;

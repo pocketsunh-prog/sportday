@@ -563,9 +563,4 @@ public class SeasonBackupService {
                 record.getPreviousHolderName(),
                 record.getPreviousAchievedOn());
     }
-
-    /** Kept so a test can compare a file's header with the lists beside it. */
-    static Counts countsOf(BackupFile backup) {
-        return backup.header() == null ? null : backup.header().counts();
-    }
 }

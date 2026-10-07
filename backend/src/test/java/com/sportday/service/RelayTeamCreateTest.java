@@ -191,18 +191,6 @@ class RelayTeamCreateTest {
         return student.getUser().getId();
     }
 
-    private RelayTeam existingTeam(String key, String label, RelayTeamKind kind) {
-        RelayTeam team = RelayTeam.builder()
-                .id(nextTeamId++)
-                .event(event)
-                .kind(kind)
-                .teamKey(key)
-                .label(label)
-                .build();
-        teams.add(team);
-        return team;
-    }
-
     /** Signs a staff account in the way the JWT filter does. */
     private void signedInAs(User user) {
         SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(

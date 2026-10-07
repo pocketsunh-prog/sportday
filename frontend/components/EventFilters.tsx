@@ -34,8 +34,6 @@ export interface EventFilterValue {
   event: string;
 }
 
-export type EventFilterPatch = Partial<EventFilterValue>;
-
 /** Which of the four event controls produced a change. */
 export type EventFilterControl = 'sex' | 'grade' | 'category' | 'event';
 

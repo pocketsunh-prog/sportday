@@ -4,7 +4,6 @@ import com.sportday.entity.Enrollment;
 import com.sportday.entity.EventCategory;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -25,10 +24,6 @@ public interface EnrollmentRepository extends JpaRepository<Enrollment, Long> {
     boolean existsByUserIdAndEventId(Long userId, Long eventId);
 
     long countByEventIdAndStatus(Long eventId, Enrollment.EnrollmentStatus status);
-
-    List<Enrollment> findByUserIdAndStatus(Long userId, Enrollment.EnrollmentStatus status);
-
-    List<Enrollment> findByEventIdAndStatus(Long eventId, Enrollment.EnrollmentStatus status);
 
     @EntityGraph(attributePaths = {"event", "eventGroup"})
     @Query("select e from Enrollment e where e.user.id = :userId and e.status = :status order by e.enrolledAt asc")
@@ -80,8 +75,4 @@ public interface EnrollmentRepository extends JpaRepository<Enrollment, Long> {
 
     @Query("select count(e) from Enrollment e where e.event.id = :eventId and e.eventGroup is null and e.status = :status")
     long countUngroupedByEvent(Long eventId, Enrollment.EnrollmentStatus status);
-
-    @Modifying
-    @Query("update Enrollment e set e.eventGroup = null, e.lane = null where e.event.id = :eventId")
-    int clearGroupAssignments(Long eventId);
 }

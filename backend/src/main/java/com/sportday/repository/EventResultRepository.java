@@ -20,9 +20,6 @@ public interface EventResultRepository extends JpaRepository<EventResult, Long> 
     /** Every mark recorded at one stage of an event, best first for a timed event. */
     List<EventResult> findByEventIdAndStageOrderByMarkAsc(Long eventId, EventStage stage);
 
-    /** Every mark recorded at one stage, best first for a measured event. */
-    List<EventResult> findByEventIdAndStageOrderByMarkDesc(Long eventId, EventStage stage);
-
     List<EventResult> findByUserId(Long userId);
 
     Optional<EventResult> findByUserIdAndEventId(Long userId, Long eventId);

@@ -72,7 +72,6 @@ import static org.mockito.Mockito.*;
 class RelayApplicantListTest {
 
     private static final Long EVENT_ID = 42L;
-    private static final Long OTHER_EVENT_ID = 99L;
     private static final Long TEACHER_ID = 90L;
 
     @Mock private RelayTeamRepository relayTeamRepository;

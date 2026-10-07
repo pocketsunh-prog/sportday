@@ -6,7 +6,6 @@ import com.sportday.dto.RelayTeamCreateRequest;
 import com.sportday.entity.Event;
 import com.sportday.entity.EventCategory;
 import com.sportday.entity.Grade;
-import com.sportday.entity.RelayTeamKind;
 import com.sportday.entity.Sex;
 import com.sportday.repository.EnrollmentRepository;
 import com.sportday.repository.EventGroupRepository;

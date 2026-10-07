@@ -21,7 +21,7 @@ import java.util.List;
 /**
  * Relay teams, as a teacher helps pick them.
  *
- * <p>Requirement 3: the form relay is team per form and the house relay is a team
+ * <p>Requirement 3: the form relay is a team per class and the house relay is a team
  * per house within the event's grade, and a teacher helps select which students run.
  * A teacher may only name a runner from a class assigned to them; an administrator
  * may name anybody. That rule is not enforced here — it is enforced once, in

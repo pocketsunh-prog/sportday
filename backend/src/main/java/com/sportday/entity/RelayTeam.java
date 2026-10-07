@@ -5,7 +5,6 @@ import lombok.*;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -145,14 +144,6 @@ public class RelayTeam {
     @PreUpdate
     protected void onUpdate() {
         updatedAt = LocalDateTime.now();
-    }
-
-    /** The runners in leg order — leg 1 first, any reserves after them. */
-    @Transient
-    public List<RelayTeamMember> orderedMembers() {
-        List<RelayTeamMember> ordered = new ArrayList<>(members == null ? List.of() : members);
-        ordered.sort(Comparator.comparingInt(m -> m.getLeg() == null ? Integer.MAX_VALUE : m.getLeg()));
-        return ordered;
     }
 
     /**

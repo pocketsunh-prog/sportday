@@ -179,11 +179,6 @@ public class TeacherClassService {
         return hasRole("ADMIN");
     }
 
-    /** True when the signed-in account holds the TEACHER role. */
-    public boolean isTeacher() {
-        return hasRole("TEACHER");
-    }
-
     private static boolean hasRole(String role) {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (authentication == null || !authentication.isAuthenticated()) {
