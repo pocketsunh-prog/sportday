@@ -107,6 +107,105 @@ public class Event {
         return isFormScoped() ? "Form " + form.trim() : null;
     }
 
+    /**
+     * The scope a stored relay name carries at its <strong>end</strong> — {@code Form 3},
+     * {@code B Grade} — in the shapes the school writes: after a hyphen, a dash, an
+     * en/em dash or a middle dot, and after a full stop. A name that ends with no
+     * scope at all is left whole.
+     */
+    private static final java.util.regex.Pattern RELAY_SCOPE_AT_END =
+            java.util.regex.Pattern.compile(
+                    "\\s*[-–—·.]\\s*(Form\\s*[0-9]+|[A-Za-z]{1,2}\\s*Grade|Grade\\s*[A-Za-z]{1,2})\\s*$");
+
+    /**
+     * <strong>The line a relay is named by</strong> — on the page and on the paper —
+     * or {@code null} for an event that is not a relay.
+     *
+     * <p>A relay's stored name carries the scope it was made for, and the live names
+     * come in both shapes: {@code Boys 4x100M Relay - Form 1} for a relay named when
+     * it was scoped, and {@code Girls 4x400M Relay · B Grade} for one the school named
+     * <em>before</em> the relay was re-scoped to a form. Only one of the two scopes
+     * decides who runs, and which one depends on the relay's own kind:</p>
+     *
+     * <ul>
+     *   <li>a {@link RelayTeamKind#FORM} relay is divided by its <strong>form</strong>:
+     *       a Form 3 relay takes {@code 3A} to {@code 3D} whatever grade those
+     *       students are in, so a heading of {@code B Grade} names the one thing that
+     *       does not decide the race, and it is replaced by {@link #getFormLabel()};</li>
+     *   <li>a {@link RelayTeamKind#HOUSE} relay is divided by its <strong>grade</strong>
+     *       — its teams are {@code C Grade Yellow} and the like — so a heading that
+     *       names a form is replaced by the event's own grade;</li>
+     *   <li>a relay with <strong>no kind</strong> is undivided and its name is the
+     *       whole of what it is called, so it is returned unchanged. A {@code FORM}
+     *       relay that has no form set is in the same position: there is no scope to
+     *       name it by, so nothing is invented.</li>
+     * </ul>
+     *
+     * <p><strong>What the school typed is kept.</strong> A name that already names the
+     * scope its kind is divided by is returned as it stands — {@code Form 3} never
+     * becomes {@code Form 3 · Form 3}, and a house relay's own {@code B Grade} keeps
+     * its words and its separator. Only the scope at the <em>end</em> of the line is
+     * ever replaced, and the rest of the name is untouched.</p>
+     *
+     * <p>Written here, beside {@link #getFormLabel()}, because the rule is about the
+     * event and its own name and has to read the same wherever the relay is named: the
+     * event list ({@code EventDTO.relayTitle}), the group a marking sheet is drawn
+     * from ({@code EventGroupDTO.relayTitle}) and the sheet itself all ask this one
+     * method, so the page and the paper cannot disagree. <strong>The stored name is
+     * data and is never rewritten</strong> — the scope is corrected where it is
+     * <em>derived</em>. The relay-events card states the same rule in the language the
+     * reader is using ({@code titleFor} in {@code RelayEventsList.tsx}).</p>
+     */
+    @Transient
+    public String getRelayTitle() {
+        if (!isRelay() || name == null || name.isBlank()) {
+            return null;
+        }
+        if (relayTeamKind == RelayTeamKind.FORM && isFormScoped()) {
+            String scope = form.trim();
+            // The card's own tolerance: a name that says this form anywhere in the
+            // line is the school's line and is kept whole.
+            if (java.util.regex.Pattern
+                    .compile("\\bForm\\s*" + java.util.regex.Pattern.quote(scope) + "\\b",
+                            java.util.regex.Pattern.CASE_INSENSITIVE)
+                    .matcher(name).find()) {
+                return name;
+            }
+            return withTrailingScope(getFormLabel());
+        }
+        if (relayTeamKind == RelayTeamKind.HOUSE && grade != null) {
+            String scope = grade.getLabel();
+            String atEnd = trailingScope();
+            // A house relay's line ends with the grade it is run in: kept as written,
+            // in either of the two orders the school writes it.
+            if (atEnd != null && isSameGrade(atEnd, scope)) {
+                return name;
+            }
+            return withTrailingScope(scope);
+        }
+        return name;
+    }
+
+    /** The scope the stored name carries at its end, whitespace-collapsed, or null. */
+    private String trailingScope() {
+        java.util.regex.Matcher match = RELAY_SCOPE_AT_END.matcher(name);
+        return match.find() ? match.group(1).replaceAll("\\s+", " ").trim() : null;
+    }
+
+    /** True when a trailing scope names the same grade as this — {@code C Grade} or {@code Grade C}. */
+    private static boolean isSameGrade(String atEnd, String gradeLabel) {
+        return atEnd.equalsIgnoreCase(gradeLabel)
+                || atEnd.replaceAll("(?i)^Grade\\s*", "").trim()
+                        .equalsIgnoreCase(gradeLabel.replaceAll("(?i)\\s*Grade$", "").trim());
+    }
+
+    /** The name with the scope at its end — if it carries one — replaced by this scope. */
+    private String withTrailingScope(String scope) {
+        java.util.regex.Matcher match = RELAY_SCOPE_AT_END.matcher(name);
+        String base = (match.find() ? name.substring(0, match.start()) : name).trim();
+        return base.isEmpty() ? scope : base + " · " + scope;
+    }
+
     @Column(nullable = false)
     private LocalDate eventDate;
 
@@ -195,7 +294,8 @@ public class Event {
     private Boolean directToFinalAuto;
 
     /**
-     * How a relay event's teams are divided — one team per class, or one per house
+     * How a relay event's teams are divided — a form relay's <strong>first two
+     * classes</strong> ({@code 3A} and {@code 3B} for a Form 3 relay), or one per house
      * within the event's grade. <strong>Nullable and optional</strong>: a relay with
      * no kind is simply undivided, which is how the relay events already in the
      * programme behave, so this feature adds a choice without taking one away. A

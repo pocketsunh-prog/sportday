@@ -185,6 +185,21 @@ public class EventDTO {
     private String relayTeamKindLabel;
 
     /**
+     * <strong>The line this relay is named by where its scope is shown</strong> —
+     * {@code Boys 4x100M Relay · Form 3} for a relay whose <em>teams</em> are Form 3's
+     * classes but whose stored name says {@code … · B Grade} — or null for an event
+     * that is not a relay. On a relay whose stored name already names the right scope
+     * it is that name, word for word.
+     *
+     * <p>It is {@link com.sportday.entity.Event#getRelayTitle()}, carried here so a
+     * page that names the sheets it is about to print — the print run and its preview
+     * — names them the way the paper itself will. {@link #name} stays the stored name,
+     * which is data and is never rewritten, so a client reads
+     * {@code relayTitle ?? name}.</p>
+     */
+    private String relayTitle;
+
+    /**
      * Legs in a team — four for a 4x100M or a 4x400M. Only meaningful for a relay,
      * where it is the race's own size rather than a constant, so a school running a
      * longer squad changes the event rather than the code.
@@ -202,8 +217,11 @@ public class EventDTO {
      * a half-built relay out without asking per event. <strong>An individual event
      * is always ready</strong> — the rule is about a relay's teams and a race of
      * athletes has none — so no marks or print page changes for one. A relay with
-     * fewer than two teams, or with a team short of its runners, reports false and
-     * carries the reason in {@link #readinessReason}.</p>
+     * fewer than two teams <em>in the race</em>, or with a team in the race short of
+     * its runners, reports false and carries the reason in
+     * {@link #readinessReason}. A team nobody has been named in is not in the race,
+     * so a spare or empty team does not hold the relay back — the relay may run with
+     * anything from two teams to four.</p>
      *
      * <p>Showing is not refusing: the mark grid and the print run refuse a
      * not-ready relay whether or not a client looked at this flag.</p>
@@ -305,6 +323,9 @@ public class EventDTO {
                 .relayTeamKind(event.getRelayTeamKind() == null ? null : event.getRelayTeamKind().name())
                 .relayTeamKindLabel(event.getRelayTeamKind() == null
                         ? null : event.getRelayTeamKind().getLabel())
+                // The scope-corrected line, for the page that names the sheets it
+                // prints; null for an individual event and for a name already right.
+                .relayTitle(event.getRelayTitle())
                 .relayTeamSize(event.getEffectiveRelayTeamSize())
                 .relayReservesAllowed(event.isRelayReservesAllowed())
                 // An individual event is ready by definition — the rule is about a

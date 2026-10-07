@@ -39,19 +39,23 @@ import java.util.Set;
  * Relay teams: deriving them from the register, and deciding who may run in them.
  *
  * <h2>What a relay team is</h2>
- * <p>A relay event may be given a {@link RelayTeamKind}: {@code FORM} gives one team
- * per <strong>class</strong> — {@code 1A}, {@code 1B}, {@code 1C}, {@code 1D}, then
- * {@code 2A}, taken whole from {@link Student#getClassName()} and named after the
- * class — and {@code HOUSE} gives one team per house, named {@code C Grade Yellow}.</p>
+ * <p>A relay event may be given a {@link RelayTeamKind}: {@code FORM} gives
+ * <strong>two</strong> teams — the first two classes of the event's form in class
+ * order, {@code 3A} and {@code 3B} for a Form 3 relay, taken whole from
+ * {@link Student#getClassName()} and named after the class — and {@code HOUSE} gives
+ * one team per house, named {@code C Grade Yellow}.</p>
  *
  * <p><strong>Which classes a form relay takes is the event's form</strong>
  * ({@link Event#getForm()}), not its grade: a "Form 1 4x100M" has the teams
- * {@code 1A}, {@code 1B}, {@code 1C} and {@code 1D} drawn from every class in Form 1
- * <em>whatever grade its students are in</em>, and Form 2 is a separate event. A form
- * relay with no form is scoped by its grade, exactly as every relay was before the
- * form existed, so the live events are untouched. A house relay stays grade × house:
- * because an event belongs to exactly one grade, it is one team per house present
- * among that grade's students.</p>
+ * {@code 1A} and {@code 1B} — the first two classes of Form 1, whatever other classes
+ * the form holds — drawn from every class in Form 1 <em>whatever grade its students
+ * are in</em>, and Form 2 is a separate event. <strong>The school's rule, confirmed
+ * with them: a form class relay makes two teams.</strong> The readiness rule is
+ * untouched, so two is the floor it needs and a third or fourth team made by hand is
+ * neither refused nor demanded. A relay with no form is scoped by its grade, exactly
+ * as every relay was before the form existed, and keeps one team per class of that
+ * grade. A house relay stays grade × house: because an event belongs to exactly one
+ * grade, it is one team per house present among that grade's students.</p>
  *
  * <p>An event with no kind is simply <strong>undivided</strong> — it derives no teams,
  * and nothing here invents any. That is how the relay events already in the
@@ -133,6 +137,18 @@ public class RelayTeamService {
         return String.valueOf(left.getTeamKey()).compareToIgnoreCase(String.valueOf(right.getTeamKey()));
     };
 
+    /**
+     * Class names in the school's own order: the form numerically first — Form 2 before
+     * Form 10 — then the class name itself, so {@code 1A} comes before {@code 1B}.
+     *
+     * <p>The same reading {@link #TEAM_ORDER} gives the teams on the board, so the
+     * derive that picks a form relay's first two classes and the board that then shows
+     * them cannot disagree about which class comes first.</p>
+     */
+    private static final Comparator<String> CLASS_ORDER =
+            Comparator.comparingInt((String className) -> classFormNumber(className))
+                    .thenComparing(className -> text(className));
+
     // ================================================================= the form
 
     /**
@@ -158,8 +174,9 @@ public class RelayTeamService {
      *
      * <p>A form relay is divided by <strong>class</strong>, not by form — {@code 1A}
      * and {@code 1B} are two teams of the same form rather than one team between
-     * them — because that is what the school enters: 1A, 1B, 1C, 1D, then 2A. The
-     * team's name is the class name, so it reads on the sheet exactly as the class
+     * them — and the derive takes the form's <strong>first two</strong> classes,
+     * because that is what the school asked for: 1A and 1B, not 1A, 1B, 1C and 1D.
+     * The team's name is the class name, so it reads on the sheet exactly as the class
      * does.</p>
      *
      * <p>The name is normalised the way the register and {@code TeacherClass} write
@@ -406,12 +423,17 @@ public class RelayTeamService {
      * <h2>Which register the teams come from — the event's scope</h2>
      * <ul>
      *   <li>a <strong>form-scoped</strong> event reads every class of
-     *       {@link Event#getForm()} <em>across grades</em> — a "Form 1 4x100M" has the
-     *       teams {@code 1A}, {@code 1B}, {@code 1C} and {@code 1D} whatever grade their
-     *       students are in — and takes one team per class;</li>
+     *       {@link Event#getForm()} <em>across grades</em> — a "Form 1 4x100M" reads
+     *       {@code 1A}, {@code 1B}, {@code 1C} and {@code 1D} whatever grade their
+     *       students are in — and makes <strong>the first two of those classes in class
+     *       order</strong>, so the relay is {@code 1A} and {@code 1B}. A class of the
+     *       form that cannot field a runner yields no team, so a form with one eligible
+     *       class derives one team and a form with none derives none: neither is an
+     *       error, and a relay left below two teams is simply not ready to mark;</li>
      *   <li>an event with <strong>no form</strong> is scoped by its grade, exactly as
      *       every event was before the form existed, and reads the event's own grade
-     *       for its division. Nothing here changes for those events;</li>
+     *       for its division. Nothing here changes for those events: one team per class
+     *       of its grade;</li>
      *   <li>a <strong>house</strong> relay is one team per house within the event's
      *       grade either way, because the kind is what divides it. A house relay has no
      *       form — {@code EventService} refuses to give it one — so a form found on one
@@ -419,7 +441,8 @@ public class RelayTeamService {
      *       named instead of quietly dividing the race by class.</li>
      * </ul>
      *
-     * @param prune also drop empty teams that no longer match the roster
+     * @param prune also drop empty teams the roster no longer makes — a form relay's
+     *              third and fourth classes, left over from before it made two
      */
     @Transactional
     public RelayTeamDerivationDTO deriveTeams(Long eventId, boolean prune) {
@@ -463,6 +486,33 @@ public class RelayTeamService {
             if (key != null) {
                 wanted.add(key);
             }
+        }
+
+        // A FORM relay makes TWO teams, not one per class of its form.
+        //
+        // The school decided this: with a team for every class, a Form 3 relay arrived
+        // holding 3A, 3B, 3C and 3D, and because a relay is ready only when EVERY team
+        // holds its runners, all four had to be filled before anything could be printed.
+        // Two is what a form relay needs; a third or fourth can still be made by hand.
+        //
+        // The two are the form's FIRST TWO CLASSES in class order — 3A and 3B for a
+        // Form 3 relay — read from the classes themselves and not from the order the
+        // register happened to come back in, so deriving twice gives the same two. It is
+        // a relay scoped to a FORM that this applies to: one with no form is scoped by
+        // its grade, and keeps one team per class of it exactly as it did before the
+        // form existed.
+        //
+        // What is wanted is what the derive makes, so the pruning below sees the same
+        // two: an empty 3C or 3D left over from before this rule is dropped when the
+        // caller asks to prune — which is how the school trims a relay that was derived
+        // with four teams. A team that holds runners is never dropped, whatever this
+        // decides; that is unchanged, and it is why a relay derived before this change
+        // keeps the four it has until its runners are taken off its board.
+        if (kind == RelayTeamKind.FORM && event.isFormScoped()
+                && wanted.size() > FORM_CLASS_TEAMS) {
+            List<String> classes = new ArrayList<>(wanted);
+            classes.sort(CLASS_ORDER);
+            wanted = new LinkedHashSet<>(classes.subList(0, FORM_CLASS_TEAMS));
         }
 
         List<RelayTeam> existing = relayTeamRepository.findByEventIdOrderByIdAsc(eventId);
@@ -1581,6 +1631,19 @@ public class RelayTeamService {
     private static final int MAX_TEAM_NAME_LENGTH = 40;
 
     /**
+     * How many teams a <strong>form class relay</strong> is derived with: two.
+     *
+     * <p>A form has up to four classes, and one team per class meant four teams to fill
+     * before the relay could print — readiness asks that <em>every</em> team holds its
+     * runners. The school wants two, so the derive makes the form's first two classes.
+     * A third or fourth is still the school's to add by hand, and nothing refuses it; a
+     * relay that already has them keeps them until their runners are taken off their
+     * boards, and an empty one left over from before this rule is dropped when the
+     * caller asks to prune.</p>
+     */
+    private static final int FORM_CLASS_TEAMS = 2;
+
+    /**
      * A name a sheet can print: trimmed, present, and no longer than
      * {@link #MAX_TEAM_NAME_LENGTH}.
      *
@@ -1764,8 +1827,8 @@ public class RelayTeamService {
      * <p>This is what the board's "add a runner" list is built from, and it is why a
      * runner who has just been <strong>removed</strong> from a team appears on it
      * again. It is deliberately not the event's list of applicants: a form relay's
-     * teams are one per class of that form, filled from the register, and the students
-     * running in it need never have entered it.</p>
+     * derived teams are the form's first two classes, filled from the register, and the
+     * students running in it need never have entered it.</p>
      *
      * <p>Empty — and free — for an event that is not divided, and for one whose scope
      * or division is not set, because there is no group to offer anybody for. One

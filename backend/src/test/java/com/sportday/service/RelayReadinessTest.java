@@ -28,13 +28,17 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
- * The one readiness rule: <strong>a relay may be marked once it has two teams and every
- * team holds its runners.</strong>
+ * The one readiness rule: <strong>a relay may be marked once two of its teams are in the
+ * race and every team in the race holds its runners.</strong>
  *
  * <p>It is a property of the event, so it is stated once — here — and mark entry and the
- * marking sheets both refuse a half-built relay in these words. The boundary is exact:
- * <em>two</em> teams of <em>four</em> runners is ready, and one team fewer or one runner
- * fewer is not.</p>
+ * marking sheets both refuse a half-built relay in these words. A team somebody has been
+ * named in is <em>in the race</em>; a team nobody has been named in is not, so a spare or
+ * empty team neither counts toward the two nor holds the relay back — the school's rule is
+ * two teams to four, and a relay holding four teams of which two are still empty is ready
+ * as soon as the other two hold their runners. The boundary is exact: <em>two</em> teams in
+ * the race of <em>four</em> runners each is ready, and one team in the race fewer, or one
+ * runner fewer in a team that is in the race, is not.</p>
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -97,8 +101,9 @@ class RelayReadinessTest {
     void noTeamsIsNotReady() {
         Optional<String> reason = RelayReadiness.shortfall(relay, List.of());
 
-        assertEquals("Boys 4x100M Relay · A Grade has 0 team(s), and a relay needs at least 2 "
-                + "before its marks can be entered. Build another team first.", reason.orElse(null));
+        assertEquals("Boys 4x100M Relay · A Grade has 0 team(s) in the race, and a relay needs "
+                + "at least 2 before its marks can be entered. Build or fill another team first.",
+                reason.orElse(null));
     }
 
     @Test
@@ -106,8 +111,9 @@ class RelayReadinessTest {
     void oneTeamIsNotReady() {
         Optional<String> reason = RelayReadiness.shortfall(relay, List.of(team(1L, "5A", 4)));
 
-        assertEquals("Boys 4x100M Relay · A Grade has 1 team(s), and a relay needs at least 2 "
-                + "before its marks can be entered. Build another team first.", reason.orElse(null));
+        assertEquals("Boys 4x100M Relay · A Grade has 1 team(s) in the race, and a relay needs "
+                + "at least 2 before its marks can be entered. Build or fill another team first.",
+                reason.orElse(null));
     }
 
     @Test
@@ -132,12 +138,48 @@ class RelayReadinessTest {
     }
 
     @Test
-    @DisplayName("a team with no runners yet holds the relay back too")
-    void aTeamWithNoRunnersHoldsTheRelayBack() {
+    @DisplayName("a team nobody is in is not in the race: it is not counted, and it is not named")
+    void aTeamWithNoRunnersIsNotInTheRace() {
+        // Two teams on the board, one of them empty: one team in the race is not a race,
+        // and the empty team is not the thing to blame — it is simply not running.
         Optional<String> reason = RelayReadiness.shortfall(relay,
                 List.of(team(1L, "5A", 4), team(2L, "5B", 0)));
 
-        assertEquals("5B has 0 of the 4 runners it needs, so Boys 4x100M Relay · A Grade cannot "
+        assertEquals("Boys 4x100M Relay · A Grade has 1 team(s) in the race, and a relay needs "
+                + "at least 2 before its marks can be entered. Build or fill another team first.",
+                reason.orElse(null));
+    }
+
+    @Test
+    @DisplayName("two full teams beside two empty ones are ready — two teams to four, the school's rule")
+    void emptyExtraTeamsDoNotHoldTheRelayBack() {
+        // The school's own case: a form relay holding 2A, 2B, 2C and 2D, with 2B and 2D
+        // still empty. The race is 2A against 2C, and it is ready: the empty teams are
+        // not in it, and neither the mark grid nor the sheet would give them a line.
+        Optional<String> reason = RelayReadiness.shortfall(relay, List.of(
+                team(1L, "2A", 4), team(2L, "2B", 0), team(3L, "2C", 4), team(4L, "2D", 0)));
+
+        assertTrue(reason.isEmpty(), "2A and 2C are a race: " + reason.orElse(null));
+        assertDoesNotThrow(() -> RelayReadiness.requireRelayIsReadyToMark(relay, List.of(
+                team(1L, "2A", 4), team(2L, "2B", 0), team(3L, "2C", 4), team(4L, "2D", 0))));
+
+        // And the same four teams with only one of them filled is still not a race.
+        Optional<String> oneRacing = RelayReadiness.shortfall(relay, List.of(
+                team(1L, "2A", 4), team(2L, "2B", 0), team(3L, "2C", 0), team(4L, "2D", 0)));
+        assertEquals("Boys 4x100M Relay · A Grade has 1 team(s) in the race, and a relay needs "
+                + "at least 2 before its marks can be entered. Build or fill another team first.",
+                oneRacing.orElse(null));
+    }
+
+    @Test
+    @DisplayName("a half-filled team in the race still holds the relay back, spare teams or no")
+    void aHalfFilledTeamInTheRaceHoldsTheRelayBack() {
+        // 2A and 2C are full and 2B is half-named: whoever 2B's two runners are, the team
+        // cannot run four legs, so the relay is refused and 2B is the team named.
+        Optional<String> reason = RelayReadiness.shortfall(relay, List.of(
+                team(1L, "2A", 4), team(2L, "2B", 2), team(3L, "2C", 4), team(4L, "2D", 0)));
+
+        assertEquals("2B has 2 of the 4 runners it needs, so Boys 4x100M Relay · A Grade cannot "
                 + "be marked yet. Fill that team first.", reason.orElse(null));
     }
 

@@ -132,10 +132,12 @@ public class MarkEntryService {
         /*
          * The teams of a relay, and the one readiness rule over them — asked before
          * anything is read for the grid. A relay is marked by team, and it may not be
-         * marked at all until it has at least two teams and every team holds its four
-         * runners: until then the grid is refused with the reason rather than served
-         * empty, which would look like a race with nothing in it. An individual event
-         * has no teams and passes straight through — see RelayReadiness.
+         * marked at all until it has at least two teams in the race and every one of
+         * them holds its four runners: until then the grid is refused with the reason
+         * rather than served empty, which would look like a race with nothing in it. A
+         * team nobody has been named in is not in the race: it is skipped below like
+         * every other empty team, and it does not hold the relay back. An individual
+         * event has no teams and passes straight through — see RelayReadiness.
          */
         List<com.sportday.entity.RelayTeam> relayTeams = relayTeamsOf(event);
         RelayReadiness.requireRelayIsReadyToMark(event,
@@ -149,8 +151,9 @@ public class MarkEntryService {
          * A relay is scored by TEAM — one time for the four runners together, not four
          * times — so its grid lists teams and every other event lists athletes. A ready
          * relay always has teams to list: the readiness rule above refuses a relay with
-         * fewer than two of them, so the grid never falls through to the athlete-per-row
-         * shape for a relay.
+         * fewer than two teams <em>in the race</em>, so the grid never falls through to
+         * the athlete-per-row shape for a relay — and an empty team, which is not in the
+         * race, has no row here either (the row hangs off its first runner).
          *
          * The row IS the team: it carries the team's id and the team's name, and it
          * deliberately does not carry who is running for it. The school's requirement is

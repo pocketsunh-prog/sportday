@@ -73,7 +73,8 @@ public interface StudentRepository extends JpaRepository<Student, Long> {
     /**
      * The students who may run in a <strong>form-scoped</strong> event: the event's own
      * division and one form, on this year's list. This is what a form relay's teams are
-     * derived from — one team per class of that form, across grades.
+     * derived from — the form's <strong>first two classes</strong> in class order,
+     * across grades.
      *
      * <h2>Why the form is matched here and not in the query above</h2>
      * <p>The register has <strong>no form column</strong>: a form is the leading digits

@@ -284,8 +284,12 @@ class RelayTeamClassTeamTest {
     // ================================================= derivation by class
 
     @Test
-    @DisplayName("a form relay derives one team per class, named after the class, in school order")
+    @DisplayName("a class relay scoped by grade derives one team per class — the older rule, "
+            + "unchanged where there is no form")
     void derivesOneTeamPerClassInSchoolOrder() {
+        // The event carries no form, so it is scoped by its grade and keeps one team per
+        // class of it. A relay scoped to a FORM makes two teams instead — see
+        // RelayTeamFormRelayTwoTeamsTest.
         service.deriveTeams(EVENT_ID, false);
 
         assertEquals(List.of("1A", "1B", "2A", "10B"), teamKeys());

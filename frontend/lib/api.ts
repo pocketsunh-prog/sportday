@@ -217,6 +217,25 @@ export function isRelayEventType(type: string | null | undefined): boolean {
 }
 
 /**
+ * Whether an event is a relay, read from **both** of the places the server says
+ * so: the event's own category, which is `RELAY` now, and its type family
+ * (`RELAY_4X100M` / `RELAY_4X400M`), which is the older spelling of the same
+ * thing that every relay response still carries.
+ *
+ * Both are asked because either reading alone would do, and asking both is what
+ * guarantees a relay is never missed. A page that must leave relays out — the
+ * marking grid and the print run are about individual athletes, while a relay is
+ * run and scored by *team* — asks this once rather than testing the two fields
+ * itself.
+ */
+export function isRelayEvent(event: {
+  type?: string | null;
+  category?: string | null;
+}): boolean {
+  return event.category === 'RELAY' || isRelayEventType(event.type);
+}
+
+/**
  * The relay team kinds, as the event form offers them. `''` is Undivided — the
  * value that clears a kind on an update, which is why it is spelled out here
  * rather than left as a `null` the server would read as "leave it alone".
@@ -377,11 +396,30 @@ export interface EventDTO {
   /** e.g. `Form`. The server's own English label for `relayTeamKind`. */
   relayTeamKindLabel?: string;
   /**
+   * **The line this relay is named by where its scope is shown**, or absent on an
+   * event that is not a relay.
+   *
+   * A relay's stored `name` carries the scope it was made for, and the live names
+   * come in both shapes: `Boys 4x100M Relay - Form 1`, and
+   * `Girls 4x400M Relay · B Grade` for a relay the school named *before* it was
+   * re-scoped to a form. Only one of the two scopes decides who runs, and which one
+   * depends on `relayTeamKind` — so on a **FORM** relay this is the name with its
+   * trailing scope replaced by the form (`… · Form 3`), and on a **HOUSE** relay the
+   * grade it is run in. Where the stored name already names the right scope it is
+   * that name, word for word; an undivided relay keeps its own name.
+   *
+   * `name` is never rewritten, so a page names a relay `relayTitle ?? name` — the
+   * same rule the marking sheet heads the paper with
+   * (`Event.getRelayTitle` on the server), which is what stops the page and the
+   * paper disagreeing about what a relay is called.
+   */
+  relayTitle?: string;
+  /**
    * The form this relay is scoped to — `1` for a **Form 1** relay, whose teams
-   * are that form's classes across every grade (`1A`, `1B`, `1C`, `1D`), not the
-   * classes of its own grade alone. A form is not a grade: a Form 1 relay takes
-   * whoever is in Form 1 whatever grade they are, which is how the school asks
-   * for it.
+   * are that form's **first two classes** across every grade (`1A` and `1B` of a
+   * form holding `1A`, `1B`, `1C` and `1D`), not the classes of its own grade
+   * alone. A form is not a grade: a Form 1 relay takes whoever is in Form 1
+   * whatever grade they are, which is how the school asks for it.
    *
    * Only a `FORM` relay may carry one. `null` (or absent) means the older rule —
    * one team per class of the event's own grade. In a request `''` is what
@@ -445,8 +483,11 @@ export interface EventDTO {
    * picker can leave a half-built relay out rather than offer it and have the
    * choice refused with a 409. An **individual event is always true** — the rule
    * is about a relay's teams and a race of athletes has none — so nothing about a
-   * sprint or a field event changes. A relay with fewer than two teams, or with a
-   * team short of its runners, is `false` and carries `readinessReason`.
+   * sprint or a field event changes. A relay with fewer than two teams **in the
+   * race**, or with a team in the race short of its runners, is `false` and carries
+   * `readinessReason` — where a team in the race is one somebody has been named in,
+   * so a spare or empty team does not hold the relay back and a relay may run with
+   * anything from two teams to four.
    *
    * Absent (the API omits a null) means the same as `false` for a relay only if a
    * client checks `=== false`; **check `=== false`**, so an older server that does
@@ -699,8 +740,9 @@ export interface EventGroupDTO {
    * one. Absent on an individual event and on a relay that has no teams yet.
    *
    * The sheet's lines are the *event's* teams, not the heat's entrants: a form
-   * relay's teams are one per class of that form, built from the register, and the
-   * students who entered the event need not be the ones running in it. So `athletes`
+   * relay's derived teams are the first two classes of that form (`3A` and `3B`),
+   * built from the register, and the students who entered the event need not be the
+   * ones running in it. So `athletes`
    * (who entered, and who the heat is allocated from) and this list (what the sheet
    * and the grid name) are deliberately different lists.
    */
@@ -2178,6 +2220,32 @@ class ApiClient {
     return this.downloadFile(`/events/${eventId}/sheets.pdf`, fallbackFilename);
   }
 
+  /**
+   * The whole programme's marking sheets in one PDF — one page per heat, at the
+   * event's own paper size. `sex` and `category` narrow it to one division or one
+   * half of the programme, exactly as the print page's filters do.
+   *
+   * `includeRelays: false` leaves every relay event out of the run, which is what
+   * the print page asks for: a relay's paper is one line per team rather than one
+   * per athlete, and it is printed from the relay's own page. The omission is the
+   * caller's explicit request and not a server-side side effect, so the page that
+   * asks for it can say so on screen. Left out of the filters, the run is the
+   * whole programme with the relays in it, which is what it always was.
+   */
+  async downloadAllSheets(
+    fallbackFilename: string,
+    filters: { sex?: SexCode; category?: EventCategory; includeRelays?: boolean } = {}
+  ): Promise<string> {
+    return this.downloadFile(
+      `/sheets.pdf${buildQuery({
+        sex: filters.sex,
+        category: filters.category,
+        includeRelays: filters.includeRelays,
+      })}`,
+      fallbackFilename
+    );
+  }
+
   /* ---------------- Seasons: one sport day per school year ---------------- */
 
   /**
@@ -2540,22 +2608,24 @@ class ApiClient {
   }
 
   /**
-   * Creates the teams the roster calls for — one per class of the event's scope,
-   * or one per house of its grade, in its own division — and refreshes their
+   * Creates the teams the roster calls for — a form relay's first two classes, or
+   * one per house of the event's grade, in its own division — and refreshes their
    * labels.
    *
    * The scope is the event's **kind and its form together**: a form-scoped relay
-   * (`form` set) takes one team per class of that form *across grades* — `1A`,
-   * `1B`, `1C`, `1D` — while a relay with no form keeps the older rule and takes
-   * one team per class of its own grade. A house relay is one team per house of
-   * that grade either way.
+   * (`form` set) takes the **first two classes of that form** *across grades*,
+   * in class order — `3A` and `3B` for a Form 3 relay, not `3A`, `3B`, `3C` and
+   * `3D` — while a relay with no form keeps the older rule and takes one team per
+   * class of its own grade. A house relay is one team per house of that grade
+   * either way.
    *
    * Additive on purpose: a team somebody has already put runners into is never
    * removed, because those selections are not the roster's to throw away. An
    * *empty* team the roster no longer calls for is only dropped when `prune` is
-   * set — which is what a re-scoped form relay needs, or the classes of the form
-   * it just left would sit there empty and hold the relay back from being ready.
-   * A relay that has not been divided yet is refused with a 409 telling the
+   * set — which is what trims a relay derived before this rule down to its two
+   * classes, and what a re-scoped form relay needs, or the classes of the form it
+   * just left would sit there empty and hold the relay back from being ready. A
+   * relay that has not been divided yet is refused with a 409 telling the
    * administrator to set its kind first.
    */
   async deriveRelayTeams(

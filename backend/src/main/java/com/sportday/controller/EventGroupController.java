@@ -131,8 +131,8 @@ public class EventGroupController {
             description = "A5 for 60/100/200/400 (8 athletes), A4 otherwise (24 athletes). "
                     + "Columns: student id, name, grade, record, remark. A final's sheet is refused "
                     + "until the final has been drawn from the heat results, and a relay's until the "
-                    + "relay is ready — two teams, each holding its four runners (ADMIN, MANAGER or "
-                    + "HELPER).")
+                    + "relay is ready — two teams in the race, each holding its four runners, so a team "
+                    + "nobody has been named in does not hold it back (ADMIN, MANAGER or HELPER).")
     @GetMapping("/groups/{groupId}/sheet.pdf")
     @PreAuthorize("hasAnyRole('ADMIN','MANAGER','HELPER')")
     public ResponseEntity<byte[]> groupSheet(@PathVariable Long groupId) {
@@ -169,13 +169,18 @@ public class EventGroupController {
     }
 
     @Operation(summary = "Download one marking sheet per group across many events",
-            description = "Convenience endpoint for the print run (ADMIN, MANAGER or HELPER)")
+            description = "Convenience endpoint for the print run (ADMIN, MANAGER or HELPER). "
+                    + "`includeRelays=false` leaves every relay event out of the run: a relay is not "
+                    + "printed from the print page at all, because its paper is one line per team and "
+                    + "is printed from the relay's own page. The default keeps the run exactly as it "
+                    + "was, relays included.")
     @GetMapping("/sheets.pdf")
     @PreAuthorize("hasAnyRole('ADMIN','MANAGER','HELPER')")
     public ResponseEntity<byte[]> allSheets(
             @RequestParam(required = false) Long eventId,
             @RequestParam(required = false) String sex,
-            @RequestParam(required = false) String category) {
+            @RequestParam(required = false) String category,
+            @RequestParam(required = false, defaultValue = "true") boolean includeRelays) {
         if (eventId != null) {
             requireSheetsArePrintable(eventId);
             return pdfResponse(pdfSheetService.renderEventSheets(eventId),
@@ -183,7 +188,7 @@ public class EventGroupController {
         }
         Sex division = sex == null || sex.isBlank() ? null : Sex.fromCode(sex);
         EventCategory cat = category == null || category.isBlank() ? null : EventCategory.fromCode(category);
-        List<EventGroupDTO> groups = eventGroupService.getGroupsWithAthletesFiltered(division, cat);
+        List<EventGroupDTO> groups = eventGroupService.getGroupsWithAthletesFiltered(division, cat, includeRelays);
         if (groups.isEmpty()) {
             throw new IllegalStateException("No groups match that filter — allocate groups first.");
         }

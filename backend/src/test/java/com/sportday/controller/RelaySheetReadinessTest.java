@@ -61,8 +61,8 @@ class RelaySheetReadinessTest {
 
     /** What a one-team relay is refused with, exactly. */
     private static final String ONE_TEAM_REFUSAL =
-            "Boys 4x100M Relay · A Grade has 1 team(s), and a relay needs at least 2 before its "
-                    + "marks can be entered. Build another team first.";
+            "Boys 4x100M Relay · A Grade has 1 team(s) in the race, and a relay needs at least 2 "
+                    + "before its marks can be entered. Build or fill another team first.";
 
     @Mock private EventGroupService eventGroupService;
     @Mock private EventService eventService;
@@ -181,7 +181,7 @@ class RelaySheetReadinessTest {
     @DisplayName("and the same run through the whole-school endpoint, which takes an event id")
     void theWholeSchoolEndpointIsTheSameCall() {
         IllegalStateException error = assertThrows(IllegalStateException.class,
-                () -> controller.allSheets(RELAY_ID, null, null));
+                () -> controller.allSheets(RELAY_ID, null, null, true));
 
         assertEquals(ONE_TEAM_REFUSAL, error.getMessage());
         verify(pdfSheetService, never()).renderEventSheets(anyLong());
@@ -234,12 +234,33 @@ class RelaySheetReadinessTest {
                 .sheetSize("A5").capacity(8).athleteCount(0)
                 .athletes(new ArrayList<>())
                 .build();
-        when(eventGroupService.getGroupsWithAthletesFiltered(null, null)).thenReturn(List.of(heat));
+        when(eventGroupService.getGroupsWithAthletesFiltered(null, null, true)).thenReturn(List.of(heat));
         when(pdfSheetService.renderSheets(List.of(heat))).thenReturn(new byte[]{1, 2, 3});
 
-        var response = controller.allSheets(null, null, null);
+        var response = controller.allSheets(null, null, null, true);
 
         assertEquals(200, response.getStatusCode().value());
+        verify(pdfSheetService).renderSheets(List.of(heat));
+    }
+
+    @Test
+    @DisplayName("asking the whole-programme run to leave the relays out is passed through")
+    void theRunCanBeAskedToLeaveTheRelaysOut() {
+        EventGroupDTO heat = EventGroupDTO.builder()
+                .id(SPRINT_GROUP_ID).eventId(SPRINT_ID).groupNumber(1).label("Heat 1").stage("HEAT")
+                .sheetSize("A5").capacity(8).athleteCount(0)
+                .athletes(new ArrayList<>())
+                .build();
+        when(eventGroupService.getGroupsWithAthletesFiltered(null, null, false))
+                .thenReturn(List.of(heat));
+        when(pdfSheetService.renderSheets(List.of(heat))).thenReturn(new byte[]{1, 2, 3});
+
+        var response = controller.allSheets(null, null, null, false);
+
+        assertEquals(200, response.getStatusCode().value());
+        // The relays are left out by the service, and the run it hands back is what is
+        // rendered: the print page's own listing and its download agree.
+        verify(eventGroupService).getGroupsWithAthletesFiltered(null, null, false);
         verify(pdfSheetService).renderSheets(List.of(heat));
     }
 }

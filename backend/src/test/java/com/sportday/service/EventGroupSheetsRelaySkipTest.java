@@ -190,8 +190,9 @@ class EventGroupSheetsRelaySkipTest {
                 .filter(dto -> READY_RELAY_GROUP_ID == dto.getId())
                 .findFirst().orElseThrow();
         // The sheet's lines are the event's teams, not the heat's entrants: a form
-        // relay's teams are one per class of that form, and the students who entered
-        // the event need not be the ones running in it.
+        // relay's derived teams are the first two classes of that form (5A and 5B
+        // here), and the students who entered the event need not be the ones running
+        // in it.
         assertEquals(List.of("5A", "5B"), relay.getRelayTeamLabels(),
                 "the teams travel with every group of the relay");
 
@@ -217,5 +218,41 @@ class EventGroupSheetsRelaySkipTest {
 
         Set<Long> ids = new HashSet<>(male.stream().map(EventGroupDTO::getId).toList());
         assertEquals(Set.of(SPRINT_GROUP_ID, READY_RELAY_GROUP_ID), ids, "same events: " + ids);
+    }
+
+    // ------------------------------------------- the relays left out on request
+
+    @Test
+    @DisplayName("includeRelays=false leaves every relay out and keeps the individual events")
+    void theRunCanLeaveTheRelaysOut() {
+        List<EventGroupDTO> rendered = groups.getGroupsWithAthletesFiltered(null, null, false);
+        Set<Long> ids = new HashSet<>(rendered.stream().map(EventGroupDTO::getId).toList());
+
+        assertEquals(Set.of(SPRINT_GROUP_ID), ids,
+                "the sprint is on the run and no relay is, ready ones included: " + ids);
+        assertFalse(ids.contains(READY_RELAY_GROUP_ID), "a ready relay is left out too: " + ids);
+    }
+
+    @Test
+    @DisplayName("asking for relays is the default, so the run is what it always was")
+    void theRunKeepsTheRelaysUnlessToldOtherwise() {
+        Set<Long> twoArg = new HashSet<>(
+                groups.getGroupsWithAthletesFiltered(null, null).stream().map(EventGroupDTO::getId).toList());
+        Set<Long> explicitTrue = new HashSet<>(
+                groups.getGroupsWithAthletesFiltered(null, null, true).stream()
+                        .map(EventGroupDTO::getId).toList());
+
+        assertEquals(Set.of(SPRINT_GROUP_ID, READY_RELAY_GROUP_ID), twoArg);
+        assertEquals(twoArg, explicitTrue, "the two-argument call is includeRelays=true");
+    }
+
+    @Test
+    @DisplayName("leaving the relays out of the relay category is an empty run, not an error")
+    void leavingRelaysOutOfTheirOwnCategoryIsEmpty() {
+        List<EventGroupDTO> rendered =
+                groups.getGroupsWithAthletesFiltered(null, EventCategory.RELAY, false);
+
+        assertTrue(rendered.isEmpty(),
+                "the relays asked for are the relays left out, in the same words: " + rendered);
     }
 }

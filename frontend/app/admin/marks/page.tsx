@@ -15,6 +15,7 @@ import {
   finalStateForEvent,
   formatAttempts,
   Grade,
+  isRelayEvent,
   MarkEntryInput,
   MarkOutcome,
   MarkRowDTO,
@@ -304,12 +305,22 @@ export default function MarkEntryPage() {
   useEffect(() => {
     if (!isStaff) return;
     let cancelled = false;
-    // Every event, enabled or not: an event closed to new entries may still
-    // have marks to take, and the four filters are the only narrowing here.
+    /*
+     * Every **individual** event, enabled or not: an event closed to new entries may
+     * still have marks to take, and the four filters are the only narrowing here.
+     *
+     * A **relay is not on this page at all** — not in the picker, not in its
+     * categories and not in the counts below. Relays are run and scored by *team*:
+     * a grid line is a team's name with one time written for its four runners
+     * together, which is a different sheet from the athlete-per-line grid this page
+     * draws, and it is keyed in on the relay's own board beside that relay's teams.
+     * Leaving them out here is what makes the two pages agree, and the page says so
+     * rather than leaving the school to wonder where its relays went.
+     */
     api
       .getEvents()
       .then(list => {
-        if (!cancelled) setEvents(list);
+        if (!cancelled) setEvents(list.filter(event => !isRelayEvent(event)));
       })
       .catch(err => {
         if (!cancelled) setError(errorText(err, tRef.current('events.loadFailed')));
@@ -380,6 +391,12 @@ export default function MarkEntryPage() {
    * — the same test each row is rendered with, see `isTeamRow` — and not off the
    * event's type, so a relay nobody has divided keeps the athlete-per-line
    * headings and columns it has always had.
+   *
+   * **No relay reaches this page any more**: a relay's grid is one line per team
+   * and is keyed in on the relay's own board, so in practice this is false here.
+   * The shape is kept because it is the endpoint's own — `GET
+   * /api/events/{id}/marks` still answers a relay with team lines — and the
+   * relay board reads the very same rows.
    */
   const teamSheet = useMemo(() => (sheet?.rows ?? []).some(isTeamRow), [sheet]);
   const attemptCount = fieldEvent ? sheet?.attemptCount ?? 3 : 1;
@@ -819,29 +836,6 @@ export default function MarkEntryPage() {
   );
 
   /**
-   * The relays the server says are **not ready to be marked yet** — fewer than two
-   * teams, or a team short of its runners (`relayReady`, the server's own
-   * `RelayReadiness`). They are left out of the picker below: offering one only
-   * walks the helper into a 409 on save, and the request is that they not be shown
-   * at all.
-   *
-   * Only a relay is ever false — an individual event is always ready — so nothing
-   * changes for a sprint or a field event. Each one's own reason travels with it and
-   * is printed in the note under the picker, so a relay does not vanish without
-   * saying why.
-   */
-  const notReadyRelays = useMemo(
-    () => filteredEvents.filter(event => event.relayReady === false),
-    [filteredEvents]
-  );
-
-  /** The events the picker may offer: everything the server reports ready. */
-  const readyEvents = useMemo(
-    () => filteredEvents.filter(event => event.relayReady !== false),
-    [filteredEvents]
-  );
-
-  /**
    * The events worth marking: at least two athletes entered. One athlete has
    * nobody to be placed against and nobody at all has no marks to take, so
    * neither belongs in the picker — it would only make the list longer.
@@ -849,13 +843,16 @@ export default function MarkEntryPage() {
    * The chosen event is kept on the list even when its field has since fallen
    * below two, because the grid is already open on it and it still has whatever
    * was written there; it is simply not selectable any more.
+   *
+   * Nothing has to be asked about readiness here any more: only a relay was ever
+   * gated (`relayReady`), and no relay reaches this page.
    */
   const markableEvents = useMemo(
     () =>
-      readyEvents.filter(
+      filteredEvents.filter(
         event => (event.enrolledCount ?? 0) > 1 || (eventId > 0 && event.id === eventId)
       ),
-    [readyEvents, eventId]
+    [filteredEvents, eventId]
   );
 
   /** The markable events, grouped so the selector stays readable. */
@@ -870,8 +867,8 @@ export default function MarkEntryPage() {
 
   /** Events that have too few entered to be marked, i.e. the ones left out. */
   const thinEvents = useMemo(
-    () => readyEvents.filter(event => (event.enrolledCount ?? 0) <= 1),
-    [readyEvents]
+    () => filteredEvents.filter(event => (event.enrolledCount ?? 0) <= 1),
+    [filteredEvents]
   );
 
   /** The event whose sheet is open, so its grade can be shown beside the name. */
@@ -1057,19 +1054,17 @@ export default function MarkEntryPage() {
                     )
                   )}
                   {/*
-                    A relay left out says why, in the server's own words — the same
-                    sentence a save is refused with. Without this the relay would
-                    simply be missing, which reads as a broken page.
+                    Where the relays are, said where a reader would look for them.
+                    They are not on this page at all — a relay's lines are teams and
+                    its times are keyed in on the relay's own board — and a note that
+                    only left them out would read as a programme with no relays in it.
                   */}
-                  {notReadyRelays.length > 0 && (
-                    <p className="muted">
-                      {t('marks.relaysNotReady', { count: notReadyRelays.length })}{' '}
-                      {notReadyRelays
-                        .map(event => event.readinessReason)
-                        .filter((reason): reason is string => !!reason)
-                        .join(' ')}
-                    </p>
-                  )}
+                  <p className="muted">
+                    {t('marks.relayNote')}{' '}
+                    <Link href="/admin/relay-events/form" className="btn btn-sm btn-secondary">
+                      {t('marks.openRelays')}
+                    </Link>
+                  </p>
                 </>
               ),
             }}

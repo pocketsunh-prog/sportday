@@ -65,6 +65,16 @@ import java.util.List;
  * ({@link EventGroupDTO#getRelayTeamLabels()}) and never from the roster: drawn from the
  * roster, a form relay printed the entrants' names where the class team's name belongs.</p>
  *
+ * <p><strong>The heading is the relay's own line, not its stored name.</strong> A
+ * relay's name carries the scope it was made for, and several form relays on the
+ * programme are stored under grade-sounding names — the Form 3 relays read
+ * {@code … · B Grade}. The sheet therefore heads the event with
+ * {@link EventGroupDTO#sheetHeading()}, which is the event's own
+ * {@code getRelayTitle()}: a FORM relay is headed by its form ({@code Form 3}) and a
+ * HOUSE relay by its grade ({@code C Grade}), whichever scope the stored name carries.
+ * An individual event, an undivided relay, and a house relay whose name already says
+ * its grade are all printed exactly as before.</p>
+ *
  * <p>Under the event name the sheet carries the event's <strong>school record</strong>
  * — the mark to beat — once per sheet, in the header block, for example
  * {@code 紀錄 Record 7.406s — Chan Tai Man (2019)}. It is the record for the
@@ -165,7 +175,15 @@ public class PdfSheetService {
         heading.setSpacingAfter(a5 ? 3f : 5f);
         document.add(heading);
 
-        Paragraph event = new Paragraph(safe(group.getEventName()), eventFont);
+        /*
+         * The event's own line heads the sheet — the relay's scope corrected where it
+         * is derived, not where it is stored: a FORM relay prints the form that
+         * decides its teams ("Form 3") and a HOUSE relay the grade it is run in, so
+         * the paper and the relay card name the same race. An individual event, and
+         * any relay whose stored name is already right, prints its name untouched —
+         * see EventGroupDTO#sheetHeading and Event#getRelayTitle.
+         */
+        Paragraph event = new Paragraph(safe(group.sheetHeading()), eventFont);
         event.setAlignment(Element.ALIGN_CENTER);
         event.setSpacingAfter(a5 ? 2f : 3f);
         document.add(event);
@@ -358,13 +376,13 @@ public class PdfSheetService {
      *
      * <p><strong>And the teams are the event's, not the heat's.</strong>
      * {@link EventGroupDTO#getRelayTeamLabels()} is asked first, because a relay's teams
-     * are one per class or per house of the event while the group's roster is the
-     * students who entered it — for a form relay, whose teams are the classes of that
-     * form, the two are different sets, and a sheet drawn from the roster printed the
-     * entrants' names where the team's name belongs. A group that carries no team list
-     * falls back to the labels its own lines carry, and one with no labels at all — an
-     * individual event, or a relay whose teams have not been derived — keeps the
-     * athlete-per-line sheet it has always had.</p>
+     * are a form's first two classes or one per house of the event while the group's
+     * roster is the students who entered it — for a form relay, whose teams are the
+     * first two classes of that form, the two are different sets, and a sheet drawn from
+     * the roster printed the entrants' names where the team's name belongs. A group that
+     * carries no team list falls back to the labels its own lines carry, and one with no
+     * labels at all — an individual event, or a relay whose teams have not been derived
+     * — keeps the athlete-per-line sheet it has always had.</p>
      */
     private static List<String> relayLinesOf(EventGroupDTO group) {
         List<String> teams = new ArrayList<>();

@@ -169,8 +169,9 @@ class EventServiceRelayReadinessTest {
         EventDTO described = described(service.getAllEvents(), ONE_TEAM_RELAY_ID);
 
         assertFalse(described.getRelayReady(), "one team is not a race");
-        assertEquals("Boys 4x100M Relay · A Grade has 1 team(s), and a relay needs at least 2 "
-                        + "before its marks can be entered. Build another team first.",
+        assertEquals("Boys 4x100M Relay · A Grade has 1 team(s) in the race, and a relay needs "
+                        + "at least 2 before its marks can be entered. Build or fill another team "
+                        + "first.",
                 described.getReadinessReason());
         // The same sentence, from the one place that states it.
         assertEquals(RelayReadiness.shortfall(half, List.of(new RelayReadiness.TeamState(
@@ -212,8 +213,8 @@ class EventServiceRelayReadinessTest {
         EventDTO described = described(service.getAllEvents(), READY_RELAY_ID);
 
         assertFalse(described.getRelayReady(), "a relay with no teams has nobody to race");
-        assertEquals("Boys 4x400M Relay · A Grade has 0 team(s), and a relay needs at least 2 "
-                + "before its marks can be entered. Build another team first.",
+        assertEquals("Boys 4x400M Relay · A Grade has 0 team(s) in the race, and a relay needs "
+                + "at least 2 before its marks can be entered. Build or fill another team first.",
                 described.getReadinessReason());
     }
 
@@ -276,8 +277,9 @@ class EventServiceRelayReadinessTest {
         EventDTO described = service.getEventById(ONE_TEAM_RELAY_ID);
 
         assertFalse(described.getRelayReady(), "one team is not a race");
-        assertEquals("Boys 4x100M Relay · A Grade has 1 team(s), and a relay needs at least 2 "
-                        + "before its marks can be entered. Build another team first.",
+        assertEquals("Boys 4x100M Relay · A Grade has 1 team(s) in the race, and a relay needs "
+                        + "at least 2 before its marks can be entered. Build or fill another team "
+                        + "first.",
                 described.getReadinessReason());
     }
 

@@ -61,11 +61,12 @@ public class RelayTeamController {
     }
 
     @Operation(summary = "Create the event's teams from the roster",
-            description = "Creates one team per class, or per house, among the students of the "
-                    + "event's own grade and division — the same students an entry is judged "
-                    + "eligible by. Additive: teams already there are kept and their labels "
-                    + "refreshed, and a team somebody already runs in is never removed. Pass "
-                    + "prune=true to also drop teams that are empty and no longer on the roster.")
+            description = "Creates a form relay's first two classes, or one team per house, among "
+                    + "the students of the event's own scope and division — the same students an "
+                    + "entry is judged eligible by. Additive: teams already there are kept and "
+                    + "their labels refreshed, and a team somebody already runs in is never "
+                    + "removed. Pass prune=true to also drop teams that are empty and no longer "
+                    + "on the roster.")
     @PostMapping("/events/{eventId}/relay-teams/derive")
     public ResponseEntity<RelayTeamDerivationDTO> deriveTeams(
             @PathVariable Long eventId,

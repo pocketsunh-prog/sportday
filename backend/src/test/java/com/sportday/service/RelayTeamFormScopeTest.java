@@ -42,14 +42,17 @@ import static org.mockito.Mockito.*;
 
 /**
  * A relay scoped to a <strong>form</strong>: the event the school writes as "Form 1
- * 4x100M", whose teams are {@code 1A}, {@code 1B}, {@code 1C} and {@code 1D}.
+ * 4x100M", whose derived teams are {@code 1A} and {@code 1B} — the first two of the
+ * form's classes, in class order.
  *
  * <p>The school's requirement, as confirmed: a form relay event is scoped to a
- * <em>form</em>, so a Form 1 event takes one team per class of Form 1 <strong>whatever
+ * <em>form</em>, so a Form 1 event takes the first two classes of Form 1 <strong>whatever
  * grade its students are in</strong>, and Form 2 is a separate event. That is the whole
  * point of the feature and the thing nothing else in the suite can notice: every other
  * relay test builds its register inside one grade, where a form-scoped derive and a
- * grade-scoped one give the same answer.</p>
+ * grade-scoped one give the same answer. (The rule that it makes two teams rather than
+ * one per class has its own file, {@code RelayTeamFormRelayTwoTeamsTest}; this one
+ * covers the scope.)</p>
  *
  * <p>So the register here spans grades on purpose. {@code 1A} holds an A-grade boy and
  * a B-grade boy, {@code 1B} and {@code 1D} hold C-grade boys only, and the event itself
@@ -329,24 +332,25 @@ class RelayTeamFormScopeTest {
     // ============================================== a form event is scoped to its form
 
     @Test
-    @DisplayName("a Form 1 event derives 1A, 1B, 1C and 1D — every class of Form 1, across grades")
+    @DisplayName("a Form 1 event derives 1A and 1B — two teams, the first two classes of the form")
     void derivesEveryClassOfTheFormAcrossGrades() {
         service.deriveTeams(EVENT_ID, false);
 
-        // The event is a B-grade event and the register's Form 1 spans three grades:
-        // 1A holds an A-grade and a B-grade boy, 1B a C-grade and a B-grade boy, 1C an
-        // A-grade and a B-grade boy, and 1D a C-grade boy alone. All four are teams.
-        assertEquals(List.of("1A", "1B", "1C", "1D"), teamKeys());
-        assertEquals(List.of("1A", "1B", "1C", "1D"),
+        // The form spans every grade, and that is still what decides WHO may run — a
+        // 1A team takes a 1A student whatever grade they are. What changed is how many
+        // teams are made: two, not one per class, because readiness asks every team to
+        // be filled and four teams meant four to fill before the relay could print.
+        assertEquals(List.of("1A", "1B"), teamKeys());
+        assertEquals(List.of("1A", "1B"),
                 board().getTeams().stream().map(RelayTeamDTO::getLabel).toList());
 
-        assertEquals(Grade.C, students.get(5L).getGrade(),
-                "1D holds only a C-grade athlete");
-        assertTrue(teamKeys().contains("1D"),
-                "and it is still a team, because the event is scoped to the form and not the grade");
         assertEquals(Grade.A, students.get(4L).getGrade(),
-                "1C holds an A-grade athlete");
-        assertTrue(teamKeys().contains("1C"));
+                "1B holds an A-grade athlete, from a B-grade event — the form is the scope");
+        assertTrue(teamKeys().contains("1B"));
+
+        // The classes that were not derived are still classes of the form; they are
+        // simply not made until the school wants them.
+        assertFalse(teamKeys().contains("1D"), "only the first two classes are derived");
 
         // Another form is another event: neither Form 2 nor Form 10 has a team here.
         assertFalse(teamKeys().contains("2A"), "Form 2 is a separate event");
@@ -391,7 +395,7 @@ class RelayTeamFormScopeTest {
 
         service.deriveTeams(EVENT_ID, false);
 
-        assertEquals(List.of("1A", "1B", "1C", "1D"), teamKeys());
+        assertEquals(List.of("1A", "1B"), teamKeys());
     }
 
     // ==================================== who may run: the form, not the grade
@@ -416,14 +420,15 @@ class RelayTeamFormScopeTest {
     void aClassTeamMayBeFilledFromAnotherGrade() {
         service.deriveTeams(EVENT_ID, false);
 
-        // 1D holds one athlete — in the C grade, on a B-grade event — and he is in the
-        // right form and the right class, so he runs.
-        RelayTeamDTO filled = service.addRunner(teamNamed("1D").getId(), 5L, null);
+        // 1A holds an A-grade athlete and this is a B-grade event — the right form and
+        // the right class, so he runs. (The derived pair is 1A and 1B; a third class is
+        // the school's to add, so this asks the same question of a class that is there.)
+        RelayTeamDTO filled = service.addRunner(teamNamed("1A").getId(), 1L, null);
 
-        assertEquals("1D", filled.getLabel());
+        assertEquals("1A", filled.getLabel());
         assertEquals(1, filled.getMemberCount().intValue());
-        assertEquals("S0005", filled.getMembers().get(0).getStudentId());
-        assertEquals(Grade.C, students.get(5L).getGrade());
+        assertEquals("S0001", filled.getMembers().get(0).getStudentId());
+        assertEquals(Grade.A, students.get(1L).getGrade());
         assertFalse(filled.getComplete(), "one runner of four: saved and reported incomplete");
     }
 

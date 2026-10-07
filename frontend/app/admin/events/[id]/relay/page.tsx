@@ -15,6 +15,7 @@ import {
 import { useAuth } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n';
 import { classText, formText, houseText } from '@/lib/students';
+import RelayMarkEntry from '@/components/RelayMarkEntry';
 
 /** The message the server sent, or our own wording when there is none. */
 function errorText(err: unknown, fallback: string): string {
@@ -42,11 +43,38 @@ function studentLabel(student: {
 }
 
 /**
- * The relay team board for one event: the teams, their runners and their order.
+ * The relay team board for one event: the teams, their runners and their order —
+ * **and the relay's marks, one time per team.**
  *
  * A relay is divided into form or house teams on the event itself; this board is
  * where those teams are **derived from the roster**, filled, renamed and ordered
- * — one team per class of a form relay, or one per house of a grade relay.
+ * — a form relay's first two classes, or one team per house of a grade relay —
+ * and where the one time each team runs is keyed in and saved, because a relay is
+ * run and scored by *team* and its own page is where its paper is printed from.
+ *
+ * ## One page, four roles, each offered exactly what the endpoints allow
+ *
+ * The two halves of this page answer to two different sets of endpoints, and the
+ * page reads each half with the role that may use it:
+ *
+ * <ul>
+ *   <li>the <strong>team board</strong> — the teams, their runners, the derive and
+ *       the removal of every team — is served by
+ *       {@code /api/admin/events/{id}/relay-teams} (ADMIN) and its
+ *       {@code /api/teacher/**} twin (ADMIN or TEACHER), so it is read and shown
+ *       to an <strong>administrator and a teacher</strong>;</li>
+ *   <li>the <strong>mark entry</strong> — one time per team — is served by
+ *       {@code GET/POST /api/events/{id}/marks}, which admits
+ *       <strong>ADMIN, MANAGER and HELPER</strong> ({@code MarkEntryController}
+ *       and the request rules in {@code SecurityConfig}). So it is offered to
+ *       exactly those three, and a teacher — who may place runners but may not
+ *       key a mark — is told so plainly rather than offered a control whose only
+ *       outcome is a 403.</li>
+ * </ul>
+ *
+ * A manager or an input helper therefore reaches this page for the one thing they
+ * are for, and the lines they mark come from the endpoint itself: the relay's
+ * teams, named as the school names them.
  *
  * ## Filling a team
  *
@@ -63,15 +91,6 @@ function studentLabel(student: {
  * team rather than the roster's. Such a team is made through the relay team API
  * (`POST .../teams`), which still supports it; this page no longer carries the
  * tick-list form that used to make one from the students who entered.
- *
- * ## One page, both roles
- *
- * The same page serves a teacher and an administrator: `/api/teacher/**` admits
- * ADMIN and TEACHER alike and runs the same service, so the role only picks which
- * family of endpoints is called (see `api.relayBase`). A teacher is offered only
- * their own classes' students — the ones they may place — while the teams
- * themselves are the event's whole set, because a house team spans classes. Only
- * the administrator's extra — removing every team of the event — is held back.
  */
 export default function AdminEventRelayPage() {
   const params = useParams();
@@ -99,7 +118,20 @@ export default function AdminEventRelayPage() {
   const [order, setOrder] = useState<Record<number, number[]>>({});
 
   const isAdmin = user?.role === 'ADMIN';
-  const canWork = isAdmin || user?.role === 'TEACHER';
+  /**
+   * Who may read the team board: the two roles its endpoints admit. The board is
+   * requested only for them — a manager or a helper asking for it would only be
+   * refused, and the lines they are here for come from the mark sheet.
+   */
+  const canReadBoard = isAdmin || user?.role === 'TEACHER';
+  /**
+   * Who may key a relay's marks: exactly the roles the mark-entry endpoints admit
+   * (`ADMIN`, `MANAGER`, `HELPER`). Nothing is narrowed here and nothing widened.
+   */
+  const canKeyMarks =
+    isAdmin || user?.role === 'MANAGER' || user?.role === 'HELPER';
+  /** Whether this reader has anything to do on this page at all. */
+  const canWork = canReadBoard || canKeyMarks;
   /** The endpoint family this caller may use: `/teacher/**` for a teacher. */
   const role: Role = isAdmin ? 'ADMIN' : 'TEACHER';
 
@@ -113,9 +145,9 @@ export default function AdminEventRelayPage() {
   }, [user, isLoading, canWork, router]);
 
   /**
-   * The board is only fetched for a relay: everything under it answers a 400 for
-   * anything else, so a non-relay event is described instead of being asked
-   * about.
+   * The board is only fetched for a relay, and only by a caller the board
+   * endpoints admit: everything under it answers a 400 for anything else, so a
+   * non-relay event is described instead of being asked about.
    */
   const load = useCallback(async () => {
     setLoading(true);
@@ -125,7 +157,7 @@ export default function AdminEventRelayPage() {
       setEvent(eventResult);
       setOrder({});
       setNames({});
-      if (isRelayEventType(eventResult.type)) {
+      if (isRelayEventType(eventResult.type) && canReadBoard) {
         const boardResult = await api.getRelayTeams(eventId, role);
         setBoard(boardResult);
       } else {
@@ -136,7 +168,7 @@ export default function AdminEventRelayPage() {
     } finally {
       setLoading(false);
     }
-  }, [eventId, role, t]);
+  }, [eventId, role, canReadBoard, t]);
 
   useEffect(() => {
     if (Number.isFinite(eventId) && eventId > 0 && canWork) load();
@@ -331,13 +363,13 @@ export default function AdminEventRelayPage() {
         {error && <div className="alert alert-error">{error}</div>}
         <div className="card text-center">
           <p>{t('relay.notRelay')}</p>
-          {isAdmin ? (
-            <Link href={`/admin/events/${eventId}/groups`} className="btn btn-secondary mt-2">
-              {t('relay.backToGroups')}
-            </Link>
-          ) : (
+          {user?.role === 'TEACHER' ? (
             <Link href="/teacher" className="btn btn-secondary mt-2">
               {t('relay.backToTeacher')}
+            </Link>
+          ) : (
+            <Link href={`/admin/events/${eventId}/groups`} className="btn btn-secondary mt-2">
+              {t('relay.backToGroups')}
             </Link>
           )}
         </div>
@@ -354,21 +386,21 @@ export default function AdminEventRelayPage() {
       <div className="flex justify-between items-center">
         <h1 className="page-title">{t('relay.boardTitle')}</h1>
         <div className="flex gap-2">
-          {isAdmin ? (
+          {user?.role === 'TEACHER' ? (
+            <Link href="/teacher" className="btn btn-secondary">
+              {t('relay.backToTeacher')}
+            </Link>
+          ) : (
             /*
              * Back to the relay programme, not to the heats page. A relay is
-             * divided into TEAMS — one per class of a form, or one per grade and
-             * house — so there is nothing to shuffle and no heats to allocate:
-             * its lines on the sheet and its rows in the mark grid are teams, not
-             * athletes. Sending the reader to the heat page from here only
-             * offered a control that does nothing for a relay.
+             * divided into TEAMS — a form relay's first two classes, or one per
+             * grade and house — so there is nothing to shuffle and no heats to
+             * allocate: its lines on the sheet and its rows in the mark grid are
+             * teams, not athletes. Sending the reader to the heat page from here
+             * only offered a control that does nothing for a relay.
              */
             <Link href="/admin/relay-events/form" className="btn btn-secondary">
               {t('relay.backToRelays')}
-            </Link>
-          ) : (
-            <Link href="/teacher" className="btn btn-secondary">
-              {t('relay.backToTeacher')}
             </Link>
           )}
           {isAdmin && (
@@ -424,41 +456,83 @@ export default function AdminEventRelayPage() {
 
         {/*
           The **derive** control: it makes a FORM or HOUSE relay's class or house
-          teams out of the roster itself, one per class or one per house, and is the
-          way this board's teams come into being. Each one is then filled from its
-          own card below.
+          teams out of the roster itself — a form relay's first two classes, or one
+          per house — and is the way this board's teams come into being. Each one is
+          then filled from its own card below. It belongs to the two roles the
+          relay-team endpoints admit, so a manager or a helper is not shown it at
+          all rather than shown a control that would only be refused.
         */}
-        <div className="mt-3">
-          <h4>{t('relay.deriveTitle')}</h4>
-          <div className="pill-actions mt-2">
-            <button
-              type="button"
-              className="btn btn-sm btn-secondary"
-              disabled={busy === 'derive'}
-              onClick={handleDerive}
-            >
-              {busy === 'derive' ? t('relay.deriving') : t('relay.derive')}
-            </button>
-            {isAdmin && teams.length > 0 && (
+        {canReadBoard && (
+          <div className="mt-3">
+            <h4>{t('relay.deriveTitle')}</h4>
+            <div className="pill-actions mt-2">
               <button
                 type="button"
-                className="btn btn-sm btn-danger"
-                disabled={busy === 'remove-all'}
-                onClick={handleRemoveAll}
+                className="btn btn-sm btn-secondary"
+                disabled={busy === 'derive'}
+                onClick={handleDerive}
               >
-                {busy === 'remove-all' ? t('common.processing') : t('relay.removeAll')}
+                {busy === 'derive' ? t('relay.deriving') : t('relay.derive')}
               </button>
-            )}
+              {isAdmin && teams.length > 0 && (
+                <button
+                  type="button"
+                  className="btn btn-sm btn-danger"
+                  disabled={busy === 'remove-all'}
+                  onClick={handleRemoveAll}
+                >
+                  {busy === 'remove-all' ? t('common.processing') : t('relay.removeAll')}
+                </button>
+              )}
+            </div>
+            <p className="muted mt-2">{t('relay.deriveExplanation')}</p>
+            <label className="checkbox-line mt-2">
+              <input type="checkbox" checked={prune} onChange={e => setPrune(e.target.checked)} />
+              {t('relay.derivePrune')}
+            </label>
           </div>
-          <p className="muted mt-2">{t('relay.deriveExplanation')}</p>
-          <label className="checkbox-line mt-2">
-            <input type="checkbox" checked={prune} onChange={e => setPrune(e.target.checked)} />
-            {t('relay.derivePrune')}
-          </label>
-        </div>
+        )}
       </div>
 
-      {undivided && (
+      {/*
+        **The relay's marks, where the relay is.** One line per team, one time
+        written for the four runners together — the grid itself is
+        `RelayMarkEntry`, which reads and saves through `GET`/`POST
+        /api/events/{id}/marks`, the endpoint a relay's sheet has always answered
+        on. It is here, on the event's own board, and nowhere else: it is offered
+        once, beside the teams it marks, rather than on each card of the relay
+        list as well.
+
+        The roles are the endpoint's own: ADMIN, MANAGER and HELPER may key a
+        relay's time, and a teacher — who may place the runners but may not record
+        the mark — is told so plainly.
+      */}
+      {canKeyMarks ? (
+        <RelayMarkEntry
+          eventId={eventId}
+          onSaved={canReadBoard ? refreshBoard : undefined}
+        />
+      ) : (
+        <div className="card">
+          <h2>{t('relayMark.title')}</h2>
+          <p className="muted mt-2">{t('relayMark.teacherLimit')}</p>
+        </div>
+      )}
+
+      {/*
+        What a manager or an input helper cannot see, said rather than left blank:
+        the teams and their runners are read by the relay-team endpoints, which
+        admit an administrator and a teacher only. The lines they mark come from
+        the mark sheet above, so nothing they are here for is missing.
+      */}
+      {!canReadBoard && (
+        <div className="card">
+          <h2>{t('relay.teamsTitle')}</h2>
+          <p className="muted mt-2">{t('relayMark.boardNotYours')}</p>
+        </div>
+      )}
+
+      {canReadBoard && undivided && (
         <div className="card">
           <h2>{t('relay.undividedTitle')}</h2>
           <p className="muted mt-2">{t('relay.undividedHint')}</p>
@@ -475,6 +549,7 @@ export default function AdminEventRelayPage() {
 
       {/* ---------------- the teams ---------------- */}
 
+      {canReadBoard && (
       <div className="card">
         <div className="flex justify-between items-center">
           <h2>{t('relay.teamsTitle')}</h2>
@@ -503,8 +578,9 @@ export default function AdminEventRelayPage() {
         )}
         {undivided && <p className="muted mt-2">{t('relay.undividedTeamsHint')}</p>}
       </div>
+      )}
 
-      {teams.map(team => {
+      {canReadBoard && teams.map(team => {
         const members = team.members ?? [];
         const orderIds = orderFor(team);
         const edited = !!order[team.id];

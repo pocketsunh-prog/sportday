@@ -235,8 +235,8 @@ public class EventGroupService {
      * rosters: heats first and then the final.
      *
      * <p><strong>A relay that has its teams is drawn from them, heats or no heats.</strong>
-     * A relay is run and scored by <em>team</em> — one per class of a form, or one per
-     * grade and house — and its marking sheet carries one line per team
+     * A relay is run and scored by <em>team</em> — a form relay's first two classes, or
+     * one per grade and house — and its marking sheet carries one line per team
      * ({@link EventGroupDTO#getRelayTeamLabels()}). It has no heats to allocate, and a
      * relay whose teams are built is therefore already printable: the sheet it needs is
      * the event's own, and {@code event_groups} holding nothing says nothing about
@@ -335,14 +335,36 @@ public class EventGroupService {
      * half-built relay, and the relay is simply absent from the output. A run that asks
      * for that one relay on purpose is refused with the reason instead, in
      * {@code EventGroupController}.</p>
+     *
+     * <p><strong>A relay is left out entirely when {@code includeRelays} is false</strong>,
+     * which is what the print page asks for. A relay is not printed from that page at all
+     * any more — its paper is one line per team, and it is printed from the relay's own
+     * page — so the run the print page offers and the run it lists have to agree. This is
+     * an explicit request and never a side effect: the omission is the caller's decision,
+     * and the caller says so on screen.</p>
      */
     @Transactional(readOnly = true)
     public List<EventGroupDTO> getGroupsWithAthletesFiltered(Sex sex, EventCategory category) {
+        return getGroupsWithAthletesFiltered(sex, category, true);
+    }
+
+    /**
+     * The whole-school print run, with the relays asked for or left out.
+     *
+     * @param includeRelays false to leave every relay event out of the run — what the
+     *                      print page asks for, because relays are printed from their own
+     *                      page; true keeps the run exactly as it always was.
+     * @see #getGroupsWithAthletesFiltered(Sex, EventCategory)
+     */
+    @Transactional(readOnly = true)
+    public List<EventGroupDTO> getGroupsWithAthletesFiltered(Sex sex, EventCategory category,
+                                                             boolean includeRelays) {
         // Sorted with EVENT_ORDER rather than ORDER BY: the type column is a MySQL
         // ENUM whose declaration order puts RUN_60M last.
         List<Event> events = eventRepository.findAll().stream()
                 .filter(e -> !e.isDraft())
                 .filter(relayReadiness::isReady)
+                .filter(e -> includeRelays || !e.isRelay())
                 .filter(e -> sex == null || e.getSex() == sex)
                 .filter(e -> category == null || e.getCategoryOrDefault() == category)
                 .sorted(EventService.EVENT_ORDER)
@@ -427,9 +449,10 @@ public class EventGroupService {
      *
      * <p>Empty for an individual event — no query at all — and for a relay with no
      * teams yet, which the sheet draws as it always did (and which the readiness gate
-     * refuses to print in any case). A team with no runners is not listed: a team
-     * nobody has filled has no label to read from its legs, and a relay cannot be
-     * marked until every team is full.</p>
+     * refuses to print in any case). A team with no runners is not listed either: a team
+     * nobody has been named in has no legs to read a line from, and it is not in the
+     * race — the readiness rule asks only that at least two of the relay's teams hold
+     * their runners.</p>
      */
     private List<String> relayTeamLabelsOf(List<EventGroup> groups) {
         if (groups.isEmpty()) {
@@ -446,9 +469,9 @@ public class EventGroupService {
      * The same list, read straight from the event — for a relay that has <em>no</em>
      * groups, whose teams are the only thing its sheet can be drawn from.
      *
-     * <p>One query, on the legs the teams are built from, so a team nobody has filled
-     * yet has no label and is not listed: a relay cannot be marked until every team is
-     * full, and a blank line on a helper's sheet helps nobody.</p>
+     * <p>One query, on the legs the teams are built from, so a team nobody has been
+     * named in has no label and is not listed: it is not in the race, and a blank line
+     * on a helper's sheet helps nobody.</p>
      */
     private List<String> relayTeamLabelsOf(Long eventId) {
         Set<String> labels = new LinkedHashSet<>();
@@ -481,6 +504,9 @@ public class EventGroupService {
         EventGroupDTO dto = EventGroupDTO.builder()
                 .eventId(event.getId())
                 .eventName(event.getName())
+                // The paper heads the relay by the scope its kind is divided by — see
+                // Event#getRelayTitle — exactly as the relay card and the event list do.
+                .relayTitle(event.getRelayTitle())
                 .eventType(event.getType() == null ? null : event.getType().name())
                 .eventTypeLabel(event.getType() == null ? null : event.getType().getDisplayName())
                 .category(event.getCategoryOrDefault().name())

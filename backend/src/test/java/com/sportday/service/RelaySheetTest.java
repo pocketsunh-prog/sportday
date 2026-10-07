@@ -28,11 +28,11 @@ import static org.mockito.Mockito.mock;
  * An individual event — where a line is the athlete, whose name and student id are
  * printed — is untouched.</p>
  *
- * <p>A relay is only printed once it is <strong>ready</strong> — two teams, each
- * holding its four runners ({@link RelayReadiness}) — so the athlete-per-line fallback
- * a relay used to take when its teams had not been derived is now <em>unreachable</em>:
- * a relay with no teams is refused with the reason rather than rendered the other way
- * round. The tests below hold both halves of that.</p>
+ * <p>A relay is only printed once it is <strong>ready</strong> — two teams in the race,
+ * each holding its four runners ({@link RelayReadiness}) — so the athlete-per-line
+ * fallback a relay used to take when its teams had not been derived is now
+ * <em>unreachable</em>: a relay with no teams is refused with the reason rather than
+ * rendered the other way round. The tests below hold both halves of that.</p>
  */
 class RelaySheetTest {
 
@@ -191,11 +191,12 @@ class RelaySheetTest {
         IllegalStateException refusal = assertThrows(IllegalStateException.class,
                 () -> RelayReadiness.requireRelayIsReadyToMark(event, List.of()));
 
-        assertTrue(refusal.getMessage().startsWith("Girls 4x100M Relay · A Grade has 0 team(s)"),
-                "the refusal names the relay and what it has: " + refusal.getMessage());
+        assertTrue(refusal.getMessage().startsWith(
+                        "Girls 4x100M Relay · A Grade has 0 team(s) in the race"),
+                "the refusal names the relay and what it has in the race: " + refusal.getMessage());
         assertTrue(refusal.getMessage().contains("at least 2 before its marks can be entered"),
                 "and the rule it falls short of: " + refusal.getMessage());
-        assertTrue(refusal.getMessage().contains("Build another team first."),
+        assertTrue(refusal.getMessage().contains("Build or fill another team first."),
                 "and what to do about it: " + refusal.getMessage());
     }
 }

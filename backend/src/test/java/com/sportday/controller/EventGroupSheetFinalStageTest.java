@@ -168,7 +168,7 @@ class EventGroupSheetFinalStageTest {
     @DisplayName("and the same run through the whole-school endpoint, which takes an event id")
     void theEventPrintRunIsTheSameCall() {
         IllegalStateException error = assertThrows(IllegalStateException.class,
-                () -> controller.allSheets(SPRINT_ID, null, null));
+                () -> controller.allSheets(SPRINT_ID, null, null, true));
 
         assertEquals(FinalStageGuard.NOT_DRAWN, error.getMessage());
         verify(pdfSheetService, never()).renderEventSheets(anyLong());
@@ -216,10 +216,10 @@ class EventGroupSheetFinalStageTest {
                 .sheetSize("A5").capacity(8).athleteCount(0)
                 .athletes(new java.util.ArrayList<>())
                 .build();
-        when(eventGroupService.getGroupsWithAthletesFiltered(null, null)).thenReturn(java.util.List.of(heat));
+        when(eventGroupService.getGroupsWithAthletesFiltered(null, null, true)).thenReturn(java.util.List.of(heat));
         when(pdfSheetService.renderSheets(java.util.List.of(heat))).thenReturn(new byte[]{1, 2, 3});
 
-        var response = controller.allSheets(null, null, null);
+        var response = controller.allSheets(null, null, null, true);
 
         assertEquals(200, response.getStatusCode().value(),
                 "a final that has not been drawn has no group, so it cannot be in the run");

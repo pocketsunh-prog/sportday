@@ -33,10 +33,11 @@ import static org.mockito.Mockito.*;
  * together — so its grid lists teams and the mark is recorded against the team. An
  * individual event keeps the athlete-per-row grid.</p>
  *
- * <p>A relay is only marked once it is <strong>ready</strong>: at least two teams, and
- * every team holding its four runners ({@link RelayReadiness}). A half-built relay's
- * grid is <em>refused</em> with the reason, so the fixture here is two teams of four
- * runners — the boundary at which a relay may be marked at all.</p>
+ * <p>A relay is only marked once it is <strong>ready</strong>: at least two teams
+ * <em>in the race</em>, and every team in the race holding its four runners
+ * ({@link RelayReadiness}). A half-built relay's grid is <em>refused</em> with the
+ * reason, so the fixture here is two teams of four runners — the boundary at which a
+ * relay may be marked at all.</p>
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -184,11 +185,11 @@ class RelayGridTest {
         IllegalStateException error = assertThrows(IllegalStateException.class,
                 () -> service.getMarkSheet(EVENT_ID, null, null, EventStage.HEAT));
 
-        assertTrue(error.getMessage().startsWith("Boys 4x100M Relay · A Grade has 1 team(s)"),
-                "the refusal names the event and what it has: " + error.getMessage());
+        assertTrue(error.getMessage().startsWith("Boys 4x100M Relay · A Grade has 1 team(s) in the race"),
+                "the refusal names the event and what it has in the race: " + error.getMessage());
         assertTrue(error.getMessage().contains("at least 2"),
                 "and the rule it falls short of: " + error.getMessage());
-        assertTrue(error.getMessage().contains("Build another team first."),
+        assertTrue(error.getMessage().contains("Build or fill another team first."),
                 "and what to do about it: " + error.getMessage());
     }
 
@@ -254,8 +255,8 @@ class RelayGridTest {
         IllegalStateException error = assertThrows(IllegalStateException.class,
                 () -> service.getMarkSheet(EVENT_ID, null, null, EventStage.HEAT));
 
-        assertTrue(error.getMessage().startsWith("Boys 4x100M Relay · A Grade has 0 team(s)"),
-                "the refusal says the relay has no teams at all: " + error.getMessage());
+        assertTrue(error.getMessage().startsWith("Boys 4x100M Relay · A Grade has 0 team(s) in the race"),
+                "the refusal says the relay has no teams in the race at all: " + error.getMessage());
         assertTrue(error.getMessage().contains("at least 2"),
                 "and the rule it falls short of: " + error.getMessage());
         // The athletes are never reached: the grid is refused before it is built.
@@ -312,7 +313,7 @@ class RelayGridTest {
         IllegalStateException error = assertThrows(IllegalStateException.class,
                 () -> service.saveMarks(EVENT_ID, request));
 
-        assertTrue(error.getMessage().contains("has 1 team(s)"), error.getMessage());
+        assertTrue(error.getMessage().contains("has 1 team(s) in the race"), error.getMessage());
         verify(resultRepository, never()).save(any(EventResult.class));
     }
 }

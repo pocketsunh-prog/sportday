@@ -20,8 +20,8 @@ import org.springframework.web.bind.annotation.*;
 @Tag(name = "Mark entry",
         description = "Grid mark entry filtered by event group and grade (ADMIN, MANAGER or HELPER). "
                 + "A FINAL grid is refused with 409 until the final has been drawn from the heat marks, "
-                + "and a relay's grid until the relay is ready — at least two teams, each holding its "
-                + "four runners.")
+                + "and a relay's grid until the relay is ready — at least two teams in the race, each "
+                + "holding its four runners. A team nobody has been named in is not in the race.")
 @SecurityRequirement(name = "Bearer Authentication")
 @RestController
 @RequestMapping("/api")
@@ -40,8 +40,10 @@ public class MarkEntryController {
                     + "drawn: the final is drawn from the heat marks, so record those and draw it first. The "
                     + "response carries `finalState` so a client can gate its own final button — `NONE` (the "
                     + "event has no final stage), `DIRECT` (it runs straight to one), `NOT_DRAWN` or `DRAWN`. "
-                    + "A relay's grid is refused with 409 until the relay is ready: at least two teams, and "
-                    + "every team holding its four runners. The message names what is missing.")
+                    + "A relay's grid is refused with 409 until the relay is ready: at least two teams in "
+                    + "the race, and every one of them holding its four runners — a team with nobody in it "
+                    + "is not in the race, so a spare team does not hold the relay back. The message names "
+                    + "what is missing.")
     @GetMapping("/events/{eventId}/marks")
     public ResponseEntity<MarkSheetDTO> getMarkSheet(
             @PathVariable Long eventId,

@@ -159,7 +159,7 @@ const en = {
   /* ---------------- marking sheets / print ---------------- */
   'print.title': 'Print marking sheets',
   'print.subtitle':
-    'One sheet per heat for the helper to write the results on. Short sprints print on A5, everything else on A4.',
+    'One sheet per heat for the helper to write the results on, for the individual events of the programme. Short sprints print on A5, everything else on A4. Relays are not on this page — a relay’s paper carries one line per team, and it is printed from the relay’s own page.',
   'print.division': 'Division',
   'print.category': 'Category',
   'print.event': 'Event',
@@ -188,12 +188,13 @@ const en = {
   'print.matchingCount': '{count} matching event(s), {heats} heat(s) in total',
   'print.noMatching': 'No events match the current filters.',
   /*
-   * A relay that is not ready to be marked is left out of the list whole, because
-   * its sheets are refused — and it says so, in the reason the server sent, rather
-   * than simply going missing.
+   * A relay is not on this page and not in its whole-programme download, and the
+   * page says so where the download is rather than leaving a reader to discover a
+   * missing race on the day. The relay's own page is one click away.
    */
-  'print.relaysNotReady':
-    '{count} relay(s) are left out because they are not ready to be marked yet:',
+  'print.relayNote':
+    'Relays are not listed here and not in the whole-programme download: a relay’s paper is one line per team, and it is printed from the relay’s own page — where its teams and its marks are too.',
+  'print.openRelays': 'Open the relay programme',
   'print.previewTitle': 'Preview — {name}',
   'print.downloadHeat': 'Download {label}',
   'print.previewFailed': 'Failed to open the preview',
@@ -201,7 +202,8 @@ const en = {
 
   /* ---------------- mark entry grid ---------------- */
   'marks.title': 'Mark entry',
-  'marks.subtitle': 'Type the results straight into the grid and save them all at once.',
+  'marks.subtitle':
+    'Type the results straight into the grid and save them all at once. The grid is for the individual events: a relay’s lines are teams, and its times are keyed in on the relay’s own board.',
   'marks.pickEvent': 'Event',
   'marks.pickGroup': 'Heat',
   /* The picker is narrowed by the event's own grade; the sheet's rows still
@@ -318,13 +320,14 @@ const en = {
   'marks.noMarkableEvents':
     'No event has more than one athlete entered yet, so there is nothing to mark.',
   /*
-   * A relay that is not ready to be marked is left out of the picker whole: it has
-   * too few teams, or a team short of its runners, and the server refuses to mark it
-   * with a 409. It says so — in the reason the server sent — rather than simply
-   * going missing, which would read as a broken page.
+   * Where the relays are, said under the picker that no longer holds them: they
+   * are keyed in on the relay's own board, one line per team, and the relay
+   * programme is one click away. A relay simply going missing from this page
+   * would read as a broken programme.
    */
-  'marks.relaysNotReady':
-    '{count} relay(s) are left out because they are not ready to be marked yet:',
+  'marks.relayNote':
+    'Relays are not keyed in here: a relay’s lines are teams — one time for the four runners together — and its times are entered on the relay’s own board, beside its teams.',
+  'marks.openRelays': 'Open the relay programme',
   'marks.blankSkipped': 'Rows left blank are not changed.',
   'marks.unsaved': 'Unsaved changes',
   'marks.invalidMark': '{who}: "{value}" is not a number',
@@ -1193,11 +1196,11 @@ const en = {
   'relay.loadFailed': 'Failed to load the relay teams',
   'relay.notRelay': 'This event is not a relay, so it has no relay teams.',
   'relay.kind': 'Relay teams',
-  'relay.kindForm': 'Form relay (one team per class)',
+  'relay.kindForm': 'Form relay (the form’s first two classes)',
   'relay.kindHouse': 'House relay (one team per house)',
   'relay.kindUndivided': 'Undivided — no teams',
   'relay.kindHint':
-    'A form relay gives one team per class — of the form it is scoped to on the relay events page, taken across that form’s grades (1A, 1B, 1C and 1D), or of its own grade when no form is set; a house relay gives one team per house of that grade. An undivided relay has no teams at all.',
+    'A form relay gives two teams — the first two classes of the form it is scoped to on the relay events page, taken across that form’s grades (1A and 1B of a form whose classes are 1A, 1B, 1C and 1D). When no form is set it gives one team per class of its own grade. A house relay gives one team per house of that grade, and an undivided relay has no teams at all.',
   'relay.kindLockedHint':
     'The server refuses a change of kind while the event still has teams, because those teams hold real selections. Remove them on the relay board first.',
   'relay.legsPerTeam': 'Legs per team',
@@ -1212,7 +1215,7 @@ const en = {
   'relay.deriving': 'Deriving…',
   'relay.deriveTitle': 'Derive the class or house teams from the roster',
   'relay.deriveExplanation':
-    'This makes the roster’s own teams and nothing else: one team per class on a form relay, one team per house on a house relay, taken from the register. It is how a form or house relay gets its teams, and each team is then filled from its own Add a runner list. A team made by hand through the relay team API is left alone by a derive: it is not one class’s and not one house’s, so it is never matched, renamed or dropped here.',
+    'This makes the roster’s own teams and nothing else: the first two classes on a form relay, one team per house on a house relay, taken from the register. It is how a form or house relay gets its teams, and each team is then filled from its own Add a runner list. A team made by hand through the relay team API is left alone by a derive: it is not one class’s and not one house’s, so it is never matched, renamed or dropped here.',
   'relay.derivePrune': 'Also drop empty teams that are no longer on the roster',
   'relay.derived':
     'Derived — {created} team(s) created, {kept} kept, {pruned} dropped, from {eligible} eligible students.',
@@ -1299,18 +1302,39 @@ const en = {
   'relay.renameHint':
     'This is the name the marking sheet and the mark grid are keyed on. Two teams of one race cannot share a name, and a name of more than 40 characters is refused.',
 
+  /* ---------------- a relay's own marks: one time per team ---------------- */
+  /*
+   * The mark entry that lives on a relay's own board. Its lines are the relay's
+   * teams and its one number is the team's — a relay is run and scored by team —
+   * so the grid's own words are here and the rest of the wording (the record box,
+   * the standard, ABS / DQ, save) is the marking grid's, reused deliberately so
+   * the two read the same.
+   */
+  'relayMark.title': 'Mark entry — one time per team',
+  'relayMark.hint':
+    'Each line is a team and is written once for its four runners together, in the school’s own shape (M.SS.mmm — 1.04.123). A remark may be added, and a team that did not run may be recorded ABS or DQ. Rows left blank are not changed.',
+  'relayMark.loadFailed': 'Failed to read this relay’s mark sheet',
+  'relayMark.noTeams':
+    'This relay has no team to mark yet. Its board says what is missing — a relay needs two teams in the race, each with a runner on every leg.',
+  'relayMark.notTeamLines':
+    'The server answered with athletes rather than teams, which is what an individual event says. This page marks a relay by team, so nothing is offered here.',
+  'relayMark.teacherLimit':
+    'Keying a relay’s time is an administrator’s, a manager’s or an input helper’s, so it is not offered to a teacher. Placing the runners of a team is on the board above.',
+  'relayMark.boardNotYours':
+    'A relay’s teams and runners are read by its board, which an administrator or a teacher opens. The lines above are the event’s teams as the server reports them, and their times are yours to enter.',
+
   /* ---------------- every relay event, and one-click teams ---------------- */
   /*
-   * The relay programme is two families on two pages: the form class relays — one
-   * team per class of a form, Forms 1 to 6, filtered by form — and the grade house
+   * The relay programme is two families on two pages: the form class relays — a
+   * form’s first two classes, Forms 1 to 6, filtered by form — and the grade house
    * relays — one team per grade × house, Grades A to C, filtered by grade.
    */
   'relayEvents.formTitle': 'Form class relays',
   'relayEvents.formSubtitle':
-    'The class relays: one team per class of the form the relay is scoped to — Forms 1 to 6, each class of that form across every grade. Filter by form to see one at a time, and make the ones the programme is missing from the grids above.',
+    'The class relays: the first two classes of the form the relay is scoped to — Forms 1 to 6, taken across every grade, so a Form 3 relay runs 3A and 3B. Filter by form to see one at a time, and make the ones the programme is missing from the grids above. A relay is run entirely from its own page: its marking sheets are printed from its card, and its teams’ times are keyed in on its board.',
   'relayEvents.houseTitle': 'Grade house relays',
   'relayEvents.houseSubtitle':
-    'The house relays: one team per grade × house — Grades A to C. Filter by grade to see one at a time, and make the ones the programme is missing from the grid above.',
+    'The house relays: one team per grade × house — Grades A to C. Filter by grade to see one at a time, and make the ones the programme is missing from the grid above. A relay is run entirely from its own page: its marking sheets are printed from its card, and its teams’ times are keyed in on its board.',
   'relayEvents.filterForm': 'Form:',
   'relayEvents.filterGrade': 'Grade:',
   'relayEvents.allForms': 'All forms',
@@ -1362,7 +1386,7 @@ const en = {
   'relayEvents.loadFailed': 'Failed to load the relay events',
   'relayEvents.listTitle': 'The programme’s relay events',
   'relayEvents.listHint':
-    'A relay with no teams yet is the normal starting state: it has simply not been divided. Reading each event’s board is what tells us how many teams it holds.',
+    'A relay with no teams yet is the normal starting state: it has simply not been divided. An administrator and a teacher read each event’s board, which is what tells us how many teams it holds; a manager and an input helper are here for a relay’s marking sheets and its teams’ times.',
   'relayEvents.eventCount': '{count} relay event(s)',
   'relayEvents.readingBoards': 'Reading each event’s teams…',
   'relayEvents.boardFailed': 'Failed to read this event’s relay board',
@@ -1370,12 +1394,12 @@ const en = {
   'relayEvents.countUnknown': 'unknown',
   'relayEvents.notReadyTitle': 'This relay is not ready to run:',
   'relayEvents.notReadyTeams':
-    'It has {count} team(s). A relay needs at least {needed}, each with a runner on every leg.',
+    'It has {count} team(s) in the race. A relay needs at least {needed} teams, each with a runner on every leg — a team with nobody named in it yet is not in the race, so a spare team does not hold the relay back.',
   'relayEvents.rulesTitle': 'The two ways a relay is divided',
   'relayEvents.rulesHint':
     'The division belongs to the event, not to this page, so the buttons below set the event’s own setting before they make anything.',
   'relayEvents.formRule':
-    'one team per class — of the form the relay is scoped to, taken across that form’s grades (1A, 1B, 1C, 1D), or of this event’s own grade when it is scoped to no form.',
+    'two teams — the first two classes of the form the relay is scoped to, taken across that form’s grades (3A and 3B for a Form 3 relay); with no form set, one team per class of this event’s own grade.',
   'relayEvents.houseRule':
     'one team per house within the event’s grade — for example C Grade Yellow.',
   'relayEvents.kindIsStoredOnTheEvent':
@@ -1383,16 +1407,19 @@ const en = {
   'relayEvents.adminClearHint':
     'Making the teams by one rule after the other leaves the first rule’s teams in place: the server refuses to change an event’s kind while it still has teams, and says so. An event that already holds teams is therefore changed from its own board, where they can be removed first.',
   'relayEvents.teacherLimits':
-    'A teacher may open any relay’s board and place their own classes’ students. Creating a relay, deleting a relay, setting its kind and printing marking sheets are administrator actions, so those controls are held back here.',
+    'What a reader may do here follows the endpoints, not this page: an administrator builds the programme, an administrator or a teacher opens a relay’s board and places its runners, and — for an administrator, a manager or an input helper — a relay’s marking sheets are printed from its own card and its teams’ times are keyed in on its own board. A teacher may place runners but may not print a sheet or key a mark, so those controls are not offered to them.',
   'relayEvents.teacherPrintLimit':
-    'Printing a marking sheet is an administrator action, so it is not offered here.',
+    'Printing a marking sheet is an administrator’s, a manager’s or an input helper’s, so it is not offered here.',
+  'relayEvents.markOnBoard':
+    'Each team’s time is keyed in on this relay’s board.',
+  'relayEvents.boardNotYours':
+    'A relay’s teams and runners are read by its board, which an administrator or a teacher opens. Open this relay to print its sheets and to key in its teams’ times — the lines there are the teams themselves.',
   'relayEvents.anyForm': 'This grade only',
   'relayEvents.formN': 'Form {form}',
   'relayEvents.makeFailed': 'Failed to make the relay teams',
   'relayEvents.currentTeams': 'The teams of this event',
-  'relayEvents.printSheets': 'Print the marking sheets',
-  'relayEvents.printRun': 'Open the print run',
-  'relayEvents.printFailed': 'Failed to print the marking sheets',
+  'relayEvents.printSheets': 'Print this relay’s marking sheets',
+  'relayEvents.printFailed': 'This relay’s marking sheets could not be printed:',
   'relayEvents.deleteRelay': 'Delete this relay',
   'relayEvents.deleteRelayConfirm':
     'Delete the relay “{name}” — the relay itself, with its {count} team(s) and the runners named on them, and its entries? This cannot be undone.',
@@ -1402,7 +1429,7 @@ const en = {
   /* ---------------- the teacher's way into a relay board ---------------- */
   'teacher.relayTitle': 'Relay events',
   'teacher.relayHint':
-    'Open a relay event to see its teams and fill them: every team’s own list offers the register’s students for its class or house, and a runner can be removed and put back as often as you like. A relay is either a class relay (one team per class) or a house relay (one team per house of the event’s grade); you may place your own classes’ students, while every team of the event is shown so you can see who is running with whom.',
+    'Open a relay event to see its teams and fill them: every team’s own list offers the register’s students for its class or house, and a runner can be removed and put back as often as you like. A relay is either a class relay (two teams — the form’s first two classes) or a house relay (one team per house of the event’s grade); you may place your own classes’ students, while every team of the event is shown so you can see who is running with whom.',
   'teacher.relayEmpty': 'The programme has no relay event yet.',
   'teacher.relayAll': 'See every relay event',
 
@@ -1548,7 +1575,8 @@ const zh: Record<keyof typeof en, string> = {
   'eventFilters.allEventTypes': '全部項目',
 
   'print.title': '列印記錄表',
-  'print.subtitle': '每組一張記錄表，供工作人員填寫成績。短跑用 A5，其餘用 A4。',
+  'print.subtitle':
+    '每組一張記錄表，供工作人員填寫成績，適用於個人項目。短跑用 A5，其餘用 A4。接力項目不在本頁：接力記錄表每隊一行，請在接力項目自己的頁面列印。',
   'print.division': '組別',
   'print.category': '類別',
   'print.event': '項目',
@@ -1571,14 +1599,17 @@ const zh: Record<keyof typeof en, string> = {
   'print.allCategories': '全部類別',
   'print.matchingCount': '符合項目 {count} 個，共 {heats} 組',
   'print.noMatching': '沒有符合篩選條件的項目。',
-  'print.relaysNotReady': '另有 {count} 個接力項目未列出：接力項目尚未齊隊，暫未能記錄成績。',
+  'print.relayNote':
+    '接力項目不在本頁，亦不包括在整批下載之中：接力記錄表每隊一行，請在接力項目自己的頁面列印 — 其隊伍及成績亦在該頁。',
+  'print.openRelays': '開啟接力項目頁',
   'print.previewTitle': '預覽 — {name}',
   'print.downloadHeat': '下載{label}',
   'print.previewFailed': '無法開啟預覽',
   'print.finalCount': '決賽：{count} 人',
 
   'marks.title': '輸入成績',
-  'marks.subtitle': '直接在表格輸入成績，一次儲存全部。',
+  'marks.subtitle':
+    '直接在表格輸入成績，一次儲存全部。本表格適用於個人項目：接力的每一行是隊伍，其時間請在接力項目自己的編排頁輸入。',
   'marks.pickEvent': '項目',
   'marks.pickGroup': '組別',
   'marks.eventGrade': '項目級別',
@@ -1676,7 +1707,9 @@ const zh: Record<keyof typeof en, string> = {
   'marks.pickEventFirst': '請選擇項目以開始輸入成績。',
   'marks.thinEventsHidden': '另有 {count} 個項目未列出：只有多於一名運動員報名才值得記錄成績。',
   'marks.noMarkableEvents': '目前沒有項目有多於一名運動員報名，暫無成績可記錄。',
-  'marks.relaysNotReady': '另有 {count} 個接力項目未列出：接力項目尚未齊隊，暫未能記錄成績。',
+  'marks.relayNote':
+    '接力項目不在這裡輸入：接力的每一行是隊伍 — 四名跑手共用一個時間 — 其時間請在接力項目自己的編排頁，於隊伍旁邊輸入。',
+  'marks.openRelays': '開啟接力項目頁',
   'marks.blankSkipped': '留空的列不會被更改。',
   'marks.unsaved': '尚未儲存的變更',
   'marks.invalidMark': '{who}："{value}" 不是有效數字',
@@ -2450,11 +2483,11 @@ const zh: Record<keyof typeof en, string> = {
   'relay.loadFailed': '無法載入接力隊伍',
   'relay.notRelay': '此項目並非接力項目，因此沒有接力隊伍。',
   'relay.kind': '接力隊伍',
-  'relay.kindForm': '班際（每班一隊）',
+  'relay.kindForm': '班際（首兩班各一隊）',
   'relay.kindHouse': '社際（每社一隊）',
   'relay.kindUndivided': '不分隊 — 沒有隊伍',
   'relay.kindHint':
-    '班際接力每班一隊 — 依接力項目頁所選定的級別，涵蓋該級別各年級的班別（1A、1B、1C、1D）；未選定級別時，則為該項目所屬年級的每班一隊。社際接力則按該級別的每個社各出一隊。不分隊的接力項目完全沒有隊伍。',
+    '班際接力取兩隊 — 依接力項目頁所選定的年級，只取該年級的首兩班，涵蓋該年級各組別的班別（班別為 1A、1B、1C、1D 時即取 1A 及 1B）；未選定年級時，則為該項目所屬組別的每班一隊。社際接力則按該組別的每個社各出一隊。不分隊的接力項目完全沒有隊伍。',
   'relay.kindLockedHint':
     '此項目仍有隊伍時，伺服器會拒絕更改接力類別，因為這些隊伍載有實際的選手安排。請先在接力編排頁面移除所有隊伍。',
   'relay.legsPerTeam': '每隊棒數',
@@ -2468,7 +2501,7 @@ const zh: Record<keyof typeof en, string> = {
   'relay.deriving': '產生中…',
   'relay.deriveTitle': '由名冊產生班際或社際隊伍',
   'relay.deriveExplanation':
-    '此按鈕只會產生名冊本身的隊伍：班際接力每班一隊，社際接力每社一隊，全部取自名冊。班際或社際接力就是這樣產生隊伍的，之後可在各隊下方的「新增跑手」名單加入跑手。若隊伍是經接力隊伍 API 自建的，產生功能不會觸及它：它不屬於任何班別或社，因此永遠不會被配對、改名或刪除。',
+    '此按鈕只會產生名冊本身的隊伍：班際接力取該年級首兩班各一隊，社際接力每社一隊，全部取自名冊。班際或社際接力就是這樣產生隊伍的，之後可在各隊下方的「新增跑手」名單加入跑手。若隊伍是經接力隊伍 API 自建的，產生功能不會觸及它：它不屬於任何班別或社，因此永遠不會被配對、改名或刪除。',
   'relay.derivePrune': '同時刪除名冊上已不存在且沒有成員的空隊伍',
   'relay.derived': '已產生 — 新增 {created} 隊、保留 {kept} 隊、刪除 {pruned} 隊，合資格學生 {eligible} 人。',
   'relay.derivedKeptWithRunners': ' 另有 {count} 隊因已有成員而保留。',
@@ -2546,14 +2579,28 @@ const zh: Record<keyof typeof en, string> = {
   'relay.renameHint':
     '此名稱是點名表及成績輸入表所依據的名稱。同一賽事不能有兩隊同名，亦不接受超過 40 字的名稱。',
 
+  /* ---------------- 接力項目自己的成績輸入：每隊一個時間 ---------------- */
+  'relayMark.title': '輸入成績 — 每隊一個時間',
+  'relayMark.hint':
+    '每一行是一支隊伍，四名跑手共用一個時間，並按學校的格式填寫（M.SS.mmm — 1.04.123）。可加備註，未出賽的隊伍可記錄為 ABS 或 DQ。留空的列不會被更改。',
+  'relayMark.loadFailed': '無法載入此接力的成績表',
+  'relayMark.noTeams':
+    '此接力尚未有隊伍可記錄成績。其編排頁會說明尚欠甚麼 — 接力至少需要兩隊參賽，且每隊每一棒都要有跑手。',
+  'relayMark.notTeamLines':
+    '伺服器回覆的是運動員而非隊伍，這是個人項目的格式。本頁以隊伍記錄接力成績，因此不提供任何輸入。',
+  'relayMark.teacherLimit':
+    '輸入接力時間屬管理員、經理或輸入助理權限，因此不提供給教師。安排隊伍的跑手可在上方的編排部分進行。',
+  'relayMark.boardNotYours':
+    '接力的隊伍及跑手由其編排頁讀取，該頁由管理員或教師開啟。上方的每一行就是伺服器所報的項目隊伍，其時間由您輸入。',
+
   /* ---------------- 教師前往接力編隊的入口 ---------------- */
   /* ---------------- every relay event, and one-click teams ---------------- */
   'relayEvents.formTitle': '班際接力',
   'relayEvents.formSubtitle':
-    '班際接力：接力項目所屬年級的每班一隊 — 中一至中六，該年級各級別的班別都會成隊。可用年級篩選，逐個查看；尚未建立的接力可在上方方格一次過建立。',
+    '班際接力：接力項目所屬年級的首兩班各一隊 — 中一至中六，只取該年級的首兩班（中三即 3A 及 3B）。可用年級篩選，逐個查看；尚未建立的接力可在上方方格一次過建立。接力項目完全在自己的頁面運作：記錄表在該項目的卡片列印，各隊時間在該項目的編排頁輸入。',
   'relayEvents.houseTitle': '社際接力',
   'relayEvents.houseSubtitle':
-    '社際接力：每個組別 × 每社一隊 — A 至 C 組。可用組別篩選，逐個查看；尚未建立的接力可在上方方格一次過建立。',
+    '社際接力：每個組別 × 每社一隊 — A 至 C 組。可用組別篩選，逐個查看；尚未建立的接力可在上方方格一次過建立。接力項目完全在自己的頁面運作：記錄表在該項目的卡片列印，各隊時間在該項目的編排頁輸入。',
   'relayEvents.filterForm': '年級：',
   'relayEvents.filterGrade': '組別：',
   'relayEvents.allForms': '所有年級',
@@ -2590,7 +2637,7 @@ const zh: Record<keyof typeof en, string> = {
   'relayEvents.loadFailed': '無法載入接力項目',
   'relayEvents.listTitle': '本年度接力項目',
   'relayEvents.listHint':
-    '尚未有隊伍的接力項目屬正常起始狀態，只是尚未分隊。讀取每個項目的編排頁，才知道它已有多少隊伍。',
+    '尚未有隊伍的接力項目屬正常起始狀態，只是尚未分隊。管理員及教師會讀取每個項目的編排頁，才知道它已有多少隊伍；經理及輸入助理則在此列印接力的記錄表，並在編排頁輸入各隊時間。',
   'relayEvents.eventCount': '{count} 個接力項目',
   'relayEvents.readingBoards': '正在讀取各項目的隊伍…',
   'relayEvents.boardFailed': '無法讀取此項目的接力隊伍',
@@ -2598,12 +2645,12 @@ const zh: Record<keyof typeof en, string> = {
   'relayEvents.countUnknown': '未能確定',
   'relayEvents.notReadyTitle': '此接力尚未齊隊，暫未能作賽：',
   'relayEvents.notReadyTeams':
-    '現有 {count} 隊。接力至少需要 {needed} 隊，且每隊每一棒都要有跑手。',
+    '目前有 {count} 隊參賽。接力至少需要 {needed} 隊，且每隊每一棒都要有跑手 — 未有任何跑手的隊伍尚未參賽，不會阻礙接力進行。',
   'relayEvents.rulesTitle': '接力的兩種分隊方式',
   'relayEvents.rulesHint':
     '分隊方式屬於項目本身而非本頁，因此下方按鈕會先設定項目自己的設定，然後才編隊。',
   'relayEvents.formRule':
-    '每班一隊 — 依該接力所屬的級別，涵蓋該級別各年級的班別（1A、1B、1C、1D）；未設級別時，則為本項目所屬年級的每班一隊。',
+    '首兩班各一隊 — 依該接力所屬的年級，只取該年級的首兩班（中三即 3A 及 3B）；未設年級時，則為本項目所屬組別的每班一隊。',
   'relayEvents.houseRule':
     '該項目年級內每社一隊 — 例如 C Grade Yellow。',
   'relayEvents.kindIsStoredOnTheEvent':
@@ -2611,15 +2658,17 @@ const zh: Record<keyof typeof en, string> = {
   'relayEvents.adminClearHint':
     '以一組規則編隊後再改用另一組，原有隊伍會成為阻礙：伺服器在項目仍有隊伍時拒絕更改類別，並會說明原因。因此已有隊伍的項目須在其接力隊伍編排頁更改，先在該頁移除隊伍。',
   'relayEvents.teacherLimits':
-    '教師可開啟任何接力項目的編排頁，安排自己任教班別的學生。建立接力項目、刪除接力項目、設定其類別及列印記錄表屬管理員權限，因此本頁不提供該等操作。',
-  'relayEvents.teacherPrintLimit': '列印記錄表屬管理員權限，因此本頁不提供。',
+    '本頁可做甚麼取決於各項 API 的權限：管理員建立接力項目；管理員及教師可開啟接力的編排頁安排跑手；而列印接力記錄表及輸入各隊時間則屬管理員、經理及輸入助理 — 記錄表在接力項目卡片上下載，時間在該項目的編排頁輸入。教師可安排跑手，但不可列印記錄表或輸入成績，因此本頁不提供該等操作。',
+  'relayEvents.teacherPrintLimit': '列印記錄表屬管理員、經理或輸入助理權限，因此本頁不提供。',
+  'relayEvents.markOnBoard': '各隊時間在該接力項目的編排頁輸入。',
+  'relayEvents.boardNotYours':
+    '接力的隊伍及跑手由其編排頁讀取，該頁由管理員或教師開啟。請開啟此接力以列印其記錄表及輸入各隊時間 — 該頁的每一行就是隊伍本身。',
   'relayEvents.anyForm': '只限本級',
   'relayEvents.formN': '{form} 年級',
   'relayEvents.makeFailed': '無法編排接力隊伍',
   'relayEvents.currentTeams': '此項目的隊伍',
-  'relayEvents.printSheets': '列印記錄表',
-  'relayEvents.printRun': '開啟列印頁',
-  'relayEvents.printFailed': '無法列印記錄表',
+  'relayEvents.printSheets': '列印此接力的記錄表',
+  'relayEvents.printFailed': '無法列印此接力的記錄表：',
   'relayEvents.deleteRelay': '刪除此接力項目',
   'relayEvents.deleteRelayConfirm':
     '確定刪除接力項目「{name}」？其 {count} 支隊伍、已安排的跑手及報名紀錄都會一併刪除。此操作無法復原。',
@@ -2627,7 +2676,7 @@ const zh: Record<keyof typeof en, string> = {
     '確定刪除接力項目「{name}」？其所有隊伍、已安排的跑手及報名紀錄都會一併刪除。此操作無法復原。',
   'teacher.relayTitle': '接力項目',
   'teacher.relayHint':
-    '開啟接力項目即可看到其隊伍並加入跑手：每隊下方的名單會列出名冊上屬於該班別或社的學生，跑手可隨時移除並重新加入。接力項目分為班際（每班一隊）及社際（該級別每社一隊）；您可安排自己任教班別的學生，而項目的所有隊伍均會顯示，讓您看到各隊的組合。',
+    '開啟接力項目即可看到其隊伍並加入跑手：每隊下方的名單會列出名冊上屬於該班別或社的學生，跑手可隨時移除並重新加入。接力項目分為班際（該年級首兩班各一隊）及社際（該級別每社一隊）；您可安排自己任教班別的學生，而項目的所有隊伍均會顯示，讓您看到各隊的組合。',
   'teacher.relayEmpty': '本年度暫時未有接力項目。',
   'teacher.relayAll': '查看所有接力項目',
 

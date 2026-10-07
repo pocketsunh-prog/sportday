@@ -21,6 +21,24 @@ public class EventGroupDTO {
     private Long id;
     private Long eventId;
     private String eventName;
+
+    /**
+     * <strong>The line the sheet heads this event with</strong>, when the event's own
+     * name is not it — {@code Boys 4x100M Relay · Form 3} for a form relay the school
+     * stored as {@code Boys 4x100M Relay · B Grade} — or null for an event that is not
+     * a relay. On a relay whose stored name already names the right scope it is that
+     * name, word for word, so the sheet prints what it always printed.
+     *
+     * <p>It is {@link com.sportday.entity.Event#getRelayTitle()}, resolved while the
+     * group is built rather than by the renderer: the rule belongs to the event and
+     * its own name, so the sheet, the print run that names it and the event list all
+     * read the one derivation and cannot drift apart. The stored name is never
+     * rewritten; it is the <em>heading</em> that is corrected.</p>
+     *
+     * @see #sheetHeading()
+     */
+    private String relayTitle;
+
     private String eventTypeLabel;
 
     /** The event type code, e.g. {@code RUN_800M} — what decides the time format. */
@@ -87,10 +105,11 @@ public class EventGroupDTO {
      * <p><strong>A relay sheet's lines are the event's teams, not the heat's
      * entrants.</strong> A relay is run and scored by team, and its teams belong to
      * the <em>event</em> while {@link #athletes} is the group's own roster of
-     * entries — the two are not the same list: a form relay's teams are one per class
-     * of that form, built from the register, and the students who happened to enter
-     * the event need not be the ones running in it. Reading the team names off the
-     * roster therefore printed the entrants' names on a sheet whose lines are teams.
+     * entries — the two are not the same list: a form relay's derived teams are that
+     * form's first two classes, built from the register, and the students who happened
+     * to enter the event need not be the ones running in it. Reading the team names off
+     * the roster therefore printed the entrants' names on a sheet whose lines are
+     * teams.
      * This field is what the sheet draws those lines from, so the paper a helper marks
      * and the grid they type into name the same teams in the same order.</p>
      *
@@ -100,6 +119,18 @@ public class EventGroupDTO {
      */
     private List<String> relayTeamLabels;
 
+    /**
+     * The line this group's sheet heads the event with: the relay's own title when it
+     * has one, and the stored event name otherwise.
+     *
+     * <p>The fallback is what keeps <strong>an individual event untouched</strong>: a
+     * sprint or a field event carries no relay title and prints exactly the name it
+     * has always printed.</p>
+     */
+    public String sheetHeading() {
+        return relayTitle == null || relayTitle.isBlank() ? eventName : relayTitle;
+    }
+
     public static EventGroupDTO from(EventGroup group) {
         var event = group.getEvent();
         var stage = group.getStageOrDefault();
@@ -107,6 +138,9 @@ public class EventGroupDTO {
                 .id(group.getId())
                 .eventId(event == null ? null : event.getId())
                 .eventName(event == null ? null : event.getName())
+                // A relay is headed by the scope its own kind is divided by, not by
+                // whichever scope its stored name happens to carry — see Event.
+                .relayTitle(event == null ? null : event.getRelayTitle())
                 .eventType(event == null || event.getType() == null ? null : event.getType().name())
                 .eventTypeLabel(event == null || event.getType() == null ? null : event.getType().getDisplayName())
                 .category(event == null ? null : event.getCategoryOrDefault().name())

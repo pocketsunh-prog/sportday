@@ -84,7 +84,18 @@ const DIVISIONS: Array<{ code: SexCode; sex: 'MALE' | 'FEMALE' }> = [
   { code: 'F', sex: 'FEMALE' },
 ];
 
-const CATEGORIES: EventCategory[] = ['TRACK', 'FIELD', 'RELAY'];
+/**
+ * The two halves of the programme this control offers.
+ *
+ * **Deliberately without `RELAY`.** The two screens that use this control — the
+ * marking grid and the print run — are about individual athletes: a relay is run
+ * and scored by *team*, its marking sheet carries one line per team, and both its
+ * sheets and its marks live on the relay's own page. Offering a category here
+ * that no screen lists would only produce an empty page, so the filter says what
+ * the page behind it holds. The category itself is unchanged: a relay event is
+ * still `EventCategory.RELAY` everywhere the programme is read.
+ */
+const CATEGORIES: EventCategory[] = ['TRACK', 'FIELD'];
 
 export function EventFilters({
   value,

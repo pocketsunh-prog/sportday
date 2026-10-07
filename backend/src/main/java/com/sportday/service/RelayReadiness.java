@@ -28,11 +28,25 @@ import java.util.Optional;
  *
  * <p>So a relay is <strong>ready</strong> when both of these hold:</p>
  * <ol>
- *   <li>it has at least {@value #MINIMUM_TEAMS} teams — one team is not a race; and</li>
- *   <li><strong>every</strong> team holds at least
- *       {@link Event#getEffectiveRelayTeamSize()} runners — four for a 4x100M or a
- *       4x400M. <em>One</em> short team holds the whole relay back.</li>
+ *   <li><strong>at least {@value #MINIMUM_TEAMS} teams are in the race</strong> — a team
+ *       somebody has been named in is in the race, and a team with <em>nobody</em> in it
+ *       is not. Two teams is a race and one is not; and an empty team left on the board
+ *       — a class the derive made before the school settled on two, or a spare team
+ *       somebody added by hand — neither counts toward the two nor holds the relay back;
+ *       and</li>
+ *   <li><strong>every team in the race holds at least
+ *       {@link Event#getEffectiveRelayTeamSize()} runners</strong> — four for a 4x100M or
+ *       a 4x400M. <em>One</em> team short of them holds the whole relay back, because a
+ *       runner who is named and missing is a leg nobody can run.</li>
  * </ol>
+ *
+ * <p>A relay may therefore run with anything from two teams to as many as the school
+ * builds — <strong>the school's rule is two teams to four</strong> — and a relay holding
+ * four teams of which two are still empty is ready the moment the other two hold their
+ * runners. That is deliberate, and it is what the mark grid and the marking sheet have
+ * always assumed: neither lists a team with no runners in it (a team with no legs has no
+ * line to draw), so demanding that every spare team be filled held a race of two back
+ * for teams that were never in it.</p>
  *
  * <p>The rule is a property of the <em>event</em>, not of a sheet or a grid: it is
  * stated once here and the wording is stated once here, so mark entry and the marking
@@ -86,17 +100,19 @@ public class RelayReadiness {
 
     /**
      * The fewest teams a relay needs before any of its marks can be entered —
-     * <strong>two</strong>: a race of one team has nobody to race against.
+     * <strong>two</strong>: a race of one team has nobody to race against. Counted over
+     * the teams <em>in the race</em>, so a team nobody has been named in yet is not one
+     * of them.
      */
     public static final int MINIMUM_TEAMS = 2;
 
     /**
-     * A relay with too few teams. {@code %d} is how many it has, and the event's own
-     * name goes in front of it.
+     * A relay with too few teams <strong>in the race</strong>. {@code %d} is how many of
+     * its teams hold a runner, and the event's own name goes in front of it.
      */
     public static final String NEEDS_TWO_TEAMS =
-            " has %d team(s), and a relay needs at least 2 before its marks can be entered. "
-                    + "Build another team first.";
+            " has %d team(s) in the race, and a relay needs at least 2 before its marks can be "
+                    + "entered. Build or fill another team first.";
 
     /**
      * A team short of its runners. The first {@code %d} is how many it holds, the second
@@ -180,7 +196,8 @@ public class RelayReadiness {
      * <p>An event that is ready is <strong>absent from the map</strong>, and so is
      * every event that is not a relay: a caller reads an absent id as "ready", which
      * is exactly what an individual event always is. An undivided relay is present
-     * with the same "has 0 team(s)" reason {@link #shortfallOf(Event)} gives it.</p>
+     * with the same "has 0 team(s) in the race" reason {@link #shortfallOf(Event)} gives
+     * it.</p>
      *
      * <p><strong>Two queries for the whole list, whatever its size.</strong> The
      * teams of every relay are read in one query and their runners in another, and
@@ -274,11 +291,14 @@ public class RelayReadiness {
     /**
      * The one readiness rule, over the facts a caller already holds.
      *
-     * <p>Too few teams is checked first: a relay with one team of four is refused for
-     * having <em>one team</em>, not for that team being short, because building another
-     * team is the next thing to do either way. Otherwise every team is judged, and the
-     * first one short of the race's legs is named — the school fills that team, and the
-     * next attempt names the next one.</p>
+     * <p>Only the teams <strong>in the race</strong> are judged: a team with a runner
+     * named in it is in the race, and a team with nobody in it is not, so an empty team
+     * left on the board neither counts toward the two nor holds the relay back. Too few
+     * teams in the race is checked first: a relay with one team of four is refused for
+     * having <em>one team in the race</em>, not for that team being short, because
+     * building or filling another team is the next thing to do either way. Otherwise
+     * every team in the race is judged, and the first one short of the race's legs is
+     * named — the school fills that team, and the next attempt names the next one.</p>
      *
      * @return the reason the relay cannot be marked yet, or empty when it can — and
      *         always empty for an event that is not a relay
@@ -289,11 +309,23 @@ public class RelayReadiness {
         }
         List<TeamState> all = teams == null ? List.of() : teams;
         String relay = nameOf(event);
-        if (all.size() < MINIMUM_TEAMS) {
-            return Optional.of(relay + String.format(NEEDS_TWO_TEAMS, all.size()));
+        // The relay's race, which is not the same list as its teams: a team nobody has
+        // been named in yet is a team the school may still fill, not a team that cannot
+        // run. Judging it would make every spare class team — and every team a derive
+        // made before the school settled on two — a reason to refuse a race that is
+        // ready. A team with even one runner *is* in the race, and is held to its legs
+        // below, so a half-filled team still holds the relay back.
+        List<TeamState> inTheRace = new ArrayList<>(all.size());
+        for (TeamState team : all) {
+            if (team.runners() > 0) {
+                inTheRace.add(team);
+            }
+        }
+        if (inTheRace.size() < MINIMUM_TEAMS) {
+            return Optional.of(relay + String.format(NEEDS_TWO_TEAMS, inTheRace.size()));
         }
         int legs = event.getEffectiveRelayTeamSize();
-        for (TeamState team : all) {
+        for (TeamState team : inTheRace) {
             if (team.isShortOf(legs)) {
                 return Optional.of(labelOf(team) + String.format(SHORT_TEAM, team.runners(), legs, relay));
             }

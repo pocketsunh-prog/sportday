@@ -300,11 +300,11 @@ class RelayWithoutHeatsSheetTest {
                 () -> sheets.renderEventSheets(RELAY_ID));
 
         String message = refusal.getMessage();
-        assertTrue(message.startsWith("Girls 4x100M Relay - Form 5 has 0 team(s)"),
-                "the refusal names the relay and what it has: " + message);
+        assertTrue(message.startsWith("Girls 4x100M Relay - Form 5 has 0 team(s) in the race"),
+                "the refusal names the relay and what it has in the race: " + message);
         assertTrue(message.contains("at least 2 before its marks can be entered"),
                 "and the rule it falls short of: " + message);
-        assertTrue(message.contains("Build another team first."),
+        assertTrue(message.contains("Build or fill another team first."),
                 "and what to do about it: " + message);
         assertFalse(message.contains("group allocation"),
                 "a relay reader is never sent to a heats page: " + message);
@@ -313,10 +313,10 @@ class RelayWithoutHeatsSheetTest {
     @Test
     @DisplayName("teams that carry nobody print no blank sheet: the relay is refused in the same words")
     void teamsWithNoRunnersAreNotAPrintableSheet() {
-        // Two team rows exist, so the readiness rule itself passes — but a sheet's line
-        // is a team's NAME, and a team nobody has filled has none to read. Handing the
-        // print run a page with no lines on it is the empty page the school must be
-        // spared, so the refusal stands — and it is still the relay's, not one about heats.
+        // Two team rows exist, but neither holds anybody: no team is in the race, so the
+        // readiness rule refuses the relay. A sheet's line is a team's NAME and a team
+        // nobody has filled has none to read, so the refusal would stand either way — and
+        // it is still the relay's, not one about heats.
         Event relay = formRelay();
         RelayTeam first = RelayTeam.builder().id(601L).event(relay)
                 .kind(RelayTeamKind.FORM).teamKey("5A").label("5A").build();

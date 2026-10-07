@@ -84,6 +84,15 @@ export function Navbar() {
    * deliberately not `isStaff`, so no other `/admin` link is shown to them.
    */
   const isHelper = user?.role === 'HELPER';
+  /*
+   * The relay programme is worked by four roles, each doing a different part of
+   * it: an administrator builds it, a teacher places their own classes' runners,
+   * and a manager or an input helper prints a relay's sheets and keys its teams'
+   * times — a relay's marks are entered on the relay's own board, because its
+   * lines are teams rather than athletes. So all four are shown the two relay
+   * pages, and each page offers each of them exactly what its endpoints allow.
+   */
+  const canWorkOnRelays = canHelpStudents || isStaff || isHelper;
 
   /**
    * The four groups, each with its items and each item's own rule.
@@ -100,13 +109,15 @@ export function Navbar() {
         { href: '/admin/events', key: 'nav.manageEvents', allowed: isAdmin },
         // Setting a required standard is ADMIN-only, exactly like the page.
         { href: '/admin/standards', key: 'nav.standards', allowed: isAdmin },
-        // The relay pages serve ADMIN and TEACHER alike — each calls the
-        // `/teacher/**` endpoint family for a teacher — so both are shown them. A
-        // manager is not, because those pages admit administrators and teachers
-        // only. Two links, because the relay programme is two families: the form
-        // class relays and the grade house ones, each with its own filter.
-        { href: '/admin/relay-events/form', key: 'nav.relayFormEvents', allowed: canHelpStudents },
-        { href: '/admin/relay-events/grade', key: 'nav.relayHouseEvents', allowed: canHelpStudents },
+        // The relay pages serve four roles, each for its own part of the relay
+        // programme: an administrator and a teacher read a relay's teams (the
+        // `relay-teams` endpoints, `/admin/**` and `/teacher/**`), while a manager
+        // and an input helper print its sheets and key its teams' times (the
+        // marking-sheet and mark-entry endpoints, which admit them). Two links,
+        // because the relay programme is two families: the form class relays and
+        // the grade house ones, each with its own filter.
+        { href: '/admin/relay-events/form', key: 'nav.relayFormEvents', allowed: canWorkOnRelays },
+        { href: '/admin/relay-events/grade', key: 'nav.relayHouseEvents', allowed: canWorkOnRelays },
       ],
     },
     {

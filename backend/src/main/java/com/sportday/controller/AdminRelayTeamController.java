@@ -70,7 +70,7 @@ public class AdminRelayTeamController {
             description = "Creates the relay event the school's hand-made teams are built around, "
                     + "with those teams in the same request — name, and `userIds` in leg order so "
                     + "the first student listed runs leg 1. The event is a 4x100M or a 4x400M and "
-                    + "must be given a kind (FORM for one team per class, HOUSE for one per house), "
+                    + "must be given a kind (FORM for a form's class teams, HOUSE for one per house), "
                     + "because that is what the register judges a team and its runners against. "
                     + "Every team goes through the ordinary hand-made-team rule book: the name "
                     + "rules, four runners and at most one reserve, the event's division and "
@@ -127,9 +127,9 @@ public class AdminRelayTeamController {
     }
 
     @Operation(summary = "Create the event's teams from the roster",
-            description = "The same derivation a teacher can run: one team per class, or per house of "
-                    + "the event's grade and division. Additive, and pass prune=true to also drop "
-                    + "teams that are empty and no longer on the roster.")
+            description = "The same derivation a teacher can run: a form relay's first two classes, "
+                    + "or one team per house of the event's grade and division. Additive, and pass "
+                    + "prune=true to also drop teams that are empty and no longer on the roster.")
     @PostMapping("/events/{eventId}/relay-teams/derive")
     public ResponseEntity<RelayTeamDerivationDTO> deriveTeams(
             @PathVariable Long eventId,

@@ -10,8 +10,9 @@ import {
   EventSex,
   Grade,
   GRADES,
-  isRelayEventType,
+  isRelayEvent,
   RelayEventTeamsDTO,
+  RelayTeamDTO,
   RelayTeamKind,
   Role,
 } from '@/lib/api';
@@ -130,8 +131,9 @@ interface BoardFailure {
 }
 
 /**
- * What a relay is short of, in the school's terms: how many teams it has, and the
- * teams that have not a runner on every leg. See `shortfallOf`.
+ * What a relay is short of, in the school's terms: how many teams are **in the
+ * race** — the ones somebody has been named in — and the teams in it that have not
+ * a runner on every leg. See `shortfallOf`.
  */
 interface RelayShortfall {
   teams: number;
@@ -249,25 +251,50 @@ interface RelayGrid {
  *
  * ## Not ready, said in the school's terms
  *
- * A relay is ready when it holds **at least two teams and every team has a runner
- * on every leg** — the same verdict the server puts on the event list as
- * `relayReady`, read here from the board the page already fetches for every relay,
- * so the card can name *which* team is short rather than only that something is.
- * The line names how many teams the relay has and which of them is missing
- * runners, and a card without it is one that can be run and marked.
+ * A relay is ready when it holds **at least two teams in the race and every one of
+ * them has a runner on every leg** — the same verdict the server puts on the event
+ * list as `relayReady`, read here from the board the page already fetches for every
+ * relay, so the card can name *which* team is short rather than only that something
+ * is. A team nobody has been named in is **not** in the race and does not hold the
+ * relay back — the school's rule is two teams to four — while a team with even one
+ * runner in it is judged. The line names how many teams are in the race and which of
+ * them is missing runners, and a card without it is one that can be run and marked.
  *
- * ## One component, both roles
+ * ## One component, four roles, each offered exactly what the endpoints allow
  *
- * The teacher endpoint family admits ADMIN and TEACHER alike and runs the same
- * services, so the role only picks which family is called (see api.relayBase). What
- * changes an event is **not** shared: creating a relay is hasAnyRole('ADMIN',
- * 'MANAGER'), so a teacher is not offered a grid's button at all; deleting a relay
- * is hasRole('ADMIN'); and the marking sheet PDF of an event is ADMIN, MANAGER or
- * HELPER, so a teacher may not print one either. A teacher is therefore **told that
- * plainly, up front** — the same treatment the per-event board gives the kind it
- * holds back — rather than being offered a control whose only outcome is a 403. What
- * a teacher *can* do from here is open any relay's board and place their own
- * classes' students.
+ * Three different endpoint families meet on this page, and each control is
+ * offered only to the roles its own endpoint admits:
+ *
+ * <ul>
+ *   <li>the <strong>relay boards</strong> — every card's counts, teams and
+ *       readiness — come from {@code /api/admin/events/{id}/relay-teams} (ADMIN)
+ *       and its {@code /api/teacher/**} twin (ADMIN or TEACHER), so the boards are
+ *       read for an <strong>administrator and a teacher</strong> only. A manager
+ *       or an input helper is shown the programme without them — the relays, their
+ *       names and the way into each one — rather than a page of failed requests;</li>
+ *   <li>a relay's <strong>marking sheets</strong> are ADMIN, MANAGER or HELPER
+ *       ({@code EventGroupController}), so an administrator, a manager and a
+ *       helper each get the card's own print button, and a <strong>teacher</strong>
+ *       is told plainly that printing is not theirs;</li>
+ *   <li>creating the programme's relays (the grids above) and
+ *       <strong>deleting</strong> one are {@code hasAnyRole('ADMIN','MANAGER')} and
+ *       {@code hasRole('ADMIN')}, so both are an administrator's.</li>
+ * </ul>
+ *
+ * What every role can do from here is open a relay's board, which is where its
+ * teams are filled **and where its marks are keyed in**: a relay is marked by
+ * team, one time for the four runners together, and that grid lives on the
+ * relay's own board (see `RelayMarkEntry`). This page is the index to it.
+ *
+ * ## A relay's sheets are printed from its own card, not from the print page
+ *
+ * A relay is not on the print page at all any more and not in the whole-programme
+ * print run: its paper is one line per team rather than one per athlete, and it
+ * belongs here. Each card therefore carries the download of
+ * {@code GET /api/events/{id}/sheets.pdf} for its own relay — which prints a
+ * relay that has teams and no heats, and **refuses a relay with nothing to print
+ * with the reason**, naming the team that is short. That refusal is shown exactly
+ * as the server wrote it.
  *
  * ## An event with no teams is the normal starting state
  *
@@ -302,7 +329,26 @@ export default function RelayEventsList({ family }: { family: RelayFamily }) {
   const [built, setBuilt] = useState<{ names: string[]; failed: string[] } | null>(null);
 
   const isAdmin = user?.role === 'ADMIN';
-  const canWork = isAdmin || user?.role === 'TEACHER';
+  /**
+   * Who may read the relay boards: exactly the roles the relay-team endpoints
+   * admit (`/api/admin/**` is ADMIN, `/api/teacher/**` is ADMIN or TEACHER). The
+   * boards are **only fetched for them** — one request per relay is a real cost,
+   * and a manager or a helper asking for them would only be refused twelve times
+   * over.
+   */
+  const canReadBoard = isAdmin || user?.role === 'TEACHER';
+  /**
+   * Who may download a relay's marking sheets: exactly the roles
+   * `GET /api/events/{id}/sheets.pdf` admits — ADMIN, MANAGER or HELPER.
+   */
+  const canPrintSheets =
+    isAdmin || user?.role === 'MANAGER' || user?.role === 'HELPER';
+  /**
+   * Whether this reader has anything to do on this page: the board is an
+   * administrator's or a teacher's, and a manager or an input helper is here for
+   * the relay's own sheets and its teams' times, which their endpoints do admit.
+   */
+  const canWork = canReadBoard || canPrintSheets;
   /** The endpoint family this caller may use: `/teacher/**` for a teacher. */
   const role: Role = isAdmin ? 'ADMIN' : 'TEACHER';
 
@@ -322,12 +368,10 @@ export default function RelayEventsList({ family }: { family: RelayFamily }) {
       // Disabled events are included: a relay closed to new entries still needs
       // its teams and its marking sheets.
       const all = await api.getEvents({ onlyEnabled: false });
-      // A relay is its own event category now, and its own family of types
-      // (`RELAY_4X100M` / `RELAY_4X400M`). Either reading alone would do; asking
-      // both is what guarantees no relay is ever left off this page — the category
-      // is what the event itself now holds, and the type is the older spelling of
-      // it that every relay response still carries.
-      setEvents(all.filter(event => event.category === 'RELAY' || isRelayEventType(event.type)));
+      // A relay is read from both places the server says so, in the one helper
+      // that owns that test (`isRelayEvent`): the category the event itself holds
+      // now, and the type family every relay response still carries.
+      setEvents(all.filter(isRelayEvent));
     } catch (err) {
       setError(errorText(err, t('relayEvents.loadFailed')));
       setEvents([]);
@@ -357,10 +401,18 @@ export default function RelayEventsList({ family }: { family: RelayFamily }) {
    * A board that fails is recorded as failed rather than retried or hidden: a
    * caller the board endpoint refuses sees which events could not be read instead
    * of an invented zero.
+   *
+   * **And no board is asked for at all by a role that may not read one** (see
+   * `canReadBoard`). A manager and an input helper reach this page for the relay's
+   * own sheets and its teams' times, and neither may open its board: twelve
+   * refusals would tell them nothing twelve times over, so their cards carry no
+   * counts instead and say so in one line.
    */
   const loadBoards = useCallback(
     async (list: EventDTO[]) => {
-      if (list.length === 0) {
+      // Only for a caller the board endpoints admit: everyone else is shown the
+      // programme without the counts rather than a column of 403s.
+      if (!canReadBoard || list.length === 0) {
         setBoards({});
         setBoardsLoading(false);
         return;
@@ -388,7 +440,7 @@ export default function RelayEventsList({ family }: { family: RelayFamily }) {
       });
       setBoardsLoading(false);
     },
-    [role, t]
+    [role, canReadBoard, t]
   );
 
   useEffect(() => {
@@ -434,12 +486,18 @@ export default function RelayEventsList({ family }: { family: RelayFamily }) {
   };
 
   /**
-   * Prints an event's marking sheets: every page the server renders for it, one
-   * per group, including the relay teams' own sheets. **ADMIN, MANAGER or
-   * HELPER** — a teacher is refused by the endpoint, so the control is not
-   * offered to them and the reason is on screen instead. The whole print run
-   * belongs to `/admin/print`, which this page links to; this is the one-event
-   * shortcut to the same file.
+   * **Prints one relay's marking sheets**: the file the server renders for this
+   * event alone, `GET /api/events/{id}/sheets.pdf` — the one place a relay's paper
+   * is printed from now. Its lines are the event's teams, one per team, so a relay
+   * with teams and no heats prints perfectly well; a relay with nothing to print
+   * is **refused with the reason**, and the reason names the team that is short
+   * (or that the relay has too few teams in the race). That sentence is set on the
+   * card exactly as the server wrote it — never replaced with a generic "print
+   * failed" — because the reader has to know *which team* to go and fill.
+   *
+   * **ADMIN, MANAGER or HELPER** — the same three the endpoint admits. A teacher is
+   * refused by it, so the control is not offered to them and the reason is on
+   * screen instead.
    */
   const printSheets = async (event: EventDTO) => {
     setBusy(`print-${event.id}`);
@@ -827,28 +885,36 @@ export default function RelayEventsList({ family }: { family: RelayFamily }) {
    * ready to be run and marked.
    *
    * Ready means exactly two things, and both are read from the board this page
-   * already fetches for every relay: **at least two teams** — one team is not a
-   * relay, and a single team cannot be raced against itself — and **every team
-   * holding a runner for every leg**. The per-team verdict is the server's own
-   * `complete` (true once each leg has a runner, reserves not counted); where a
-   * response carries none, the members are counted against the team's `legCount`.
-   * Nothing here needed a new API field.
+   * already fetches for every relay: **at least two teams in the race** — one team
+   * is not a relay, and a single team cannot be raced against itself — and **every
+   * team in the race holding a runner for every leg**. A team nobody has been named
+   * in is *not* in the race: the school's rule is two teams to four, an empty team
+   * is one it may still fill, and it must not hold a race of two back — which is
+   * also how the server reads it (`RelayReadiness`), and how the mark grid and the
+   * marking sheet have always read it, since neither lists a team with no runners
+   * in it. A team with even one runner *is* in the race and is judged below, so a
+   * half-filled team still holds the relay back. The per-team verdict is the
+   * server's own `complete` (true once each leg has a runner, reserves not counted);
+   * where a response carries none, the members are counted against the team's
+   * `legCount`. Nothing here needed a new API field.
    */
   const shortfallOf = (board: RelayEventTeamsDTO): RelayShortfall | null => {
     const legs = board.legsPerTeam ?? 0;
-    const shortTeams = board.teams
+    const runningIn = (team: RelayTeamDTO) =>
+      team.members.filter(member => !member.reserve).length;
+    const inTheRace = board.teams.filter(team => runningIn(team) > 0);
+    const shortTeams = inTheRace
       .filter(team => {
         if (team.complete !== undefined) return !team.complete;
-        const running = team.members.filter(member => !member.reserve).length;
-        return running < (team.legCount ?? legs);
+        return runningIn(team) < (team.legCount ?? legs);
       })
       .map(team => ({
         label: team.label || String(team.id),
-        runners: team.members.filter(member => !member.reserve).length,
+        runners: runningIn(team),
         needed: team.legCount ?? legs,
       }));
-    if (board.teams.length >= TEAMS_NEEDED && shortTeams.length === 0) return null;
-    return { teams: board.teams.length, shortTeams };
+    if (inTheRace.length >= TEAMS_NEEDED && shortTeams.length === 0) return null;
+    return { teams: inTheRace.length, shortTeams };
   };
 
   /**
@@ -887,9 +953,16 @@ export default function RelayEventsList({ family }: { family: RelayFamily }) {
   };
 
   /**
-   * Each event's own controls: its board, where the runners of its teams are placed
-   * or moved; for an administrator, the deletion of the relay itself, its marking
-   * sheets and the print run.
+   * Each event's own controls: the way into **its own board** — where its teams
+   * are filled and its teams' times are keyed in — the download of **its own
+   * marking sheets**, and, for an administrator, the one press that deletes the
+   * relay itself.
+   *
+   * There is **no link to the print page here any more**: a relay is not printed
+   * from there (it is not on it, and it is not in its whole-programme run either),
+   * and its paper is the card's own button above. The whole print run of the
+   * individual events is still what the marking sheets are printed from for
+   * everything that is not a relay, and the navigation carries it.
    *
    * The making of an event's teams used to be offered here too: a form picker and
    * one button per rule, which set the event's kind and then derived its teams.
@@ -917,7 +990,7 @@ export default function RelayEventsList({ family }: { family: RelayFamily }) {
           {busy === `delete-${event.id}` ? t('common.processing') : t('relayEvents.deleteRelay')}
         </button>
       )}
-      {isAdmin ? (
+      {canPrintSheets ? (
         <button
           type="button"
           className="btn btn-sm btn-secondary"
@@ -931,11 +1004,12 @@ export default function RelayEventsList({ family }: { family: RelayFamily }) {
       ) : (
         <span className="muted">{t('relayEvents.teacherPrintLimit')}</span>
       )}
-      {isAdmin && (
-        <Link href="/admin/print" className="btn btn-sm btn-secondary">
-          {t('relayEvents.printRun')}
-        </Link>
-      )}
+      {/*
+        Where a relay's times are keyed in, said on the card that opens that very
+        board: the reader who may not read the board (a manager, an input helper)
+        still needs to know that this is the way in.
+      */}
+      {canPrintSheets && <span className="muted">{t('relayEvents.markOnBoard')}</span>}
     </div>
   );
 
@@ -949,7 +1023,10 @@ export default function RelayEventsList({ family }: { family: RelayFamily }) {
     const kindText = kind === 'HOUSE' ? t('relay.kindHouse') : t('relay.kindForm');
 
     let teamCountText = t('common.loading');
-    if (boardFailure) teamCountText = t('relayEvents.countUnknown');
+    // Nothing is being read at all for a role that may not read a board, so it is
+    // "unknown" rather than a spinner that will never stop.
+    if (!canReadBoard) teamCountText = t('relayEvents.countUnknown');
+    else if (boardFailure) teamCountText = t('relayEvents.countUnknown');
     else if (teamCount !== null) teamCountText = t('relay.teamCount', { count: teamCount });
 
     return (
@@ -999,6 +1076,15 @@ export default function RelayEventsList({ family }: { family: RelayFamily }) {
             <strong>{t('relayEvents.boardFailedTitle')}</strong>
             <p>{boardFailure}</p>
           </div>
+        )}
+        {/*
+          A manager and an input helper are not shown counts, because the team
+          board is not theirs to read. Said in one line rather than left as five
+          blanks: what they are here for — the relay's sheets and its teams' times
+          — is on the card and behind its board link.
+        */}
+        {!canReadBoard && (
+          <p className="muted mt-2">{t('relayEvents.boardNotYours')}</p>
         )}
       </>
     );
@@ -1073,18 +1159,18 @@ export default function RelayEventsList({ family }: { family: RelayFamily }) {
           {t(classRelays ? 'relayEvents.formTitle' : 'relayEvents.houseTitle')}
         </h1>
         <div className="flex gap-2">
-          {isAdmin && (
-            <Link href="/admin/print" className="btn btn-secondary">
-              {t('nav.print')}
-            </Link>
-          )}
-          {isAdmin ? (
-            <Link href="/admin" className="btn btn-secondary">
-              {t('common.backToAdmin')}
-            </Link>
-          ) : (
+          {/*
+            No link to the print page: a relay is printed from its own card below,
+            and it is neither listed on that page nor part of its whole-programme
+            run. The navigation still carries the print run for everything else.
+          */}
+          {user?.role === 'TEACHER' ? (
             <Link href="/teacher" className="btn btn-secondary">
               {t('relay.backToTeacher')}
+            </Link>
+          ) : (
+            <Link href="/admin" className="btn btn-secondary">
+              {t('common.backToAdmin')}
             </Link>
           )}
         </div>
@@ -1131,8 +1217,7 @@ export default function RelayEventsList({ family }: { family: RelayFamily }) {
         </p>
         <p className="muted mt-2">{t('relayEvents.kindIsStoredOnTheEvent')}</p>
         {isAdmin && <p className="muted mt-2">{t('relayEvents.adminClearHint')}</p>}
-        {!isAdmin && <p className="muted mt-2">{t('relayEvents.teacherLimits')}</p>}
-      </div>
+        {!isAdmin && <p className="muted mt-2">{t('relayEvents.teacherLimits')}</p>}      </div>
 
       {/*
         The relays the programme should hold, one grid per distance the school runs at

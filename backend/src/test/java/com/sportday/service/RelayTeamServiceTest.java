@@ -50,7 +50,8 @@ import static org.mockito.Mockito.*;
  * relay endpoint goes through:</p>
  *
  * <ul>
- *   <li>one team per class, or one per house, of the event's own grade and division;</li>
+ *   <li>a form relay's first two classes, one team per class of a graded event, or one
+ *       per house of the event's own grade and division;</li>
  *   <li>a runner must be in the event's division and grade — the rule entry uses;</li>
  *   <li>a house team's runner must be in that house, a class team's runner in that
  *       class (a legacy form-keyed team still takes its own form's runners);</li>
@@ -329,15 +330,19 @@ class RelayTeamServiceTest {
     // ========================================================== derivation
 
     @Test
-    @DisplayName("a form relay gets one team per class present in the event's grade and division")
+    @DisplayName("an event with no form derives one team per class of its grade — the older rule, "
+            + "unchanged")
     void deriveCreatesOneTeamPerForm() {
         RelayTeamDerivationDTO result = service.deriveTeams(EVENT_ID, false);
 
         assertEquals(5, result.getCreated());
         assertEquals(0, result.getKept());
         assertEquals("FORM", result.getKind());
-        // One team per class, not per form: 1A and 1B are two teams of Form 1, and the
-        // order is school order — Form 10 comes last, not second.
+        // No form is set on this event, so it is scoped by its grade and keys one team
+        // per class, not per form: 1A and 1B are two teams of Form 1, and the order is
+        // school order — Form 10 comes last, not second. A relay scoped to a FORM makes
+        // the form's first two classes instead; that rule has its own file,
+        // RelayTeamFormRelayTwoTeamsTest.
         assertEquals(List.of("1A", "1B", "2A", "2C", "10B"), teamKeys());
         assertEquals(List.of("1A", "1B", "2A", "2C", "10B"), teamLabels());
         assertEquals(5, result.getEligibleStudents());

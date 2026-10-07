@@ -12,7 +12,7 @@ import {
   FinalState,
   finalStateForEvent,
   Grade,
-  isRelayEventType,
+  isRelayEvent,
   SexCode,
 } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
@@ -129,9 +129,22 @@ export default function PrintSheetsPage() {
     setLoading(true);
     setError(null);
     try {
-      // Disabled events are included: an event closed to new entries may still
-      // need its marking sheets printed.
-      setEvents(await api.getEvents({ onlyEnabled: false }));
+      /*
+       * Disabled events are included: an event closed to new entries may still
+       * need its marking sheets printed. **Relays are not** — and they are left
+       * out here, at the one place the page reads the programme, so they cannot
+       * reappear in the list, in its counts, in its filters or in the whole-run
+       * download below.
+       *
+       * This page prints the individual athlete's paper: one line per athlete,
+       * one sheet per heat. A relay is run and scored by *team*, its sheet is one
+       * line per team, and it is printed from the relay's own page — which is
+       * also where its marks are keyed in. The whole-run download asks the server
+       * for the same thing (`includeRelays=false`) and the page says so out loud,
+       * so nothing is omitted behind the reader's back.
+       */
+      const all = await api.getEvents({ onlyEnabled: false });
+      setEvents(all.filter(event => !isRelayEvent(event)));
     } catch (err) {
       setError(errorText(err, t('events.loadFailed')));
       setEvents([]);
@@ -157,8 +170,13 @@ export default function PrintSheetsPage() {
     []
   );
 
-  /** Every event the four filters let through, whether it may be printed yet or not. */
-  const filteredMatches = useMemo(
+  /**
+   * The events the four filters let through — the whole of what this page lists,
+   * counts, offers and downloads. No relay is ever among them: `loadEvents` left
+   * every relay out, so nothing here has to ask again, and the type filter built
+   * from this list can never offer a relay distance.
+   */
+  const matches = useMemo(
     () =>
       events.filter(
         event =>
@@ -171,57 +189,13 @@ export default function PrintSheetsPage() {
   );
 
   /**
-   * The relays the server says are **not ready** — fewer than two teams, or a team
-   * short of its runners (`relayReady`, the server's own `RelayReadiness`). Their
-   * marking sheets are refused and the whole-programme run leaves them out, so they
-   * are left out of the list below rather than offered and then refused.
-   *
-   * Only a relay is ever false: an individual event is always ready, so nothing
-   * changes for a sprint or a field event. The reason travels with each one and is
-   * printed under the download controls, so a relay does not vanish unexplained.
-   */
-  const notReadyRelays = useMemo(
-    () => filteredMatches.filter(event => event.relayReady === false),
-    [filteredMatches]
-  );
-
-  /** What the page shows, counts and offers: everything the server reports ready. */
-  const matches = useMemo(
-    () => filteredMatches.filter(event => event.relayReady !== false),
-    [filteredMatches]
-  );
-
-  /**
-   * Whether this event's sheet is drawn from relay **teams** rather than from heats.
-   *
-   * A relay is run and scored by team — one per class of a form, or one per grade and
-   * house — and it is divided into teams rather than heats, so it has no groups to
-   * allocate and needs none. The teams it does have travel on its group as
-   * `relayTeamLabels`, and for a relay that has not been through heat allocation the
-   * server hands back exactly one such group with no id behind it. Nothing else can be
-   * true of a relay: a not-ready one never reaches this page's list.
-   */
-  const relaySheet = useCallback((event: EventDTO): boolean => {
-    if (!isRelayEventType(event.type)) return false;
-    return (groups[event.id] ?? []).some(
-      group => (group.relayTeamLabels?.length ?? 0) > 0
-    );
-  }, [groups]);
-
-  /**
    * Heat lists, fetched once per event and cached. `groupCount` on the event DTO
    * says up front which events actually have heats, so an ungrouped event costs
-   * no request at all — **except a relay**, whose sheets come from its teams and
-   * not from heats: a relay with teams and no heats reports a `groupCount` of 0
-   * while still being perfectly printable, and it is the group list that carries
-   * those teams.
+   * no request at all.
    */
   useEffect(() => {
     const missing = matches
-      .filter(event =>
-        (event.groupCount > 0 || isRelayEventType(event.type)) &&
-        !cachedGroupEvents.current.has(event.id)
-      )
+      .filter(event => event.groupCount > 0 && !cachedGroupEvents.current.has(event.id))
       .map(event => event.id);
     if (missing.length === 0) {
       setGroupsLoading(false);
@@ -289,40 +263,20 @@ export default function PrintSheetsPage() {
 
   /**
    * Heats only — a drawn final is a seventh group with `groupNumber: 0`, so it
-   * must not be counted as a heat. Neither is the group a relay's teams travel
-   * on, which stands for no `event_groups` row at all: a relay's paper is its
-   * teams and it has no heats to count. `groupCount` on the event DTO counts
-   * every real group including the final, so it is only the fallback for the
-   * moment before the list has been fetched.
+   * must not be counted as a heat. `groupCount` on the event DTO counts every
+   * real group including the final, so it is only the fallback for the moment
+   * before the list has been fetched.
    */
   const heatsOf = useCallback(
     (event: EventDTO) => {
       const list = groups[event.id];
-      if (list) {
-        return list.filter(
-          group => group.stage !== 'FINAL' && !(relaySheet(event) && group.id == null)
-        ).length;
-      }
+      if (list) return list.filter(group => group.stage !== 'FINAL').length;
       return event.groupCount ?? 0;
     },
-    [groups, relaySheet]
+    [groups]
   );
 
   const totalHeats = matches.reduce((sum, event) => sum + heatsOf(event), 0);
-
-  /**
-   * `?sex=M&category=TRACK` — a parameter is dropped when it is "All", and an
-   * empty query means the whole programme. `GET /sheets.pdf` narrows by
-   * division and category only; the grade and the event type are honoured by
-   * the per-event downloads instead.
-   */
-  const runQuery = useMemo(() => {
-    const params = new URLSearchParams();
-    if (sex) params.set('sex', sex);
-    if (category) params.set('category', category);
-    const search = params.toString();
-    return search ? `?${search}` : '';
-  }, [sex, category]);
 
   const replacePreviewUrl = (url: string | null) => {
     if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
@@ -343,15 +297,28 @@ export default function PrintSheetsPage() {
     await loadEvents();
   };
 
+  /**
+   * The whole-programme download: one page per heat, narrowed by the division and
+   * the category the filters are on, and **without the relays**.
+   *
+   * `includeRelays=false` is asked for on purpose rather than left to the server.
+   * A relay's paper is one line per team and is printed from the relay's own
+   * page, so this page prints the individual events only — and the file it hands
+   * over is exactly the list above it rather than a programme that quietly
+   * differs from what the count says. The control and the page both say so
+   * (`print.relayNote`), because a print run that omits a relay must be a
+   * decision the reader can see, never a side effect they discover on the day.
+   */
   const handleDownloadAll = async () => {
     setBusy('all');
     setError(null);
     setNotice(null);
     try {
-      const filename = await api.downloadFile(
-        `/sheets.pdf${runQuery}`,
-        'sportday-marking-sheets.pdf'
-      );
+      const filename = await api.downloadAllSheets('sportday-marking-sheets.pdf', {
+        sex: sex || undefined,
+        category: category || undefined,
+        includeRelays: false,
+      });
       setNotice(t('common.downloaded', { filename }));
     } catch (err) {
       setError(errorText(err, t('groups.sheetDownloadFailed')));
@@ -401,6 +368,9 @@ export default function PrintSheetsPage() {
     try {
       const url = await fetchSheetBlobUrl(`/events/${event.id}/sheets.pdf`);
       replacePreviewUrl(url);
+      // The preview is named the way the paper under it is headed: the event's own
+      // name, which is the line the PDF prints, so the two cannot disagree on one
+      // screen.
       setPreview({ name: event.name, url });
     } catch (err) {
       setError(errorText(err, t('print.previewFailed')));
@@ -497,19 +467,19 @@ export default function PrintSheetsPage() {
             rather than downloading more grades than the count above implies. */}
         {grade !== '' && <p className="muted mt-2">{t('print.gradeDownloadHint')}</p>}
         {/*
-          A relay left out of the list says why, in the server's own words — the same
-          sentence its marking sheets are refused with. Without this the relay would
-          simply be missing from the programme, which reads as a broken page.
+          The relays are not on this page and not in this file, and that is said
+          here rather than left to be noticed: a reader who prints the whole
+          programme must know that the relays are printed from their own page,
+          and where that page is. Without this the relays would simply be missing
+          from the run, which reads as a broken page or — worse — as a programme
+          with no relays in it.
         */}
-        {notReadyRelays.length > 0 && (
-          <p className="muted mt-2">
-            {t('print.relaysNotReady', { count: notReadyRelays.length })}{' '}
-            {notReadyRelays
-              .map(event => event.readinessReason)
-              .filter((reason): reason is string => !!reason)
-              .join(' ')}
-          </p>
-        )}
+        <p className="muted mt-2">
+          {t('print.relayNote')}{' '}
+          <Link href="/admin/relay-events/form" className="btn btn-sm btn-secondary no-print">
+            {t('print.openRelays')}
+          </Link>
+        </p>
 
         <div className="hint mt-3">{t('print.columns')}</div>
       </div>
@@ -573,24 +543,14 @@ export default function PrintSheetsPage() {
         <div className="print-panel">
           {matches.map(event => {
             const allGroups = groups[event.id] ?? [];
-            const teamLines = (allGroups[0]?.relayTeamLabels ?? []).length;
-            /*
-             * A relay's sheet is its teams and not a heat: the group the server hands
-             * over for one stands for no `event_groups` row, so it carries no id and
-             * there is no per-heat button to offer. Such a relay is offered — and
-             * previewed — whole, which is the one sheet it has.
-             */
-            const teamSheet = relaySheet(event);
-            const heatList = teamSheet
-              ? []
-              : allGroups.filter(group => group.stage !== 'FINAL');
+            const heatList = allGroups.filter(group => group.stage !== 'FINAL');
             const finalGroup = allGroups.find(group => group.stage === 'FINAL') ?? null;
             const heatCount = heatsOf(event);
             const athleteCount = heatList.reduce(
               (sum, group) => sum + (group.athleteCount || 0),
               0
             );
-            const hasSheets = teamSheet || heatCount > 0 || finalGroup !== null;
+            const hasSheets = heatCount > 0 || finalGroup !== null;
             /*
              * An event that runs a final and has not drawn it yet: its whole-run
              * sheet — and so the print run — is refused by the server with a 409,
@@ -602,6 +562,11 @@ export default function PrintSheetsPage() {
             return (
               <div key={event.id} className="print-card">
                 <h3>
+                  {/*
+                    The event's own name: this card stands for the sheets below it,
+                    and those sheets are headed by the same name. The grade badge
+                    beside it is the event's own grade.
+                  */}
                   {event.name}
                   <span
                     className="badge badge-info"
@@ -636,21 +601,7 @@ export default function PrintSheetsPage() {
                 ) : (
                   <>
                     <div className="print-meta">
-                      {/*
-                        A relay's paper counts teams — one line each — and not the
-                        entrants a relay sheet does not list, which is the same count
-                        the printed header carries (隊伍 Teams: n).
-                      */}
-                      {teamSheet ? (
-                        <>
-                          {t('relay.teamCount', { count: teamLines })} · {t('print.heats')}:{' '}
-                          {heatCount}
-                        </>
-                      ) : (
-                        <>
-                          {t('print.heats')}: {heatCount} · {t('print.athletes')}: {athleteCount}
-                        </>
-                      )}
+                      {t('print.heats')}: {heatCount} · {t('print.athletes')}: {athleteCount}
                       {finalGroup && (
                         <> · {t('print.finalCount', { count: finalGroup.athleteCount })}</>
                       )}
