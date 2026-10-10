@@ -1,5 +1,11 @@
 /mobile/gradle
 
+# Local environment for `docker compose` — holds the database and JWT passwords.
+# .env.example is the committed template; .env is yours and never goes upstream.
+/.env
+/.env.*
+!/.env.example
+
 # Build output
 /backend/target/
 /frontend/.next/

@@ -1,0 +1,25 @@
+# Dependencies are installed inside the image with `npm ci`; a host
+# node_modules tree is wrong for Linux (platform-specific binaries) and huge.
+node_modules
+
+# Build output is produced inside the image.
+.next
+out
+build
+*.tsbuildinfo
+next-env.d.ts
+
+# A local .env would otherwise be baked into the image and override the values
+# docker-compose.yml passes in. Never ship local secrets in a build context.
+.env
+.env.*
+!.env.example
+
+# Editor / OS noise.
+.idea/
+.vscode/
+.git/
+.gitignore
+.DS_Store
+Thumbs.db
+npm-debug.log*

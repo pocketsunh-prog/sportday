@@ -1,21 +1,106 @@
+# ---------------------------------------------------------------------------
+# SportDay — MySQL + Spring Boot backend + Next.js web app.
+#
+#   docker compose up -d --build      # first run
+#   docker compose logs -f            # follow
+#   docker compose down               # stop (data is kept)
+#   docker compose down -v            # stop and DELETE the database
+#
+# Every value below can be overridden without editing this file: copy
+# .env.example to .env and change it there. See docs/INSTALL.md.
+#
+# Requires Docker Compose v2 or later (`docker compose`, not `docker-compose`):
+# the backend waits on MySQL's *health*, which v1 cannot express.
+# ---------------------------------------------------------------------------
+
 services:
   mysql:
     image: mysql:8.0
     container_name: sportday-mysql
+    restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: root123
-      MYSQL_DATABASE: sportday
-      MYSQL_USER: sportday
-      MYSQL_PASSWORD: sportday123
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-sportday}
+      MYSQL_USER: ${MYSQL_USER:-sportday}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-sportday123}
     ports:
-      - "3307:3306"
+      # Host 3307 -> container 3306, so a MySQL already on the host's 3306 does
+      # not collide. Nothing inside the compose network uses this mapping.
+      - "${MYSQL_HOST_PORT:-3307}:3306"
     volumes:
       - sportday-mysql-data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      # mysqladmin ping answers only once the server is accepting connections
+      # *and* the init scripts have finished, which "container started" does not
+      # mean. The backend's depends_on waits for this to go healthy.
+      # It is a plain exec, not a shell, so there is no $VARIABLE to expand — the
+      # credential is read from MYSQL_ROOT_PASSWORD in the same file.
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-root123}"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 40s
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: sportday-backend:1.0.0
+    container_name: sportday-backend
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        # NOT plain `depends_on`: that only waits for the container to be
+        # created. Hibernate would then fail to reach MySQL on a cold first boot.
+        condition: service_healthy
+    environment:
+      # Spring Boot binds every one of these to the matching property in
+      # backend/src/main/resources/application.yml, whose own defaults point at
+      # localhost:3307 (the host-run development setup).
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-sportday}?createDatabaseIfNotExist=true&useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_USER:-sportday}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:-sportday123}
+      SERVER_PORT: "8080"
+      # CHANGE THIS for anything that is not a throwaway local install: the
+      # default is in the repository and anyone can mint a valid token with it.
+      APP_JWT_SECRET: ${JWT_SECRET:-sportdaySecretKeyForJwtTokenGenerationMustBeAtLeast256BitsLong1234567890}
+      APP_JWT_EXPIRATION: ${JWT_EXPIRATION:-86400000}
+      # Where a season reset writes its restorable backup. Kept on its own
+      # volume so the backups survive `docker compose down`.
+      APP_BACKUP_DIR: /app/backups
+      # 0 = do not seed sample students; set e.g. 60 on a demo install.
+      APP_STUDENTS_SEED_SAMPLE_COUNT: ${SEED_SAMPLE_STUDENTS:-0}
+      APP_EVENTS_SEED_DEFAULTS: "true"
+      TZ: ${TZ:-UTC}
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    volumes:
+      - sportday-backend-backups:/app/backups
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # THE TRAP. This is inlined into the browser bundle by `next build`, so
+        # it must be a URL the *browser* can reach — never a container name.
+        # http://backend:8080/api works from inside the compose network and
+        # fails in every browser, because the browser is not on that network.
+        # Changing it means rebuilding this image, not just restarting it.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080/api}
+    image: sportday-frontend:1.0.0
+    container_name: sportday-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      TZ: ${TZ:-UTC}
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
 
 volumes:
+  # Named volumes: `docker compose down` leaves them, `down -v` removes them.
   sportday-mysql-data:
+  sportday-backend-backups:

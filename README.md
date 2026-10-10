@@ -142,6 +142,27 @@ twice in one save.
 
 ## Quick start
 
+### The Docker-only install
+
+With nothing but Docker installed, the whole stack — MySQL, backend, web app —
+comes up with one command from the repository root:
+
+```bash
+docker compose up -d --build
+```
+
+Then open `http://localhost:3000` and sign in as `admin` / `admin123`, and change
+that password straight away. The first build takes 5–15 minutes; every later start
+is seconds.
+
+**The full guide — prerequisites, first-boot behaviour, ports, changing the
+passwords and the API URL, logs, backup/reset and every common failure with its
+symptom — is in [`docs/INSTALL.md`](docs/INSTALL.md).**
+
+The rest of this section is the *host* development setup, where the JDK, Maven
+and Node run on your own machine. It still works; the `docker-compose.yml` in the
+repository publishes MySQL on the same host port it always has.
+
 ### Prerequisites
 
 - **JDK 25** (the project targets Java 25) — e.g. `C:\Program Files\Eclipse Adoptium\jdk-25.0.3.9-hotspot`
@@ -150,7 +171,7 @@ twice in one save.
 ### 1. Database
 
 ```bash
-docker-compose up -d
+docker compose up -d mysql
 ```
 
 MySQL is published on **port 3307** (see `docker-compose.yml`).

@@ -1,0 +1,16 @@
+# The jar is built inside the image. A host target/ must never reach the build
+# context: it is how a stale or half-written jar ends up in a shipped image.
+target/
+
+# Local run artefacts and logs.
+*.log
+backups/
+
+# Editor / OS noise.
+.idea/
+.vscode/
+*.iml
+.git/
+.gitignore
+.DS_Store
+Thumbs.db
